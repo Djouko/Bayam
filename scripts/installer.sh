@@ -161,7 +161,9 @@ wp eval '
 echo "== 4 quater. Produits et attributs en français"
 wp eval '
   $noms = ["T-Shirt with Logo" => "T-shirt logo", "Beanie with Logo" => "Bonnet logo", "Logo Collection" => "Lot logo",
-    "WordPress Pennant" => "Fanion décoratif", "Cap" => "Casquette", "Sunglasses" => "Lunettes de soleil",
+    "WordPress Pennant" => "Fanion du Cameroun", "Cap" => "Casquette", "Sunglasses" => "Lunettes de soleil",
+    // Articles de démonstration à l’effigie de WordPress et WooCommerce : remplacés par des articles crédibles (visuels à l’étape 4 quinquies).
+    "Fanion décoratif" => "Fanion du Cameroun", "Album" => "Album makossa", "Single" => "Single bikutsi",
     "Hoodie with Pocket" => "Sweat à poche", "Hoodie with Zipper" => "Sweat zippé", "Long Sleeve Tee" => "T-shirt manches longues",
     "V-Neck T-Shirt" => "T-shirt col V", "Hoodie" => "Sweat à capuche", "Hoodie with Logo" => "Sweat logo",
     "T-Shirt" => "T-shirt", "Beanie" => "Bonnet", "Belt" => "Ceinture"];
@@ -218,7 +220,7 @@ wp eval '
     "T-shirt logo" => ["T-shirt en coton doux, logo imprimé sur la poitrine.", "Coupe droite et coton épais qui tient au lavage. Se porte seul ou sous une veste, du bureau au week-end."],
     "Bonnet logo" => ["Bonnet en maille chaude, logo brodé.", "Idéal pour les soirées fraîches de l’Ouest ou la climatisation du bureau. Taille unique, maille souple."],
     "Lot logo" => ["Le lot complet : t-shirt, bonnet et sweat logo.", "Trois pièces assorties à un prix réduit. Parfait pour offrir ou pour toute une équipe."],
-    "Fanion décoratif" => ["Fanion en feutre à suspendre, pour une chambre ou une boutique.", "Feutre épais et lettres cousues. Se fixe au mur avec deux punaises, livré roulé."],
+    "Fanion du Cameroun" => ["Fanion vert, rouge, jaune à l’étoile, sur baguette en bois.", "Tissu épais et couleurs qui ne passent pas au soleil. Pour les matchs des Lions, la boutique ou la voiture."],
     "Casquette" => ["Casquette réglable en coton, visière courbée.", "Protège du soleil de midi. Attache arrière réglable, une taille pour tous."],
     "Lunettes de soleil" => ["Lunettes de soleil légères, verres teintés.", "Monture souple et confortable, étui de protection fourni. Pour la plage de Kribi comme pour la ville."],
     "Sweat à poche" => ["Sweat molletonné avec grande poche avant.", "Intérieur doux et chaud, poignets côtelés. Le compagnon des matinées fraîches et des voyages en car."],
@@ -230,8 +232,8 @@ wp eval '
     "T-shirt" => ["T-shirt basique en coton, coupe droite.", "La pièce de tous les jours : coton doux, coutures renforcées, couleur qui tient."],
     "Bonnet" => ["Bonnet en maille côtelée.", "Chaud et extensible, il garde sa forme. Taille unique."],
     "Ceinture" => ["Ceinture en cuir, boucle métal.", "Cuir épais et boucle solide. Se recoupe facilement à la bonne longueur."],
-    "Album" => ["Album à télécharger, une heure de musique.", "Le fichier est disponible dans Mes commandes dès le paiement confirmé."],
-    "Single" => ["Titre à télécharger.", "Le fichier est disponible dans Mes commandes dès le paiement confirmé."],
+    "Album makossa" => ["Compilation makossa à télécharger, une heure de musique.", "Le fichier est disponible dans Mes commandes dès le paiement confirmé."],
+    "Single bikutsi" => ["Titre bikutsi à télécharger.", "Le fichier est disponible dans Mes commandes dès le paiement confirmé."],
     "Polo" => ["Polo en piqué de coton, col boutonné.", "Élégant et respirant, pour le travail comme pour les sorties."],
   ];
   foreach (wc_get_products(["limit" => -1]) as $p) {
@@ -352,7 +354,17 @@ wp eval '
       update_term_meta($categorie->term_id, "thumbnail_id", bayam_media("/scripts/medias/categorie_$fichier.png"));
     }
   }
-  WP_CLI::log("Images des catégories posées");'
+  WP_CLI::log("Images des catégories posées");
+  // Visuels des articles qui portaient les logos WordPress et WooCommerce (galerie vidée : elle les montrait encore).
+  foreach (["Album makossa" => "album", "Single bikutsi" => "single", "Fanion du Cameroun" => "fanion"] as $nom => $fichier) {
+    foreach (get_posts(["post_type" => "product", "title" => $nom, "numberposts" => 1, "fields" => "ids"]) as $id) {
+      $p = wc_get_product($id);
+      $p->set_image_id(bayam_media("/scripts/medias/produit_$fichier.png"));
+      $p->set_gallery_image_ids([]);
+      $p->save();
+    }
+  }
+  WP_CLI::log("Visuels des articles de musique et du fanion posés");'
 
 echo "== 4 septies. Nom du site, conditions et confidentialité, page À propos"
 wp option update blogname "BAYAM"
@@ -386,6 +398,66 @@ if [ ! -s "$CLES" ]; then
       "consumer_key" => wc_api_hash($ck), "consumer_secret" => $cs, "truncated_key" => substr($ck, -7)]);
     echo "consumerKey=$ck\nconsumerSecret=$cs\n";' > "$CLES"
 fi
+
+echo "== 6. Vitrine : thème BAYAM Vitrine, page Accueil, menus, ménage"
+wp theme activate bayam-vitrine
+wp eval '
+  // Page d’accueil : le contenu vient de front-page.php, la page sert seulement à désigner l’accueil.
+  $accueil = get_page_by_path("accueil");
+  $id = $accueil ? $accueil->ID : wp_insert_post(["post_type" => "page", "post_status" => "publish", "post_title" => "Accueil", "post_name" => "accueil"]);
+  update_option("show_on_front", "page");
+  update_option("page_on_front", $id);
+  update_option("page_for_posts", 0);
+
+  // Ménage : article et page d’exemple de WordPress (avec leurs commentaires), renommage de la page d’inscription.
+  foreach ([["hello-world", "post"], ["sample-page", "page"]] as [$chemin, $type]) {
+    $contenu = get_page_by_path($chemin, OBJECT, $type);
+    if ($contenu) { wp_delete_post($contenu->ID, true); WP_CLI::log("Supprimé : $chemin"); }
+  }
+  $inscription = get_page_by_path("vendor-register");
+  if ($inscription && $inscription->post_title !== "Inscription vendeur") { wp_update_post(["ID" => $inscription->ID, "post_title" => "Inscription vendeur"]); }
+
+  // Menus : recréés à chaque passage pour rester identiques à la base (catégories réelles).
+  function bayam_menu($nom) {
+    $ancien = wp_get_nav_menu_object($nom);
+    if ($ancien) { wp_delete_nav_menu($ancien->term_id); }
+    return wp_create_nav_menu($nom);
+  }
+  function bayam_entree($menu, $titre, $args) {
+    return wp_update_nav_menu_item($menu, 0, array_merge(["menu-item-title" => $titre, "menu-item-status" => "publish"], $args));
+  }
+  function bayam_page($menu, $chemin, $titre) {
+    $page = get_page_by_path($chemin);
+    if ($page) {
+      bayam_entree($menu, $titre, ["menu-item-type" => "post_type", "menu-item-object" => "page", "menu-item-object-id" => $page->ID]);
+    }
+  }
+  $boutique = wc_get_page_permalink("shop");
+  $nouveautes = add_query_arg("orderby", "date", $boutique);
+
+  $principal = bayam_menu("Menu principal");
+  bayam_entree($principal, "Accueil", ["menu-item-type" => "custom", "menu-item-url" => home_url("/")]);
+  bayam_page($principal, "boutiques", "Boutiques");
+  $categories = bayam_entree($principal, "Catégories", ["menu-item-type" => "custom", "menu-item-url" => $boutique]);
+  $defaut = (int) get_option("default_product_cat");
+  foreach (get_terms(["taxonomy" => "product_cat", "hide_empty" => true, "exclude" => [$defaut], "orderby" => "name"]) as $terme) {
+    bayam_entree($principal, $terme->name, ["menu-item-type" => "taxonomy", "menu-item-object" => "product_cat",
+      "menu-item-object-id" => $terme->term_id, "menu-item-parent-id" => $categories]);
+  }
+  bayam_entree($principal, "Nouveautés", ["menu-item-type" => "custom", "menu-item-url" => $nouveautes]);
+  bayam_page($principal, "vendor-membership", "Devenir vendeur");
+
+  $mobile = bayam_menu("Menu mobile");
+  bayam_entree($mobile, "Accueil", ["menu-item-type" => "custom", "menu-item-url" => home_url("/")]);
+  bayam_page($mobile, "boutiques", "Boutiques");
+  bayam_entree($mobile, "Nouveautés", ["menu-item-type" => "custom", "menu-item-url" => $nouveautes]);
+  bayam_page($mobile, "my-account", "Mon compte");
+  bayam_page($mobile, "vendor-membership", "Devenir vendeur");
+
+  set_theme_mod("nav_menu_locations", ["primary" => $principal, "handheld" => $mobile]);
+  WP_CLI::log("Accueil, menus et emplacements en place");'
+# Texte de confidentialité du formulaire d’inscription (livré en anglais par WooCommerce).
+wp option update woocommerce_registration_privacy_policy_text "Vos données personnelles servent à traiter vos commandes, à gérer l’accès à votre compte et à d’autres fins décrites dans notre [privacy_policy]."
 
 wp cache flush
 echo "== Terminé. Site : $WP_URL  ·  Administration : $WP_URL/wp-admin  ·  Clés de l'API : plateforme-locale/scripts/cles_api.txt"

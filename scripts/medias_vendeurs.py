@@ -1,6 +1,7 @@
 # Logos et bannières des boutiques de démonstration, images des catégories, dans le style de la charte BAYAM.
 # Usage (depuis plateforme-locale) : python scripts/medias_vendeurs.py   puis installer.sh les importe (étape 4 quinquies).
 # Émojis Noto et photos produits : bayam-project/bayam/charte/ (licences dans ce dossier).
+import math
 import pathlib
 
 from PIL import Image, ImageDraw
@@ -81,9 +82,44 @@ def images_categories():
         fond.convert('RGB').save(SORTIE / source.name)
 
 
+def fanion_cameroun(cote):
+    """Fanion vert, rouge, jaune à l'étoile, sur sa baguette ; dessiné en quatre fois plus grand puis réduit (bords nets)."""
+    c = cote * 4
+    x0, x1, haut, bas = int(c * .2), int(c * .9), int(c * .27), int(c * .73)
+    ombre = Image.new('L', (c, c), 0)
+    ImageDraw.Draw(ombre).polygon([(x0 + 40, haut + 60), (x0 + 40, bas + 60), (x1 + 40, (haut + bas) // 2 + 60)], fill=30)
+    img = Image.new('RGBA', (c, c), (0, 0, 0, 0))
+    img.paste((11, 37, 69, 255), (0, 0), ombre)
+    masque = Image.new('L', (c, c), 0)
+    ImageDraw.Draw(masque).polygon([(x0, haut), (x0, bas), (x1, (haut + bas) // 2)], fill=255)
+    bandes = Image.new('RGBA', (c, c), (0, 0, 0, 0))
+    db = ImageDraw.Draw(bandes)
+    tiers = (x1 - x0) / 3
+    for i, couleur in enumerate([(0, 122, 94), (206, 17, 38), (252, 209, 22)]):
+        db.rectangle((x0 + i * tiers, 0, x0 + (i + 1) * tiers, c), fill=couleur + (255,))
+    img.paste(bandes, (0, 0), masque)
+    # Étoile jaune au centre de la bande rouge, comme sur le drapeau.
+    cx, cy, r = x0 + 1.5 * tiers, (haut + bas) / 2, tiers * .32
+    points = [(cx + (r if j % 2 == 0 else r * .4) * math.sin(j * math.pi / 5), cy - (r if j % 2 == 0 else r * .4) * math.cos(j * math.pi / 5)) for j in range(10)]
+    d = ImageDraw.Draw(img)
+    d.polygon(points, fill=(252, 209, 22, 255))
+    d.rounded_rectangle((x0 - 70, haut - 160, x0 - 10, bas + 260), radius=30, fill=(140, 94, 60, 255))  # baguette
+    return img.resize((cote, cote), Image.LANCZOS)
+
+
+def images_produits():
+    """Visuels des articles de musique et du fanion, sur le même fond gris clair que les photos du catalogue."""
+    fond_catalogue = (234, 239, 243)
+    for nom, motif in [('produit_album', emoji('1f3a7', 470)), ('produit_single', emoji('1f3b6', 430)), ('produit_fanion', fanion_cameroun(800))]:
+        img = Image.new('RGBA', (800, 800), fond_catalogue + (255,))
+        img.alpha_composite(motif, ((800 - motif.width) // 2, (800 - motif.height) // 2))
+        img.convert('RGB').save(SORTIE / f'{nom}.png')
+
+
 if __name__ == '__main__':
     SORTIE.mkdir(exist_ok=True)
     images_categories()
+    images_produits()
     for ident, nom, fond, code, visuels in BOUTIQUES:
         logo(fond, code).save(SORTIE / f'logo_{ident}.png')
         banniere(visuels).save(SORTIE / f'banniere_{ident}.png')

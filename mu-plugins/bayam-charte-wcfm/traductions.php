@@ -183,10 +183,14 @@ add_filter( 'gettext', function ( $translation, $text, $domain ) {
 	return isset( $map[ $text ] ) ? $map[ $text ] : $translation;
 }, 20, 3 );
 
-// Pluriels : « 1 objet » de WCFM devient « 1 article ».
+// Pluriels : « 1 objet » de WCFM devient « 1 article » (compteur du tableau de bord et autres listes).
 add_filter( 'ngettext', function ( $translation, $single, $plural, $number, $domain ) {
-	if ( '%d item' !== $single || ! in_array( $domain, bayam_charte_domaines(), true ) || ! bayam_charte_is_target_page() ) {
+	$articles = array(
+		'%d item'                   => array( '%d article', '%d articles' ),
+		'<strong>%s item</strong>'  => array( '<strong>%s article</strong>', '<strong>%s articles</strong>' ),
+	);
+	if ( ! isset( $articles[ $single ] ) || ! in_array( $domain, bayam_charte_domaines(), true ) || ! bayam_charte_is_target_page() ) {
 		return $translation;
 	}
-	return 1 === (int) $number ? '%d article' : '%d articles';
+	return $articles[ $single ][ 1 === (int) $number ? 0 : 1 ];
 }, 20, 5 );
