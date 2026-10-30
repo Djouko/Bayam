@@ -1,0 +1,7 @@
+# Secrets et fichiers locaux : jamais dans git
+.env
+scripts/cles_api.txt
+secrets/
+installation.log
+# Captures d'écran (volumineuses, régénérables)
+captures/

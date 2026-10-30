@@ -1,0 +1,3 @@
+# Configuration de wp-cli dans le conteneur : Apache avec mod_rewrite (liens permanents et .htaccess).
+apache_modules:
+  - mod_rewrite

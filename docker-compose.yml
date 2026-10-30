@@ -1,0 +1,99 @@
+# Plateforme locale FluxStore : WordPress + WooCommerce + WCFM (place de marché) + MStore API.
+# Démarrer : docker compose up -d   puis, la première fois : docker compose run --rm cli bash /scripts/installer.sh
+# Site et administration : http://localhost:8080  (identifiants dans le fichier .env)
+name: fluxstore-local
+
+services:
+  db:
+    image: mariadb:11.4.9
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes:
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 30
+
+  wordpress:
+    image: wordpress:7.0.4-php8.3-apache
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      # Les appels de l'application passent par http://localhost:8080 ; on autorise l'en-tête d'autorisation de l'API REST.
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_HOME', 'http://localhost:8080');
+        define('WP_SITEURL', 'http://localhost:8080');
+        define('WP_MEMORY_LIMIT', '256M');
+      # Connecteur WhatsApp (WAHA) : appelé par l'extension BAYAM WhatsApp.
+      WAHA_URL: http://waha:3000
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
+    volumes:
+      - wp:/var/www/html
+      - ./php.ini:/usr/local/etc/php/conf.d/fluxstore.ini:ro
+      # Code BAYAM suivi ici : charte des pages vendeur (mu-plugins) et extension WhatsApp.
+      - ./mu-plugins:/var/www/html/wp-content/mu-plugins
+      - ./plugins/bayam-whatsapp:/var/www/html/wp-content/plugins/bayam-whatsapp
+
+  # WhatsApp en mode connecté (appareil lié par QR code), connecteur libre WAHA, moteur GOWS sans navigateur.
+  waha:
+    image: devlikeapro/waha:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      WHATSAPP_DEFAULT_ENGINE: GOWS
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WHATSAPP_API_KEY: ${WAHA_API_KEY}
+      WHATSAPP_HOOK_URL: http://wordpress/wp-json/bayam/v1/whatsapp/webhook
+      WHATSAPP_HOOK_EVENTS: message.any,session.status
+      WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_SECRET}
+      # Tableau de bord WAHA (http://127.0.0.1:3000/dashboard) : identifiants fixes, sinon régénérés à chaque démarrage.
+      WAHA_DASHBOARD_USERNAME: admin
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
+      WHATSAPP_SWAGGER_USERNAME: admin
+      WHATSAPP_SWAGGER_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
+      TZ: Africa/Douala
+    volumes:
+      - waha:/app/.sessions
+
+  cli:
+    image: wordpress:cli-2.12.0-php8.3
+    profiles: ["outils"]
+    user: "33:33"
+    depends_on:
+      - wordpress
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WP_URL: http://localhost:8080
+      WP_ADMIN: ${WP_ADMIN}
+      WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD}
+      WP_VENDOR_PASSWORD: ${WP_VENDOR_PASSWORD}
+      WP_CLI_CACHE_DIR: /tmp/wp-cli-cache
+      WP_CLI_CONFIG_PATH: /scripts/wp-cli.yml
+    volumes:
+      - wp:/var/www/html
+      - ./scripts:/scripts
+      - ./mu-plugins:/var/www/html/wp-content/mu-plugins
+      - ./plugins/bayam-whatsapp:/var/www/html/wp-content/plugins/bayam-whatsapp
+
+volumes:
+  db:
+  wp:
+  waha:
