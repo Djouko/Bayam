@@ -81,5 +81,16 @@ add_action( 'wp_footer', function () {
 	<?php
 }, 99999 );
 
+// Accueil de l'espace vendeur : le logo de la boutique plutot qu'une silhouette grise, et pas de jauges
+// « 12 / infini » (limites d'abonnement sans objet chez BAYAM).
+add_filter( 'wcfm_defaut_user_avatar', function ( $avatar ) {
+	if ( ! function_exists( 'wcfm_is_vendor' ) || ! wcfm_is_vendor() || ! function_exists( 'wcfmmp_get_store' ) ) {
+		return $avatar;
+	}
+	$logo = wcfmmp_get_store( get_current_user_id() )->get_avatar();
+	return $logo ? $logo : $avatar;
+} );
+add_filter( 'wcfm_is_allow_dashboard_limit_stats', '__return_false' );
+
 // Traductions : uniquement les domaines WCFM, uniquement sur les pages ciblees.
 require_once __DIR__ . '/bayam-charte-wcfm/traductions.php';

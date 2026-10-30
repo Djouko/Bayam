@@ -48,6 +48,8 @@ $depart = [];
 foreach (['dettes', 'diffusions', 'wa_messages', 'liens'] as $table) {
     $depart[$table] = (int) $wpdb->get_var("SELECT COALESCE(MAX(id), 0) FROM " . Bayam_WA_Stockage::table($table));
 }
+// Le travailleur permanent se met en pause : il n'enverra pas pour de vrai les publications des essais.
+update_option('bayam_wa_essais_jusqua', time() + 600, false);
 $faux = $GLOBALS['faux'] = new Bayam_Faux_Waha();
 Bayam_WA_Waha::remplacer($faux);
 update_user_meta($vendeur, 'bayam_wa_moi', '237690000003@c.us');
@@ -239,6 +241,15 @@ foreach (wc_get_orders(['created_via' => 'bayam-whatsapp', 'limit' => -1, 'date_
     $c->delete(true);
 }
 $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}wcfm_marketplace_orders WHERE vendor_id = 3 AND created >= %s", $debut));
+// Notifications de l'espace vendeur qui pointent vers une commande supprimée (celles des essais).
+foreach ($wpdb->get_results("SELECT ID, message FROM {$wpdb->prefix}wcfm_messages WHERE message_type IN ('order', 'status-update')") as $m) {
+    if (preg_match('#orders-details/(\d+)#', $m->message, $x) && !wc_get_order((int) $x[1])) {
+        $wpdb->delete("{$wpdb->prefix}wcfm_messages", ['ID' => $m->ID]);
+        $wpdb->delete("{$wpdb->prefix}wcfm_messages_modifier", ['message' => $m->ID]);
+    }
+}
+// Alertes de stock faible déclenchées par les mouvements de stock des essais (le stock est rétabli plus bas).
+$wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}wcfm_messages WHERE message_type = 'product_lowstk' AND created >= %s", $debut));
 if ($id = wc_get_coupon_id_by_code('BAYAMESSAI')) {
     wp_delete_post($id, true);
 }
@@ -271,6 +282,7 @@ foreach ($sauvegarde as $cle => $valeur) {
     $valeur === '' ? delete_user_meta($vendeur, $cle) : update_user_meta($vendeur, $cle, $valeur);
 }
 Bayam_WA_Waha::remplacer(null);
+delete_option('bayam_wa_essais_jusqua');
 echo "  données de démonstration restaurées\n";
 
 $echecs = $GLOBALS['echecs'];

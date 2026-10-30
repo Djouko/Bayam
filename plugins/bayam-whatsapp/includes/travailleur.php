@@ -27,7 +27,17 @@ if (defined('WP_CLI') && WP_CLI) {
                 $prochain_controle = time() + 5;
             }
             global $wpdb;
+            // Pendant les essais automatiques, la file appartient aux essais (pas d'envoi réel de leurs données).
+            if ((int) $wpdb->get_var($wpdb->prepare("SELECT option_value FROM {$wpdb->options} WHERE option_name = %s", 'bayam_wa_essais_jusqua')) > time()) {
+                sleep(1);
+                continue;
+            }
             $ids = $wpdb->get_col('SELECT id FROM ' . Bayam_WA_Stockage::table('wa_evenements') . ' WHERE traite = 0 ORDER BY id LIMIT 20');
+            if ($ids || time() >= $prochaine_file) {
+                // Le cache de WordPress vit aussi longtemps que ce processus : sans ce vidage, un réglage changé
+                // sur la page vendeur (groupes, réponses automatiques) ne serait vu qu'au prochain redémarrage.
+                wp_cache_flush();
+            }
             foreach ($ids as $id) {
                 Bayam_WA_Webhook::traiter((int) $id);
             }

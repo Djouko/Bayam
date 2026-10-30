@@ -31,3 +31,8 @@ add_filter( 'woocommerce_get_country_locale', function ( $locale ) {
 add_filter( 'pre_option_woocommerce_checkout_phone_field', function () {
 	return 'required';
 } );
+
+// Heures à la française (17:27 et non 5:27 pm), partout : site, espace vendeur, courriels.
+add_filter( 'pre_option_time_format', function () {
+	return 'H:i';
+} );

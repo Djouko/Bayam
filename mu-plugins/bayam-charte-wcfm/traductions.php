@@ -157,6 +157,19 @@ function bayam_charte_map() {
 			'Facebook Description'              => 'Description Facebook',
 			'Twitter Description'               => 'Description Twitter',
 			'Logout'                            => 'Déconnexion',
+			'My Store'                          => 'Ma boutique',
+			'Dashboard'                         => 'Tableau de bord',
+			'Ledger Book'                       => 'Relevé de compte',
+			'There are no enquiries yet.'       => 'Aucune question de client pour le moment.',
+			'There is no topic yet!!'           => 'Aucune annonce pour le moment.',
+			'Latest Topics'                     => 'Annonces BAYAM',
+			'Store Stats'                       => 'Ma boutique en bref',
+			'Store Analytics'                   => 'Visites de la boutique',
+			'gross sales in this month'         => 'ventes du mois',
+			'earnings in this month'            => 'gains du mois',
+			// Erreurs du fichier français de WCFM : ces deux textes y sont traduits par « Stats du magasin ».
+			'United States'                     => 'États-Unis',
+			'Store Sidebar'                     => 'Colonne de la boutique',
 		);
 	}
 	return $map;
@@ -169,3 +182,11 @@ add_filter( 'gettext', function ( $translation, $text, $domain ) {
 	$map = bayam_charte_map();
 	return isset( $map[ $text ] ) ? $map[ $text ] : $translation;
 }, 20, 3 );
+
+// Pluriels : « 1 objet » de WCFM devient « 1 article ».
+add_filter( 'ngettext', function ( $translation, $single, $plural, $number, $domain ) {
+	if ( '%d item' !== $single || ! in_array( $domain, bayam_charte_domaines(), true ) || ! bayam_charte_is_target_page() ) {
+		return $translation;
+	}
+	return 1 === (int) $number ? '%d article' : '%d articles';
+}, 20, 5 );
