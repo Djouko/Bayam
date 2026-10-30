@@ -59,13 +59,15 @@ add_action( 'wp_footer', function () {
 		[/You have received an Order\s*(#\d+)\s+for\s+/g,'Nouvelle commande $1 pour '],
 		[/You have received an Order\s*(#\d+)/g,'Nouvelle commande $1'],
 		[/Envoyer un message direct\s*-\s*Vers boutique Admin/g,"Écrire à l'administrateur BAYAM"],
+		[/You have received an Order\s*$/,'Nouvelle commande '],[/^\s+for\s+$/,' pour '],[/is low in stock\. There are (\d+) left\./,'est bientôt en rupture de stock. Il en reste $1.'],
+		[/Showing (\d+)[–-](\d+) of (\d+) results/,'Affichage de $1 à $2 sur $3 résultats'],
 		[/Earning for /g,'Gain pour '],[/\border #/g,'commande n°'],
 		[/Custom:/,'Personnalisé :'],
 		[/YYYY-MM-DD/g,'AAAA-MM-JJ'],[/YYYY-DD-MM/g,'AAAA-JJ-MM']
 	];
 	function fix(s){rules.forEach(function(r){s=s.replace(r[0],r[1]);});return s;}
 	function run(){
-		var root=document.getElementById('wcfm-main-contentainer');
+		var root=document.getElementById('wcfm-main-contentainer')||document.getElementById('primary')||document.body;
 		if(!root){return;}
 		var w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),n;
 		while((n=w.nextNode())){var t=fix(n.nodeValue);if(t!==n.nodeValue){n.nodeValue=t;}}
