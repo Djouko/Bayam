@@ -262,3 +262,15 @@ body.bayam-wcfm #wcfmmp-store-content .wcfm_buttons .wcfm_button_separator{displ
 body.bayam-wcfm .woocommerce-result-count{color:var(--b-slate)}
 body.bayam-wcfm .woocommerce-pagination .page-numbers.current,body.bayam-wcfm .woocommerce-pagination .page-numbers:hover{background:var(--b-em-d);color:#fff;border-radius:10px}
 @media (max-width:768px){body.bayam-wcfm #wcfmmp-store-content .tab_area ul.tab_links li{flex:1 1 calc(50% - 8px)}body.bayam-wcfm #wcfmmp-store-content .tab_area ul.tab_links li a{justify-content:center}}
+
+/* 19. Corrections finales */
+body.bayam-wcfm #wcfmmp-store-content #wcfm_store_header{overflow:visible}
+body.bayam-wcfm #wcfmmp-store-content #wcfm_store_header a.wcfm_store_enquiry,body.bayam-wcfm #wcfmmp-store-content #wcfm_store_header a.wcfm_store_enquiry *{background:var(--b-mint)!important;color:var(--b-em-d)!important;border-radius:var(--b-r);font-weight:600}
+body.bayam-wcfm #wcfmmp-store-content #wcfm_store_header a.wcfm_store_enquiry span{background:transparent!important}
+@media (min-width:769px){
+ body.bayam-wcfm #wcfm_menu .wcfm_menu_items a.wcfm_menu_item{display:flex;align-items:center;height:auto;min-height:42px}
+ body.bayam-wcfm #wcfm_menu .wcfm_menu_items a.wcfm_menu_item span.text{height:auto;line-height:1.25;white-space:normal;position:static}
+ body.bayam-wcfm #wcfm_menu .wcfm_menu_items a.wcfm_menu_item span.wcfmfa{flex:0 0 auto}
+}
+body.bayam-wcfm .wcfm_menu_logo h4 a,body.bayam-wcfm .wcfm_menu_logo h4{color:#fff!important}
+body.bayam-wcfm #wcfm-main-contentainer .wcfm_dashboard_stats_block span.fa-currency{font-size:11px!important;letter-spacing:0;padding:0 2px;width:auto}

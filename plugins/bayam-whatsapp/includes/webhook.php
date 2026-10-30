@@ -56,11 +56,11 @@ final class Bayam_WA_Webhook
     {
         global $wpdb;
         $table = Bayam_WA_Stockage::table('wa_evenements');
-        $ligne = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id = %d AND traite = 0", $id));
-        if (!$ligne) {
+        // Réservation atomique : le travailleur et la file de WordPress ne traitent jamais deux fois le même événement.
+        if (!$wpdb->query($wpdb->prepare("UPDATE $table SET traite = 1 WHERE id = %d AND traite = 0", $id))) {
             return;
         }
-        $wpdb->update($table, ['traite' => 1], ['id' => $id]);
+        $ligne = $wpdb->get_row($wpdb->prepare("SELECT * FROM $table WHERE id = %d", $id));
         try {
             self::evenement(json_decode($ligne->charge, true));
         } catch (Throwable $e) {
@@ -98,6 +98,15 @@ final class Bayam_WA_Webhook
         update_user_meta($vendeur, 'bayam_wa_statut_depuis', current_time('mysql'));
         if ($statut === 'WORKING' && $avant !== 'WORKING') {
             Bayam_WA_Regles::au_vendeur($vendeur, "✅ *Votre WhatsApp est connecté à BAYAM.*\nCette discussion « Message à moi-même » est maintenant votre Copilote : écrivez *menu* pour commencer.");
+        }
+        // Surveillance des déconnexions : WhatsApp n'est plus joignable, on prévient par e-mail avec la marche à suivre.
+        if ($avant === 'WORKING' && in_array($statut, ['FAILED', 'STOPPED'], true)) {
+            $email = get_the_author_meta('user_email', $vendeur);
+            if ($email) {
+                wp_mail($email, 'BAYAM : votre WhatsApp est déconnecté', "Bonjour,\n\nVotre WhatsApp n'est plus relié à BAYAM : le Copilote, les réponses automatiques et les publications sont en pause.\n"
+                    . "Vos clients peuvent toujours commander avec vos liens et vos cartes.\n\nPour reconnecter : espace vendeur BAYAM, rubrique WhatsApp, puis « Afficher le QR code » ("
+                    . Bayam_WA_Page_Vendeur::url() . ").\n\nL'équipe BAYAM");
+            }
         }
     }
 

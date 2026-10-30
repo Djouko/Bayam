@@ -29,6 +29,8 @@ installer wc-frontend-manager 6.8.1   # requis par la place de marché WCFM
 installer wc-multivendor-marketplace 3.8.3
 installer wc-multivendor-membership 2.12.0
 installer wordpress-importer 0.9.6
+# Extension BAYAM WhatsApp (code dans plugins/bayam-whatsapp, monté dans le conteneur) : Copilote, mots-clés, cartes.
+wp plugin activate bayam-whatsapp
 for ext in woocommerce wc-multivendor-marketplace wc-frontend-manager wc-multivendor-membership; do
   wp language plugin install "$ext" fr_FR || true   # certaines extensions n'ont pas de traduction publiée
 done

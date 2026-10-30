@@ -70,6 +70,29 @@ services:
     volumes:
       - waha:/app/.sessions
 
+  # Travailleur BAYAM : traite les messages WhatsApp en moins d'une seconde et les tâches programmées
+  # (publications étalées, rapports), indépendamment des visites du site.
+  travailleur:
+    image: wordpress:cli-2.12.0-php8.3
+    restart: unless-stopped
+    user: "33:33"
+    depends_on:
+      - wordpress
+    command: ["wp", "bayam-wa", "travailleur", "--duree=3600"]
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_NAME: wordpress
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WAHA_URL: http://waha:3000
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
+      TZ: Africa/Douala
+    volumes:
+      - wp:/var/www/html
+      - ./mu-plugins:/var/www/html/wp-content/mu-plugins
+      - ./plugins/bayam-whatsapp:/var/www/html/wp-content/plugins/bayam-whatsapp
+
   cli:
     image: wordpress:cli-2.12.0-php8.3
     profiles: ["outils"]

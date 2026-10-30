@@ -16,7 +16,7 @@ define('BAYAM_WA_URL', plugin_dir_url(__FILE__));
 
 foreach ([
     'outils', 'stockage', 'waha', 'regles', 'boutique', 'cartes', 'liens',
-    'copilote', 'clients', 'webhook', 'diffusion', 'rapports', 'paiements', 'page-vendeur',
+    'copilote', 'clients', 'webhook', 'diffusion', 'rapports', 'paiements', 'page-vendeur', 'travailleur',
 ] as $fichier) {
     require_once BAYAM_WA_DIR . "includes/{$fichier}.php";
 }
