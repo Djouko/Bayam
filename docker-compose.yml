@@ -58,9 +58,6 @@ services:
       WHATSAPP_DEFAULT_ENGINE: GOWS
       WAHA_API_KEY: ${WAHA_API_KEY}
       WHATSAPP_API_KEY: ${WAHA_API_KEY}
-      WHATSAPP_HOOK_URL: http://wordpress/wp-json/bayam/v1/whatsapp/webhook
-      WHATSAPP_HOOK_EVENTS: message.any,session.status
-      WHATSAPP_HOOK_HMAC_KEY: ${WAHA_WEBHOOK_SECRET}
       # Tableau de bord WAHA (http://127.0.0.1:3000/dashboard) : identifiants fixes, sinon régénérés à chaque démarrage.
       WAHA_DASHBOARD_USERNAME: admin
       WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
@@ -109,6 +106,9 @@ services:
       WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD}
       WP_VENDOR_PASSWORD: ${WP_VENDOR_PASSWORD}
       WP_CLI_CACHE_DIR: /tmp/wp-cli-cache
+      WAHA_URL: http://waha:3000
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
       WP_CLI_CONFIG_PATH: /scripts/wp-cli.yml
     volumes:
       - wp:/var/www/html

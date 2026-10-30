@@ -7,6 +7,9 @@ defined('ABSPATH') || exit;
  */
 final class Bayam_WA_Page_Vendeur
 {
+    /** Groupes lus par appel à WAHA : une page pèse environ 3 Mo avec les participants. */
+    private const PAR_PAGE = 100;
+
     public const POINT = 'wcfm-whatsapp';
 
     public static function init(): void
@@ -102,34 +105,70 @@ final class Bayam_WA_Page_Vendeur
         $vendeur = self::vendeur_ajax();
         Bayam_WA_Waha::client()->deconnecter(Bayam_WA_Stockage::reglages($vendeur)['session']);
         update_user_meta($vendeur, 'bayam_wa_statut', 'STOPPED');
+        delete_user_meta($vendeur, 'bayam_wa_bienvenue'); // à la prochaine connexion, nouveau message de bienvenue
         wp_send_json_success(self::etat($vendeur));
     }
 
     public static function ajax_groupes(): void
     {
         $vendeur = self::vendeur_ajax();
-        $r = Bayam_WA_Waha::client()->groupes(Bayam_WA_Stockage::reglages($vendeur)['session']);
-        if (is_wp_error($r)) {
-            wp_send_json_error(['message' => $r->get_error_message()]);
-        }
-        $moi = Bayam_WA_Outils::numero_de((string) get_user_meta($vendeur, 'bayam_wa_moi', true));
-        $groupes = [];
-        foreach ((array) $r as $cle => $g) {
-            $id = (string) ($g['id'] ?? $cle);
-            if (!str_contains($id, '@g.us')) {
-                continue;
-            }
-            // Seuls les groupes où le vendeur est administrateur (publier ailleurs serait du démarchage).
-            $admin = false;
-            foreach ((array) ($g['participants'] ?? []) as $p) {
-                $pid = is_array($p['id'] ?? null) ? ($p['id']['_serialized'] ?? '') : (string) ($p['id'] ?? ($p['jid'] ?? ''));
-                if (Bayam_WA_Outils::numero_de($pid) === $moi && (!empty($p['isAdmin']) || !empty($p['isSuperAdmin']) || in_array($p['role'] ?? '', ['admin', 'superadmin'], true))) {
-                    $admin = true;
-                }
-            }
-            $groupes[] = ['id' => $id, 'nom' => (string) ($g['subject'] ?? ($g['name'] ?? $id)), 'admin' => $admin, 'membres' => count((array) ($g['participants'] ?? []))];
+        $groupes = self::groupes($vendeur, !empty($_POST['frais']));
+        if (is_wp_error($groupes)) {
+            wp_send_json_error(['message' => $groupes->get_error_message()]);
         }
         wp_send_json_success(['groupes' => $groupes, 'choisis' => Bayam_WA_Stockage::reglages($vendeur)['groupes']]);
+    }
+
+    /**
+     * Groupes WhatsApp du vendeur, avec ceux qu'il administre. Un commerçant actif est souvent dans des centaines de
+     * groupes et la liste complète des participants pèse plusieurs mégaoctets : lecture par pages, résultat gardé 15 min.
+     */
+    public static function groupes(int $vendeur, bool $frais = false)
+    {
+        $cache = 'bayam_wa_groupes_' . $vendeur;
+        if (!$frais && is_array($groupes = get_transient($cache))) {
+            return $groupes;
+        }
+        $session = Bayam_WA_Stockage::reglages($vendeur)['session'];
+        $moi = array_filter([
+            Bayam_WA_Outils::numero_de((string) get_user_meta($vendeur, 'bayam_wa_moi', true)),
+            Bayam_WA_Outils::numero_de((string) get_user_meta($vendeur, 'bayam_wa_lid', true)),
+        ]);
+        $groupes = [];
+        for ($page = 0; $page < 30; $page++) {
+            $r = Bayam_WA_Waha::client()->groupes($session, self::PAR_PAGE, $page * self::PAR_PAGE);
+            if (is_wp_error($r)) {
+                return $r;
+            }
+            foreach ((array) $r as $cle => $g) {
+                // Le moteur GOWS écrit JID, Name, Participants, IsAdmin ; les autres id, subject, participants, isAdmin.
+                $id = (string) ($g['JID'] ?? (is_array($g['id'] ?? null) ? ($g['id']['_serialized'] ?? '') : ($g['id'] ?? $cle)));
+                if (!str_contains($id, '@g.us')) {
+                    continue;
+                }
+                $participants = (array) ($g['Participants'] ?? ($g['participants'] ?? []));
+                $admin = false;
+                foreach ($participants as $p) {
+                    $ids = array_map(static fn ($x) => Bayam_WA_Outils::numero_de((string) $x), array_filter([
+                        $p['JID'] ?? null, $p['PhoneNumber'] ?? null, $p['LID'] ?? null, $p['jid'] ?? null,
+                        is_array($p['id'] ?? null) ? ($p['id']['_serialized'] ?? null) : ($p['id'] ?? null),
+                    ]));
+                    $est_admin = !empty($p['IsAdmin']) || !empty($p['IsSuperAdmin']) || !empty($p['isAdmin']) || !empty($p['isSuperAdmin']) || in_array($p['role'] ?? '', ['admin', 'superadmin'], true);
+                    if ($est_admin && array_intersect($ids, $moi)) {
+                        $admin = true;
+                        break;
+                    }
+                }
+                $groupes[$id] = ['id' => $id, 'nom' => trim((string) (($g['Name'] ?? '') ?: ($g['subject'] ?? $id))), 'admin' => $admin, 'membres' => (int) ($g['ParticipantCount'] ?? 0) ?: count($participants)];
+            }
+            if (count((array) $r) < self::PAR_PAGE) {
+                break;
+            }
+        }
+        $groupes = array_values($groupes);
+        usort($groupes, static fn ($a, $b) => strcasecmp($a['nom'], $b['nom']));
+        set_transient($cache, $groupes, 15 * MINUTE_IN_SECONDS);
+        return $groupes;
     }
 
     public static function ajax_reglages(): void

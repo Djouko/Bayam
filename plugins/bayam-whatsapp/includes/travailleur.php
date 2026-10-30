@@ -10,8 +10,22 @@ if (defined('WP_CLI') && WP_CLI) {
     WP_CLI::add_command('bayam-wa travailleur', static function ($args, $options) {
         $fin = time() + (int) ($options['duree'] ?? 3600); // redémarré par Docker toutes les heures (mémoire propre)
         $prochaine_file = 0;
+        // Le code chargé reste en mémoire : à la moindre mise à jour de l'extension, on s'arrête et Docker relance.
+        $version = static function (): int {
+            clearstatcache();
+            return (int) max(array_map('filemtime', array_merge(glob(BAYAM_WA_DIR . '*.php'), glob(BAYAM_WA_DIR . 'includes/*.php'))));
+        };
+        $code = $version();
+        $prochain_controle = time() + 5;
         WP_CLI::log('Travailleur BAYAM WhatsApp démarré.');
         while (time() < $fin) {
+            if (time() >= $prochain_controle) {
+                if ($version() !== $code) {
+                    WP_CLI::log('Extension mise à jour : redémarrage du travailleur.');
+                    return;
+                }
+                $prochain_controle = time() + 5;
+            }
             global $wpdb;
             $ids = $wpdb->get_col('SELECT id FROM ' . Bayam_WA_Stockage::table('wa_evenements') . ' WHERE traite = 0 ORDER BY id LIMIT 20');
             foreach ($ids as $id) {

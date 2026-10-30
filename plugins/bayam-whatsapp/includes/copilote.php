@@ -465,23 +465,36 @@ final class Bayam_WA_Copilote
     /** Photo + légende « robe rouge 15000 M:3 L:2 » (ou « sac cuir 25000 4 » pour 4 pièces sans taille). */
     private function ajout_produit(string $legende, array $photo): array
     {
-        $t = Bayam_WA_Outils::normaliser($legende);
-        if (!preg_match('/^(.+?)\s+(\d[\d .]*k?)\s*(?:f|fcfa)?(.*)$/u', $t, $m) || !($prix = Bayam_WA_Outils::montant($m[2]))) {
+        // Le nom garde les accents tapés par le vendeur ; le prix est le premier nombre plausible (100 F au moins),
+        // pour que « chaussures pointure 42 25000 42:2 » ou « casquette 6500 4 » (4 en stock) se lisent bien.
+        $legende = trim(preg_replace('/\s+/u', ' ', $legende));
+        preg_match_all('/(?<=\s)(\d{1,3}(?:[ .]\d{3})+|\d+)\s*(k|mille)?\s*(?:fcfa|xaf|frs?|f)?(?=\s|$)/iu', $legende, $nombres, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+        $prix = null;
+        foreach ($nombres as $n) {
+            $montant = Bayam_WA_Outils::montant($n[1][0] . ($n[2][0] ?? ''));
+            if ($montant >= 100) {
+                $prix = $montant;
+                $nom = trim(substr($legende, 0, $n[0][1]));
+                $reste = Bayam_WA_Outils::normaliser(substr($legende, $n[0][1] + strlen($n[0][0])));
+                break;
+            }
+        }
+        if (!$prix || $nom === '') {
             return [['texte' => "Pour créer un produit, envoyez sa photo avec une légende comme : *robe rouge 15000 M:3 L:2* (nom, prix, tailles et quantités)."]];
         }
         $tailles = [];
         $stock = 1;
-        foreach (preg_split('/\s+/', trim($m[3])) as $morceau) {
+        foreach (preg_split('/\s+/', $reste) as $morceau) {
             if (preg_match('/^([a-z0-9]{1,5}):(\d+)$/', $morceau, $x)) {
                 $tailles[strtoupper($x[1])] = (int) $x[2];
             } elseif (ctype_digit($morceau)) {
                 $stock = (int) $morceau;
             }
         }
-        $image = Bayam_WA_Boutique::importer_image($this->vendeur, $photo['binaire'], $m[1]);
-        $p = Bayam_WA_Boutique::creer_produit($this->vendeur, $m[1], $prix, $tailles, $stock, $image);
+        $image = Bayam_WA_Boutique::importer_image($this->vendeur, $photo['binaire'], $nom);
+        $p = Bayam_WA_Boutique::creer_produit($this->vendeur, $nom, $prix, $tailles, $stock, $image);
         $lien = Bayam_WA_Liens::produit($this->vendeur, $p);
         $detail = $tailles ? implode(', ', array_map(static fn ($k, $v) => "$k : $v", array_keys($tailles), $tailles)) : "$stock pièce(s)";
-        return [['texte' => "✅ Produit créé : *{$p->get_name()}*, " . Bayam_WA_Outils::fcfa($prix) . " ({$detail}).\nLien à partager : {$lien}\n\n👉 *cartes " . Bayam_WA_Outils::normaliser($m[1]) . "* pour sa carte à transférer."]];
+        return [['texte' => "✅ Produit créé : *{$p->get_name()}*, " . Bayam_WA_Outils::fcfa($prix) . " ({$detail}).\nLien à partager : {$lien}\n\n👉 *cartes " . Bayam_WA_Outils::normaliser($nom) . "* pour sa carte à transférer."]];
     }
 }

@@ -28,7 +28,7 @@ $nonce = wp_create_nonce('bayam_wa');
         <li>Les envois sont étalés et plafonnés pour protéger votre numéro. Cette connexion utilise un outil non officiel : WhatsApp peut, rarement, limiter un numéro qui abuse des envois.</li>
         <li>Vous pouvez déconnecter BAYAM à tout moment, ici ou dans WhatsApp (Appareils connectés).</li>
       </ol>
-      <label class="bwa-case"><input type="checkbox" id="bwa-accord"> J'ai lu ces règles et je connecte le WhatsApp de ma boutique.</label>
+      <div class="bwa-case"><input type="checkbox" id="bwa-accord"><label for="bwa-accord">J'ai lu ces règles et je connecte le WhatsApp de ma boutique.</label></div>
       <button class="bwa-bouton" id="bwa-connecter">Afficher le QR code</button>
     </section>
 
@@ -65,16 +65,21 @@ $nonce = wp_create_nonce('bayam_wa');
       <section class="bwa-carte">
         <h3>Groupes de publication</h3>
         <p class="bwa-discret">Choisissez les groupes où le Copilote publie vos articles (commande <b>publier robes</b>). Seuls les groupes dont vous êtes administrateur sont proposés.</p>
+        <div class="bwa-outils-groupes">
+          <input type="search" id="bwa-filtre" placeholder="Rechercher un groupe" hidden>
+          <span id="bwa-compte" class="bwa-discret"></span>
+          <button type="button" class="bwa-bouton bwa-tonal" id="bwa-actualiser">Actualiser la liste</button>
+        </div>
         <div id="bwa-groupes" class="bwa-groupes"><span class="bwa-chargement"></span></div>
       </section>
 
       <section class="bwa-carte">
         <h3>Réglages</h3>
-        <label class="bwa-case"><input type="checkbox" id="bwa-mots-cles" <?php checked($reglages['mots_cles']); ?>> Répondre automatiquement aux clients qui demandent un article (« #robes », « prix des sacs ? »)</label>
-        <label class="bwa-case"><input type="checkbox" id="bwa-rapport" <?php checked($reglages['rapport_actif']); ?>> Résumé quotidien des ventes à
-          <select id="bwa-heure"><?php for ($h = 6; $h <= 23; $h++) : ?><option value="<?php echo $h; ?>" <?php selected((int) $reglages['heure_rapport'], $h); ?>><?php echo $h; ?> h</option><?php endfor; ?></select>
-        </label>
-        <button class="bwa-bouton" id="bwa-enregistrer">Enregistrer</button> <span class="bwa-message" id="bwa-message"></span>
+        <div class="bwa-case"><input type="checkbox" id="bwa-mots-cles" <?php checked($reglages['mots_cles']); ?>><label for="bwa-mots-cles">Répondre automatiquement aux clients qui demandent un article (« #robes », « prix des sacs ? »)</label></div>
+        <div class="bwa-case"><input type="checkbox" id="bwa-rapport" <?php checked($reglages['rapport_actif']); ?>><label for="bwa-rapport">Résumé quotidien des ventes à</label>
+          <select id="bwa-heure" aria-label="Heure du résumé quotidien"><?php for ($h = 6; $h <= 23; $h++) : ?><option value="<?php echo $h; ?>" <?php selected((int) $reglages['heure_rapport'], $h); ?>><?php echo $h; ?> h</option><?php endfor; ?></select>
+        </div>
+        <div class="bwa-actions"><button class="bwa-bouton" id="bwa-enregistrer">Enregistrer</button> <span class="bwa-message" id="bwa-message"></span></div>
       </section>
 
       <section class="bwa-carte">
@@ -129,9 +134,15 @@ $nonce = wp_create_nonce('bayam_wa');
 .bwa-entete{display:flex;gap:16px;align-items:flex-start;justify-content:space-between;background:linear-gradient(135deg,#fff 0%,var(--menthe) 100%)}
 .bwa-pastille{white-space:nowrap;border-radius:999px;padding:6px 12px;font-weight:600;font-size:13px;background:#F1F5F9;color:var(--ard)}
 .bwa-pastille.ok{background:var(--menthe);color:var(--em)}.bwa-pastille.attente{background:#FFF4D6;color:#8A5A00}.bwa-pastille.ko{background:#FFE9E6;color:#B42318}
-.bwa-regles{padding-left:18px;color:var(--ard);line-height:1.55}.bwa-regles li{margin:0 0 6px}
-.bwa-case{display:flex;gap:10px;align-items:center;margin:10px 0;line-height:1.4;cursor:pointer}
-.bwa-case input{width:20px;height:20px;accent-color:var(--em)}
+.bwa ol,.bwa ul{margin:0 0 12px!important;padding-left:20px!important}
+.bwa-regles{color:var(--ard);line-height:1.55}.bwa-regles li{margin:0 0 6px}
+/* Jamais de case à cocher dans un <label> : WCFM (unwrapSelect) retire ces labels toutes les 500 ms. */
+.bwa-case{display:flex;gap:10px;align-items:center;margin:12px 0;line-height:1.4}
+.bwa-case input[type=checkbox]{flex:0 0 auto;margin:0!important}
+.bwa .bwa-case label,.bwa .bwa-groupe label{float:none!important;width:auto!important;display:block!important;margin:0!important;padding:0;font-weight:500;font-size:15px;color:var(--nuit);cursor:pointer}
+.bwa-case label{flex:0 1 auto;min-width:0}
+.bwa-case select{min-height:40px;border:1px solid var(--bord);border-radius:10px;padding:0 10px;width:auto!important;float:none!important;margin:0!important}
+.bwa-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}
 .bwa-bouton{background:var(--em);color:#fff;border:0;border-radius:14px;padding:12px 18px;font-weight:600;min-height:44px;cursor:pointer;transition:transform .15s,background .15s,box-shadow .15s}
 .bwa-bouton:hover{background:#086447;box-shadow:0 6px 14px rgba(10,122,85,.25)}.bwa-bouton:active{transform:scale(.97)}
 .bwa-bouton[disabled]{opacity:.5;cursor:not-allowed}
@@ -145,10 +156,16 @@ $nonce = wp_create_nonce('bayam_wa');
 .bwa-ligne{display:flex;gap:8px;flex-wrap:wrap}.bwa-ligne input{flex:1 1 200px;min-height:44px;border:1px solid var(--bord);border-radius:12px;padding:0 12px}
 .bwa-gros-code{font-family:Poppins,monospace;font-size:28px;letter-spacing:4px;color:var(--em);font-weight:700}
 .bwa-succes{display:flex;gap:16px;justify-content:space-between;align-items:center;flex-wrap:wrap;border-color:#bfe8d6}
-.bwa-groupes{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
-.bwa-groupe{display:flex;gap:10px;align-items:center;border:1px solid var(--bord);border-radius:12px;padding:10px 12px;transition:border-color .15s,background .15s}
+.bwa-outils-groupes{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 0 12px}
+.bwa-outils-groupes input[type=search]{flex:1 1 220px;min-width:0;border:1px solid var(--bord);border-radius:12px;padding:10px 12px;font:inherit}
+.bwa-outils-groupes .bwa-bouton{margin-left:auto}
+.bwa-groupes{max-height:420px;overflow:auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.bwa-groupe{display:flex;align-items:center;border:1px solid var(--bord);border-radius:12px;padding:0 0 0 12px;transition:border-color .15s,background .15s}
+.bwa-groupe:hover{border-color:#B9D9CC}
 .bwa-groupe:has(input:checked){border-color:var(--em2);background:var(--menthe)}
-.bwa-groupe small{display:block;color:var(--ard)}
+.bwa-groupe input[type=checkbox]{flex:0 0 auto;margin:0!important}
+.bwa .bwa-groupe label{flex:1 1 0;min-width:0;padding:10px 12px 10px 10px;overflow-wrap:anywhere}
+.bwa-groupe small{display:block;color:var(--ard);font-weight:400;font-size:13px}
 .bwa-sante{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
 .bwa-indic{border-radius:12px;background:#F7FAF9;padding:12px}.bwa-indic b{display:block;font-family:Poppins,sans-serif;font-size:18px}
 .bwa-indic span{color:var(--ard);font-size:13px}
@@ -196,15 +213,30 @@ $nonce = wp_create_nonce('bayam_wa');
   const indic = (valeur, libelle) => `<div class="bwa-indic"><b>${valeur}</b><span>${libelle}</span></div>`;
   const rafraichir = () => appel('etat').done(r => r.success && afficher(r.data));
 
-  function chargerGroupes() {
+  function chargerGroupes(frais) {
     groupesCharges = true;
-    appel('groupes').done(r => {
+    // Les cases déjà cochées restent cochées quand la liste est relue.
+    $('#bwa-groupes input').each(function () { this.checked ? (choisis[this.value] = $(this).data('nom')) : delete choisis[this.value]; });
+    $('#bwa-groupes').html('<span class="bwa-chargement"></span>');
+    $('#bwa-actualiser').prop('disabled', true);
+    appel('groupes', frais ? {frais: 1} : {}).done(r => {
       if (!r.success) { $('#bwa-groupes').text(r.data.message); return; }
       const admins = r.data.groupes.filter(g => g.admin);
+      $('#bwa-compte').text(r.data.groupes.length ? `${admins.length} groupe${admins.length > 1 ? 's' : ''} administré${admins.length > 1 ? 's' : ''} sur ${r.data.groupes.length}` : '');
+      $('#bwa-filtre').prop('hidden', admins.length < 8);
       if (!admins.length) { $('#bwa-groupes').html('<p class="bwa-discret">Vous n’administrez encore aucun groupe WhatsApp. Créez un groupe pour vos clients, puis revenez ici.</p>'); return; }
-      $('#bwa-groupes').html(admins.map(g => `<label class="bwa-groupe"><input type="checkbox" value="${g.id}" data-nom="${$('<i>').text(g.nom).html()}" ${choisis[g.id] ? 'checked' : ''}><span>${$('<i>').text(g.nom).html()}<small>${g.membres} membres</small></span></label>`).join(''));
-    });
+      const echapper = s => $('<i>').text(s).html().replace(/"/g, '&quot;');
+      $('#bwa-groupes').html(admins.map((g, i) => `<div class="bwa-groupe"><input type="checkbox" id="bwa-g${i}" value="${echapper(g.id)}" data-nom="${echapper(g.nom)}" ${choisis[g.id] ? 'checked' : ''}><label for="bwa-g${i}">${echapper(g.nom)}<small>${g.membres} membre${g.membres > 1 ? 's' : ''}</small></label></div>`).join(''));
+      filtrer();
+    }).fail(() => $('#bwa-groupes').text('La liste des groupes n’a pas pu être lue. Touchez « Actualiser la liste ».'))
+      .always(() => $('#bwa-actualiser').prop('disabled', false));
   }
+  function filtrer() {
+    const q = $('#bwa-filtre').val().trim().toLowerCase();
+    $('#bwa-groupes .bwa-groupe').each(function () { this.hidden = q !== '' && !this.textContent.toLowerCase().includes(q); });
+  }
+  $('#bwa-filtre').on('input', filtrer);
+  $('#bwa-actualiser').on('click', () => chargerGroupes(true));
 
   $('#bwa-connecter').on('click', function () {
     if (!$('#bwa-accord').is(':checked')) { alert('Cochez d’abord la case pour accepter les règles d’usage.'); return; }

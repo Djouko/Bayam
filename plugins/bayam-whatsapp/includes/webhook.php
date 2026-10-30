@@ -42,13 +42,14 @@ final class Bayam_WA_Webhook
         if (!is_array($evt) || empty($evt['session']) || empty($evt['event'])) {
             return new WP_REST_Response(['ok' => false], 400);
         }
-        $wpdb->insert(Bayam_WA_Stockage::table('wa_evenements'), [
-            'session' => sanitize_key($evt['session']),
-            'type' => sanitize_text_field((string) $evt['event']),
-            'charge' => $requete->get_body(),
-            'recu' => current_time('mysql'),
-        ]);
-        as_enqueue_async_action('bayam_wa_evenement', [(int) $wpdb->insert_id], 'bayam-whatsapp');
+        // Un même événement peut arriver deux fois (nouvel essai de WAHA) : son identifiant unique le dédoublonne.
+        $insere = $wpdb->query($wpdb->prepare(
+            'INSERT IGNORE INTO ' . Bayam_WA_Stockage::table('wa_evenements') . ' (evt_id, session, type, charge, recu) VALUES (%s, %s, %s, %s, %s)',
+            mb_substr((string) ($evt['id'] ?? wp_generate_uuid4()), 0, 64), sanitize_key($evt['session']), sanitize_text_field((string) $evt['event']), $requete->get_body(), current_time('mysql')
+        ));
+        if ($insere) {
+            as_enqueue_async_action('bayam_wa_evenement', [(int) $wpdb->insert_id], 'bayam-whatsapp');
+        }
         return new WP_REST_Response(['ok' => true], 200);
     }
 
@@ -96,7 +97,9 @@ final class Bayam_WA_Webhook
         $avant = get_user_meta($vendeur, 'bayam_wa_statut', true);
         update_user_meta($vendeur, 'bayam_wa_statut', $statut);
         update_user_meta($vendeur, 'bayam_wa_statut_depuis', current_time('mysql'));
-        if ($statut === 'WORKING' && $avant !== 'WORKING') {
+        // Message de bienvenue une seule fois par connexion (les redémarrages du service ne le renvoient pas).
+        if ($statut === 'WORKING' && !get_user_meta($vendeur, 'bayam_wa_bienvenue', true)) {
+            update_user_meta($vendeur, 'bayam_wa_bienvenue', current_time('mysql'));
             Bayam_WA_Regles::au_vendeur($vendeur, "✅ *Votre WhatsApp est connecté à BAYAM.*\nCette discussion « Message à moi-même » est maintenant votre Copilote : écrivez *menu* pour commencer.");
         }
         // Surveillance des déconnexions : WhatsApp n'est plus joignable, on prévient par e-mail avec la marche à suivre.
@@ -118,9 +121,14 @@ final class Bayam_WA_Webhook
         if (str_starts_with($texte, Bayam_WA_Outils::MARQUE) || ($id !== '' && Bayam_WA_Stockage::est_notre_message($id))) {
             return;
         }
-        $de = (string) ($m['from'] ?? '');
-        $a = (string) ($m['to'] ?? '');
-        $chat = !empty($m['fromMe']) ? $a : $de;
+        // Discussion concernée : le moteur GOWS la donne dans _data.Info.Chat (et laisse « to » vide pour nos messages) ;
+        // les autres moteurs dans « to » (message envoyé) ou « from » (message reçu).
+        $info = (array) ($m['_data']['Info'] ?? []);
+        $chat = (string) ($info['Chat'] ?? '');
+        if ($chat === '') {
+            $chat = !empty($m['fromMe']) ? (string) (($m['to'] ?? '') ?: ($m['from'] ?? '')) : (string) ($m['from'] ?? '');
+        }
+        $chat = str_replace('@s.whatsapp.net', '@c.us', $chat);
         // Statuts, groupes et chaînes ne pilotent rien.
         if ($chat === '' || str_contains($chat, '@g.us') || str_contains($chat, '@newsletter') || str_starts_with($chat, 'status@')) {
             return;
@@ -141,8 +149,9 @@ final class Bayam_WA_Webhook
             return; // Messages du vendeur à ses clients : rien à faire.
         }
 
-        Bayam_WA_Stockage::noter_message($vendeur, $chat, 'in', $texte, $id !== '' ? $id : null);
-        $numero = Bayam_WA_Outils::numero_de($chat);
+        // Numéro de téléphone réel du client (WhatsApp ne montre souvent qu'un identifiant interne « LID »).
+        $numero = Bayam_WA_Outils::numero_de((string) (($info['SenderAlt'] ?? '') ?: $chat));
+        Bayam_WA_Stockage::noter_message($vendeur, $chat, 'in', $texte, $id !== '' ? $id : null, 'texte', $numero);
         $reglages = Bayam_WA_Stockage::reglages($vendeur);
         // Membre de l'équipe : ses commandes commencent par « / » (« /stock robe rouge ») pour ne pas confondre
         // avec une conversation normale.

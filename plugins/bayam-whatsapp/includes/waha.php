@@ -66,6 +66,8 @@ class Bayam_WA_Waha
         $config = [
             'metadata' => ['bayam.vendeur' => (string) $vendeur],
             'client' => ['deviceName' => 'BAYAM', 'browserName' => 'Chrome'],
+            // Les statuts publiés par les contacts et les chaînes ne servent pas à la boutique : WAHA ne les transmet pas.
+            'ignore' => ['status' => true, 'channels' => true],
             'webhooks' => [[
                 'url' => bayam_wa_url_interne('/wp-json/bayam/v1/whatsapp/webhook'),
                 'events' => ['message.any', 'session.status'],
@@ -145,9 +147,9 @@ class Bayam_WA_Waha
 
     // --- Groupes et statut ------------------------------------------------------------------------------------
 
-    public function groupes(string $session)
+    public function groupes(string $session, int $limite = 100, int $decalage = 0)
     {
-        return $this->appel('GET', "/api/$session/groups", null, ['limit' => 300, 'sortBy' => 'subject', 'sortOrder' => 'asc']);
+        return $this->appel('GET', "/api/$session/groups", null, ['limit' => $limite, 'offset' => $decalage, 'sortBy' => 'subject', 'sortOrder' => 'asc'], 40);
     }
 
     public function statut_image(string $session, array $fichier, string $legende = '')

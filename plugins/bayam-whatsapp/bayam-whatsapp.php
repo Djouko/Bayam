@@ -10,7 +10,7 @@
 
 defined('ABSPATH') || exit;
 
-const BAYAM_WA_VERSION = '1.0.0';
+const BAYAM_WA_VERSION = '1.1.0';
 define('BAYAM_WA_DIR', __DIR__ . '/');
 define('BAYAM_WA_URL', plugin_dir_url(__FILE__));
 

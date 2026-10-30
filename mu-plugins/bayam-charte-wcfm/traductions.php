@@ -156,6 +156,7 @@ function bayam_charte_map() {
 			'Print'                             => 'Imprimer',
 			'Facebook Description'              => 'Description Facebook',
 			'Twitter Description'               => 'Description Twitter',
+			'Logout'                            => 'Déconnexion',
 		);
 	}
 	return $map;

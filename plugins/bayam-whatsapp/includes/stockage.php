@@ -18,6 +18,7 @@ final class Bayam_WA_Stockage
         // dbDelta veut deux espaces après PRIMARY KEY et une colonne par ligne.
         dbDelta("CREATE TABLE " . self::table('wa_evenements') . " (
   id bigint unsigned NOT NULL AUTO_INCREMENT,
+  evt_id varchar(64) NULL,
   session varchar(64) NOT NULL,
   type varchar(40) NOT NULL,
   charge longtext NOT NULL,
@@ -25,12 +26,14 @@ final class Bayam_WA_Stockage
   traite tinyint NOT NULL DEFAULT 0,
   erreur text NULL,
   PRIMARY KEY  (id),
+  UNIQUE KEY evt_id (evt_id),
   KEY session (session)
 ) $c;");
         dbDelta("CREATE TABLE " . self::table('wa_messages') . " (
   id bigint unsigned NOT NULL AUTO_INCREMENT,
   vendeur bigint unsigned NOT NULL,
   chat varchar(80) NOT NULL,
+  numero varchar(20) NULL,
   sens varchar(8) NOT NULL,
   nature varchar(20) NOT NULL DEFAULT 'texte',
   texte text NULL,
@@ -38,7 +41,8 @@ final class Bayam_WA_Stockage
   cree datetime NOT NULL,
   PRIMARY KEY  (id),
   KEY vendeur_cree (vendeur, cree),
-  KEY message_id (message_id)
+  KEY message_id (message_id),
+  KEY numero (numero)
 ) $c;");
         dbDelta("CREATE TABLE " . self::table('dettes') . " (
   id bigint unsigned NOT NULL AUTO_INCREMENT,
@@ -118,11 +122,11 @@ final class Bayam_WA_Stockage
         return preg_match('/^boutique-(\d+)$/', $session, $m) ? (int) $m[1] : null;
     }
 
-    public static function noter_message(int $vendeur, string $chat, string $sens, string $texte, ?string $message_id, string $nature = 'texte'): void
+    public static function noter_message(int $vendeur, string $chat, string $sens, string $texte, ?string $message_id, string $nature = 'texte', ?string $numero = null): void
     {
         global $wpdb;
         $wpdb->insert(self::table('wa_messages'), [
-            'vendeur' => $vendeur, 'chat' => $chat, 'sens' => $sens, 'nature' => $nature,
+            'vendeur' => $vendeur, 'chat' => $chat, 'numero' => $numero, 'sens' => $sens, 'nature' => $nature,
             'texte' => mb_substr($texte, 0, 1000), 'message_id' => $message_id, 'cree' => current_time('mysql'),
         ]);
     }

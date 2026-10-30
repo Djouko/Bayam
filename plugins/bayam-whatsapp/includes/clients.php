@@ -83,7 +83,7 @@ final class Bayam_WA_Clients
     public static function a_deja_ecrit(int $vendeur, string $chat): bool
     {
         global $wpdb;
-        $connu = $wpdb->get_var($wpdb->prepare('SELECT 1 FROM ' . Bayam_WA_Stockage::table('wa_messages') . " WHERE vendeur = %d AND chat = %s AND sens = 'in' LIMIT 1", $vendeur, $chat));
+        $connu = $wpdb->get_var($wpdb->prepare('SELECT 1 FROM ' . Bayam_WA_Stockage::table('wa_messages') . " WHERE vendeur = %d AND (chat = %s OR numero = %s) AND sens = 'in' LIMIT 1", $vendeur, $chat, Bayam_WA_Outils::numero_de($chat)));
         if ($connu) {
             return true;
         }
@@ -92,7 +92,8 @@ final class Bayam_WA_Clients
             return false;
         }
         foreach ($discussions as $d) {
-            if (Bayam_WA_Outils::numero_de((string) ($d['id'] ?? '')) === Bayam_WA_Outils::numero_de($chat)) {
+            $id = is_array($d['id'] ?? null) ? (string) ($d['id']['_serialized'] ?? '') : (string) ($d['id'] ?? ($d['JID'] ?? ''));
+            if (Bayam_WA_Outils::numero_de($id) === Bayam_WA_Outils::numero_de($chat)) {
                 return true;
             }
         }

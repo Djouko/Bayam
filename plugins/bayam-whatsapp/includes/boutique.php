@@ -222,7 +222,10 @@ final class Bayam_WA_Boutique
     /** Produit créé depuis le Copilote (« [photo] robe rouge 15000 M:3 L:2 »). */
     public static function creer_produit(int $vendeur, string $nom, int $prix, array $tailles, int $stock_simple, ?int $image_id)
     {
-        $nom = mb_convert_case(trim($nom), MB_CASE_TITLE, 'UTF-8');
+        // Casse d'une phrase, comme le reste du catalogue (« Robe rouge ») ; un nom tapé tout en capitales est adouci.
+        $nom = trim($nom);
+        $nom = mb_strtoupper($nom, 'UTF-8') === $nom ? mb_strtolower($nom, 'UTF-8') : $nom;
+        $nom = mb_strtoupper(mb_substr($nom, 0, 1, 'UTF-8'), 'UTF-8') . mb_substr($nom, 1, null, 'UTF-8');
         if ($tailles) {
             $p = new WC_Product_Variable();
             $attribut = new WC_Product_Attribute();

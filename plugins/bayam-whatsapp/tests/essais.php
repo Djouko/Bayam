@@ -38,12 +38,23 @@ final class Bayam_Faux_Waha extends Bayam_WA_Waha
 }
 
 $vendeur = 3;
+// Les essais tournent sur une vraie boutique : on garde son WhatsApp (réglages, identité) et ses données pour les rendre à la fin.
+global $wpdb;
+$sauvegarde = [];
+foreach (['bayam_wa', 'bayam_wa_moi', 'bayam_wa_lid', 'bayam_wa_statut', 'bayam_wa_dernier_rapport', 'bayam_wa_bienvenue'] as $cle) {
+    $sauvegarde[$cle] = get_user_meta($vendeur, $cle, true);
+}
+$depart = [];
+foreach (['dettes', 'diffusions', 'wa_messages', 'liens'] as $table) {
+    $depart[$table] = (int) $wpdb->get_var("SELECT COALESCE(MAX(id), 0) FROM " . Bayam_WA_Stockage::table($table));
+}
 $faux = $GLOBALS['faux'] = new Bayam_Faux_Waha();
 Bayam_WA_Waha::remplacer($faux);
 update_user_meta($vendeur, 'bayam_wa_moi', '237690000003@c.us');
 update_user_meta($vendeur, 'bayam_wa_statut', 'WORKING');
 delete_user_meta($vendeur, 'bayam_wa');
 $debut = current_time('mysql');
+$debut_ts = time();
 $GLOBALS['reussis'] = 0;
 $GLOBALS['echecs'] = [];
 
@@ -112,12 +123,13 @@ $r = bayam_dire('bilan');
 bayam_verifier('bilan du jour', str_contains($joint($r), "Bilan aujourd'hui") && str_contains($joint($r), 'Chiffre d'), $r);
 $r = bayam_dire('bilan semaine');
 bayam_verifier('bilan de la semaine', str_contains($joint($r), 'cette semaine'), $r);
-$r = bayam_dire('dette Paul 5000 15/11');
-bayam_verifier('dette notée avec échéance', str_contains($joint($r), 'Paul') && str_contains($joint($r), '15/11'), $r);
+// Nom propre aux essais : la boutique a ses vraies dettes.
+$r = bayam_dire('dette Ndzana 5000 15/11');
+bayam_verifier('dette notée avec échéance', str_contains($joint($r), 'Ndzana') && str_contains($joint($r), '15/11'), $r);
 $r = bayam_dire('dettes');
-bayam_verifier('liste des dettes', str_contains($joint($r), 'Qui me doit quoi') && str_contains($joint($r), 'Paul'), $r);
-$r = bayam_dire('payé Paul 2000');
-bayam_verifier('paiement partiel d’une dette', str_contains($joint($r), 'Reste à payer') && str_contains($joint($r), '3'), $r);
+bayam_verifier('liste des dettes', str_contains($joint($r), 'Qui me doit quoi') && str_contains($joint($r), 'Ndzana'), $r);
+$r = bayam_dire('payé Ndzana 2000');
+bayam_verifier('paiement partiel d’une dette', str_contains($joint($r), "Reste à payer : 3\u{202F}000"), $r);
 $r = bayam_dire('promo BAYAMESSAI 10%');
 bayam_verifier('code promo et message prêt à partager', count($r) === 2 && str_contains($r[0], 'BAYAMESSAI') && str_contains($r[1], '-10 %'), $r);
 $r = bayam_dire('promo BAYAMESSAI 10%');
@@ -135,6 +147,10 @@ $r = bayam_dire('comment tu vas');
 bayam_verifier('message incompris : renvoie au menu', str_contains($joint($r), "Je n'ai pas compris") && str_contains($joint($r), 'menu'), $r);
 $r = bayam_dire('ROBE ROUGE 15000 M:3 L:2', photo: true);
 bayam_verifier('photo + légende : produit à tailles créé', str_contains($joint($r), 'Produit créé') && str_contains($joint($r), 'M : 3'), $r);
+$r = bayam_dire('casquette brodée 6500 4', photo: true);
+bayam_verifier('photo : accents gardés, quantité après le prix', str_contains($joint($r), '*Casquette brodée*') && str_contains($joint($r), "6\u{202F}500") && str_contains($joint($r), '4 pièce(s)'), $r);
+$r = bayam_dire('Sandales pointure 42 25 000 42:2', photo: true);
+bayam_verifier('photo : nombre du nom ignoré pour le prix', str_contains($joint($r), '*Sandales pointure 42*') && str_contains($joint($r), "25\u{202F}000") && str_contains($joint($r), '42 : 2'), $r);
 
 echo "\nÉquipe (numéro autorisé, commandes avec « / »)\n";
 $r = bayam_dire('pin 4826');
@@ -169,14 +185,13 @@ $r = bayam_dire('envoie polo 6 99 99 99 99');
 bayam_verifier('client inconnu : lien wa.me, jamais de premier contact', str_contains($joint($r), 'wa.me/237699999999'), $r);
 
 echo "\nPublication étalée\n";
-global $wpdb;
 $t = Bayam_WA_Stockage::table('diffusions');
-$wpdb->query("UPDATE $t SET prevu = '2000-01-01 00:00:00' WHERE vendeur = 3 AND statut = 'attente'");
+$wpdb->query("UPDATE $t SET prevu = '2000-01-01 00:00:00' WHERE vendeur = 3 AND statut = 'attente' AND id > {$depart['diffusions']}");
 $faux->envois = [];
 Bayam_WA_Diffusion::traiter_file();
 $images = array_filter($faux->envois, static fn ($e) => $e['chemin'] === '/api/sendImage');
 bayam_verifier('2 cartes publiées dans les 2 groupes', count($images) === 2, array_column($faux->envois, 'chemin'));
-bayam_verifier('lien suivi par groupe', (int) $wpdb->get_var("SELECT COUNT(*) FROM " . Bayam_WA_Stockage::table('liens') . " WHERE vendeur = 3 AND groupe LIKE '120363%'") === 2);
+bayam_verifier('lien suivi par groupe', (int) $wpdb->get_var("SELECT COUNT(*) FROM " . Bayam_WA_Stockage::table('liens') . " WHERE vendeur = 3 AND groupe LIKE '120363%' AND id > {$depart['liens']}") === 2);
 bayam_verifier('bilan de série envoyé au vendeur', (bool) array_filter($faux->envois, static fn ($e) => str_contains((string) ($e['corps']['text'] ?? ''), 'Publication terminée')));
 
 echo "\nRapport automatique\n";
@@ -196,14 +211,14 @@ file_put_contents('/var/www/html/wp-content/uploads/bayam-statut-essai.jpg', bas
 
 // --- Remise en état ---------------------------------------------------------------------------------------------
 echo "\nRemise en état\n";
-foreach (wc_get_orders(['created_via' => 'bayam-whatsapp', 'limit' => -1, 'date_created' => '>=' . strtotime($debut) - 5]) as $c) {
+foreach (wc_get_orders(['created_via' => 'bayam-whatsapp', 'limit' => -1, 'date_created' => '>=' . ($debut_ts - 5)]) as $c) {
     $c->delete(true);
 }
 $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}wcfm_marketplace_orders WHERE vendor_id = 3 AND created >= %s", $debut));
 if ($id = wc_get_coupon_id_by_code('BAYAMESSAI')) {
     wp_delete_post($id, true);
 }
-foreach (get_posts(['post_type' => 'product', 'author' => 3, 's' => 'Robe Rouge', 'numberposts' => 5, 'post_status' => 'any']) as $p) {
+foreach (get_posts(['post_type' => 'product', 'author' => 3, 'date_query' => [['after' => $debut, 'inclusive' => true]], 'numberposts' => 10, 'post_status' => 'any']) as $p) {
     $w = wc_get_product($p->ID);
     if ($w) {
         foreach ($w->get_children() as $c) {
@@ -225,11 +240,11 @@ foreach ([31, 25] as $id) {
         $p->save();
     }
 }
-foreach (['dettes', 'diffusions', 'wa_messages'] as $table) {
-    $wpdb->query("DELETE FROM " . Bayam_WA_Stockage::table($table) . " WHERE vendeur = 3");
+foreach (['dettes', 'diffusions', 'wa_messages', 'liens'] as $table) {
+    $wpdb->query("DELETE FROM " . Bayam_WA_Stockage::table($table) . " WHERE vendeur = 3 AND id > {$depart[$table]}");
 }
-foreach (['bayam_wa', 'bayam_wa_moi', 'bayam_wa_statut', 'bayam_wa_dernier_rapport'] as $cle) {
-    delete_user_meta($vendeur, $cle);
+foreach ($sauvegarde as $cle => $valeur) {
+    $valeur === '' ? delete_user_meta($vendeur, $cle) : update_user_meta($vendeur, $cle, $valeur);
 }
 Bayam_WA_Waha::remplacer(null);
 echo "  données de démonstration restaurées\n";
