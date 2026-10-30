@@ -91,6 +91,26 @@ L'émulateur Android ne voit pas `localhost` du PC : avant de lancer l'applicati
 
 En HTTP simple, l'application signe ses requêtes (OAuth 1.0a) ; c'est vérifié et fonctionnel. En production, le serveur devra être en HTTPS.
 
+## Vendre depuis WhatsApp (extension BAYAM WhatsApp)
+
+Trois services s'ajoutent à WordPress (démarrés avec les autres par `docker compose up -d`) :
+
+| Service | Rôle |
+|---|---|
+| `waha` | Connecteur libre WAHA (moteur GOWS, sans navigateur) : relie le WhatsApp d'un vendeur comme un appareil lié. API et tableau de bord sur http://127.0.0.1:3000 (identifiant `admin`, mot de passe `WAHA_DASHBOARD_PASSWORD` du fichier `.env`). |
+| `travailleur` | Traite chaque message WhatsApp en moins d'une seconde et fait tourner les tâches programmées (publications étalées, rapports quotidiens). |
+| extension `bayam-whatsapp` | Code dans `plugins/bayam-whatsapp/` : Copilote du vendeur, réponses aux mots-clés des clients, cartes produits, publication dans les groupes et le statut, liens courts suivis, liens de paiement, dettes, promos, bilans, alertes de commande et de paiement. |
+
+Connexion d'un vendeur : espace vendeur, rubrique **WhatsApp**, accepter les règles, « Afficher le QR code », puis dans WhatsApp sur le téléphone de la boutique : Appareils connectés, Connecter un appareil. Le vendeur écrit ensuite **menu** dans sa discussion « Message à moi-même ».
+
+Essais automatiques (sans téléphone, données de démonstration remises en état à la fin) :
+
+```
+docker compose run --rm cli wp eval-file /var/www/html/wp-content/plugins/bayam-whatsapp/tests/essais.php
+```
+
+Journal de l'extension : WooCommerce, État, Journaux, source `bayam-whatsapp`.
+
 ## Captures
 
 `node scripts/captures.js` (avec `NODE_PATH=../cahier-des-charges/src/node_modules`) produit des captures du site et de l'espace vendeur dans `captures/`.
