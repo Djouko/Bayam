@@ -47,6 +47,7 @@ services:
       # Code BAYAM suivi ici : charte des pages vendeur (mu-plugins) et extension WhatsApp.
       - ./mu-plugins:/var/www/html/wp-content/mu-plugins
       - ./plugins/bayam-whatsapp:/var/www/html/wp-content/plugins/bayam-whatsapp
+      - ./themes/bayam-vitrine:/var/www/html/wp-content/themes/bayam-vitrine
 
   # WhatsApp en mode connecté (appareil lié par QR code), connecteur libre WAHA, moteur GOWS sans navigateur.
   waha:
@@ -89,6 +90,7 @@ services:
       - wp:/var/www/html
       - ./mu-plugins:/var/www/html/wp-content/mu-plugins
       - ./plugins/bayam-whatsapp:/var/www/html/wp-content/plugins/bayam-whatsapp
+      - ./themes/bayam-vitrine:/var/www/html/wp-content/themes/bayam-vitrine
 
   cli:
     image: wordpress:cli-2.12.0-php8.3
@@ -115,6 +117,7 @@ services:
       - ./scripts:/scripts
       - ./mu-plugins:/var/www/html/wp-content/mu-plugins
       - ./plugins/bayam-whatsapp:/var/www/html/wp-content/plugins/bayam-whatsapp
+      - ./themes/bayam-vitrine:/var/www/html/wp-content/themes/bayam-vitrine
 
 volumes:
   db:

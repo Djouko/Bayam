@@ -77,13 +77,16 @@ final class Bayam_WA_Paiements
         }
     }
 
+    /** L'argent est-il chez le vendeur ? À la livraison, il l'est quand la commande est terminée (colis remis et payé). */
+    public static function encaissee(WC_Order $commande): bool
+    {
+        return $commande->get_payment_method() === 'cod' ? $commande->has_status('completed') : $commande->is_paid();
+    }
+
     public static function statut_change(int $id, string $avant, string $apres): void
     {
-        if (!in_array($apres, ['processing', 'completed'], true) || in_array($avant, ['processing', 'completed'], true)) {
-            return;
-        }
         $commande = wc_get_order($id);
-        if (!$commande || !$commande->is_paid() || $commande->get_meta('_bayam_alerte_paiement') || $commande->get_created_via() === 'bayam-whatsapp' && !$commande->get_meta('_bayam_lien_paiement')) {
+        if (!$commande || !self::encaissee($commande) || $commande->get_meta('_bayam_alerte_paiement') || $commande->get_created_via() === 'bayam-whatsapp' && !$commande->get_meta('_bayam_lien_paiement')) {
             return;
         }
         $commande->update_meta_data('_bayam_alerte_paiement', 1);

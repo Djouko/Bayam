@@ -201,13 +201,28 @@ final class Bayam_WA_Boutique
         $encaisse = 0.0;
         $commandes = [];
         $ventes = [];
+        $paye = [];
         foreach ($lignes as $l) {
             $ca += (float) $l->item_total;
-            if (in_array($l->order_status, ['processing', 'completed'], true)) {
+            $paye[$l->order_id] ??= ($c = wc_get_order((int) $l->order_id)) && Bayam_WA_Paiements::encaissee($c);
+            if ($paye[$l->order_id]) {
                 $encaisse += (float) $l->item_total;
             }
             $commandes[$l->order_id] = true;
             $ventes[$l->product_id] = ($ventes[$l->product_id] ?? 0) + (int) $l->quantity;
+        }
+        // Liens de paiement : commandes sans article (une ligne de frais), donc absentes du registre WCFM.
+        $liens = wc_get_orders([
+            'limit' => -1, 'meta_key' => '_bayam_vendeur', 'meta_value' => $vendeur,
+            'status' => ['pending', 'on-hold', 'processing', 'completed'],
+            'date_created' => '>=' . strtotime(get_gmt_from_date($debut) . ' UTC'),
+        ]);
+        foreach ($liens as $c) {
+            $ca += (float) $c->get_total();
+            if (Bayam_WA_Paiements::encaissee($c)) {
+                $encaisse += (float) $c->get_total();
+            }
+            $commandes['lien-' . $c->get_id()] = true;
         }
         arsort($ventes);
         $top = [];

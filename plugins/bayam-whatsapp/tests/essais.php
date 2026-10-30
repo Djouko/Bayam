@@ -201,6 +201,30 @@ $faux->envois = [];
 Bayam_WA_Rapports::envoyer_rapports();
 bayam_verifier('résumé quotidien à l’heure choisie', (bool) array_filter($faux->envois, static fn ($e) => str_contains((string) ($e['corps']['text'] ?? ''), 'Bilan du jour')));
 
+echo "\nAlertes de commande et de paiement\n";
+$textes = static fn () => implode("\n", array_map(static fn ($e) => (string) ($e['corps']['text'] ?? ''), $GLOBALS['faux']->envois));
+$polo = wc_get_product(25);
+$stock_polo = $polo->get_stock_quantity();
+$client = wc_create_order(['status' => 'pending', 'created_via' => 'checkout']);
+$client->add_product($polo, 1);
+$client->set_address(['first_name' => 'Nadège', 'last_name' => 'Fotso', 'phone' => '690000021', 'address_1' => 'Bonanjo, rue Joss', 'city' => 'Douala', 'country' => 'CM'], 'billing');
+$client->set_payment_method('cod');
+$client->set_payment_method_title('Paiement à la livraison');
+$client->calculate_totals();
+$client->save();
+$faux->envois = [];
+do_action('woocommerce_checkout_order_processed', $client->get_id(), [], $client);
+bayam_verifier('commande sur le site : alerte au vendeur avec le lien du client', str_contains($textes(), 'Nouvelle commande n° ' . $client->get_order_number()) && str_contains($textes(), 'wa.me/237690000021'), $textes());
+$faux->envois = [];
+$client->update_status('processing');
+bayam_verifier('paiement à la livraison : rien d’encaissé avant la remise du colis', !str_contains($textes(), 'Paiement reçu'), $textes());
+$client->update_status('completed');
+bayam_verifier('paiement à la livraison : « Paiement reçu » à la remise du colis', str_contains($textes(), 'Paiement reçu'), $textes());
+$client->delete(true);
+if ($stock_polo !== null) {
+    wc_update_product_stock($polo, $stock_polo);
+}
+
 echo "\nCarte produit (image)\n";
 $carte = Bayam_WA_Cartes::carte(wc_get_product(15), home_url('/b/Essai1'), 'Mode Aïcha');
 $im = imagecreatefromstring(base64_decode($carte['data']));

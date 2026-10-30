@@ -1,0 +1,33 @@
+<?php
+/**
+ * Plugin Name: BAYAM Commerce Cameroun
+ * Description: Adresses à la camerounaise pour la commande (sans code postal ni région, quartier et point de repère) et téléphone obligatoire pour la livraison.
+ * Version: 1.0.0
+ */
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
+}
+
+// Au Cameroun, on livre au quartier et au point de repère : pas de code postal, pas de région à saisir.
+// Le tableau de commande en blocs lit aussi ce filtre, comme l'ancien formulaire.
+add_filter( 'woocommerce_get_country_locale', function ( $locale ) {
+	$locale['CM'] = array_replace_recursive(
+		$locale['CM'] ?? array(),
+		array(
+			'postcode'  => array( 'required' => false, 'hidden' => true ),
+			'state'     => array( 'required' => false, 'hidden' => true ),
+			'address_1' => array(
+				'label'       => 'Quartier et point de repère',
+				'placeholder' => 'Bonapriso, face à la pharmacie du Centre',
+			),
+			'city'      => array( 'label' => 'Ville' ),
+		)
+	);
+	return $locale;
+} );
+
+// Le livreur et la boutique joignent le client par téléphone ou WhatsApp : le numéro est indispensable.
+add_filter( 'pre_option_woocommerce_checkout_phone_field', function () {
+	return 'required';
+} );
