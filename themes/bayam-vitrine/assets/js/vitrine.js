@@ -67,6 +67,54 @@
 	window.addEventListener('scroll', defilement, { passive: true });
 	defilement();
 
+	// Bannières : un point par bannière ; sur téléphone, défilement automatique toutes les 5 s, arrêté dès que
+	// le visiteur touche le carrousel (ou s'il a demandé moins d'animations). Sur ordinateur tout est visible.
+	document.querySelectorAll('[data-defile]').forEach(function (rail) {
+		var points = rail.parentElement.querySelector('[data-points]');
+		var bannieres = rail.children;
+		if (!points || bannieres.length < 2) { return; }
+		function aller(i) { rail.scrollTo({ left: bannieres[i].offsetLeft - rail.offsetLeft, behavior: 'smooth' }); }
+		Array.prototype.forEach.call(bannieres, function (b, i) {
+			var point = document.createElement('button');
+			point.type = 'button';
+			point.setAttribute('aria-label', 'Bannière ' + (i + 1) + ' sur ' + bannieres.length);
+			point.addEventListener('click', function () { aller(i); });
+			points.appendChild(point);
+		});
+		function actif() {
+			var pas = bannieres[1].offsetLeft - bannieres[0].offsetLeft;
+			var i = Math.min(bannieres.length - 1, Math.round(rail.scrollLeft / pas));
+			Array.prototype.forEach.call(points.children, function (p, j) { p.classList.toggle('is-actif', j === i); });
+			return i;
+		}
+		rail.addEventListener('scroll', actif, { passive: true });
+		actif();
+		if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { return; }
+		var arret = false;
+		['pointerdown', 'touchstart', 'focusin'].forEach(function (ev) { rail.addEventListener(ev, function () { arret = true; }, { passive: true }); });
+		setInterval(function () {
+			if (arret || document.hidden || rail.scrollWidth <= rail.clientWidth + 4) { return; }
+			aller((actif() + 1) % bannieres.length);
+		}, 5000);
+	});
+
+	// Annuaire des boutiques : filtre instantané sur le nom et le quartier, accents et majuscules ignorés.
+	var filtre = document.querySelector('[data-filtre-boutiques]');
+	var cartes = document.querySelectorAll('[data-boutiques] .bv-shop');
+	function sansAccents(s) { return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+	if (filtre) {
+		filtre.addEventListener('input', function () {
+			var q = sansAccents(filtre.value.trim());
+			var visibles = 0;
+			cartes.forEach(function (c) {
+				var ok = q === '' || sansAccents(c.textContent).indexOf(q) !== -1;
+				c.hidden = !ok;
+				visibles += ok ? 1 : 0;
+			});
+			document.querySelector('[data-aucune]').hidden = visibles > 0;
+		});
+	}
+
 	// Apparition au défilement ; sans animation si l'utilisateur la réduit ou si l'API manque.
 	var sansAnimation = window.matchMedia('(prefers-reduced-motion: reduce)').matches || !('IntersectionObserver' in window);
 	document.querySelectorAll('ul.products li.product').forEach(function (carte, i) {

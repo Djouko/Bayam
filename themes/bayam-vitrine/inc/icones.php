@@ -20,6 +20,8 @@ function bayam_icone( $nom ) {
 		'chart'  => '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
 		'arrow'  => '<path d="M5 12h14M13 6l6 6-6 6"/>',
 		'chevron' => '<path d="M6 9l6 6 6-6"/>',
+		'home'   => '<path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/>',
+		'grid'   => '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
 	);
 	if ( ! isset( $traces[ $nom ] ) ) {
 		return '';

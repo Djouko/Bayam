@@ -161,15 +161,62 @@ function bayam_vitrine_entete() {
 	<?php
 }
 
-/* Barre du bas (téléphone) : compte, recherche (ouvre la recherche de l'en-tête), panier. */
-add_filter( 'storefront_handheld_footer_bar_links', function ( $liens ) {
-	if ( isset( $liens['search'] ) ) {
-		$liens['search']['callback'] = function () {
-			echo '<a href="#bv-search" class="bv-open-search">' . esc_html__( 'Recherche', 'bayam-vitrine' ) . '</a>';
-		};
+/* ---------- Barre d'onglets du téléphone, comme dans l'application ---------- */
+
+add_action( 'init', function () {
+	remove_action( 'storefront_footer', 'storefront_handheld_footer_bar', 999 );
+}, 20 );
+
+add_action( 'wp_footer', function () {
+	$nombre  = function_exists( 'WC' ) && WC()->cart ? WC()->cart->get_cart_contents_count() : 0;
+	$onglets = array(
+		array( 'home', 'Accueil', home_url( '/' ), is_front_page() ),
+		array( 'store', 'Boutiques', bayam_vitrine_url_page( 'boutiques' ), is_page( 'boutiques' ) || ( function_exists( 'wcfm_is_store_page' ) && wcfm_is_store_page() ) ),
+		array( 'grid', 'Catégories', wc_get_page_permalink( 'shop' ), is_shop() || is_product_taxonomy() || is_product() ),
+		array( 'bag', 'Panier', wc_get_cart_url(), is_cart() || is_checkout() ),
+		array( 'user', 'Profil', wc_get_page_permalink( 'myaccount' ), is_account_page() ),
+	);
+	echo '<nav class="bv-onglets" aria-label="' . esc_attr__( 'Navigation principale', 'bayam-vitrine' ) . '"><ul>';
+	foreach ( $onglets as list( $icone, $libelle, $url, $actif ) ) {
+		$badge = 'bag' === $icone ? '<span class="bv-onglets__nb' . ( $nombre ? '' : ' is-empty' ) . '">' . esc_html( $nombre ) . '</span>' : '';
+		printf(
+			'<li><a href="%s"%s>%s%s<span>%s</span></a></li>',
+			esc_url( $url ),
+			$actif ? ' class="is-actif" aria-current="page"' : '',
+			bayam_icone( $icone ), // phpcs:ignore WordPress.Security.EscapeOutput
+			$badge, // phpcs:ignore WordPress.Security.EscapeOutput
+			esc_html( $libelle )
+		);
 	}
-	return $liens;
+	echo '</ul></nav>';
 } );
+
+/* Le compteur de la barre d'onglets suit le panier, comme celui de l'en-tête. */
+add_filter( 'woocommerce_add_to_cart_fragments', function ( $fragments ) {
+	$nombre = WC()->cart ? WC()->cart->get_cart_contents_count() : 0;
+	$fragments['span.bv-onglets__nb'] = '<span class="bv-onglets__nb' . ( $nombre ? '' : ' is-empty' ) . '">' . esc_html( $nombre ) . '</span>';
+	return $fragments;
+} );
+
+/* ---------- Cartes produit : remise en pour cent et disponibilité, comme dans l'application ---------- */
+
+add_filter( 'woocommerce_sale_flash', function ( $html, $post, $produit ) {
+	$remise = bayam_vitrine_remise( $produit );
+	return $remise ? '<span class="onsale">-' . esc_html( $remise ) . '%</span>' : $html;
+}, 10, 3 );
+
+add_filter( 'woocommerce_format_price_range', function ( $prix, $de ) {
+	return '<span class="bv-des-prix"><span class="bv-des">' . esc_html__( 'dès', 'bayam-vitrine' ) . '</span> ' . wc_price( $de ) . '</span>';
+}, 10, 2 );
+
+add_action( 'woocommerce_after_shop_loop_item_title', function () {
+	global $product;
+	if ( $product && $product->is_in_stock() ) {
+		echo '<span class="bv-stock">' . esc_html__( 'En stock', 'bayam-vitrine' ) . '</span>';
+	} elseif ( $product ) {
+		echo '<span class="bv-stock is-out">' . esc_html__( 'Épuisé', 'bayam-vitrine' ) . '</span>';
+	}
+}, 11 );
 
 /* ---------- Pied de page ---------- */
 
@@ -256,12 +303,3 @@ add_action( 'woocommerce_single_product_summary', function () {
 	</a>
 	<?php
 }, 35 );
-
-/* Libellés de la barre du bas : Storefront n'a pas de traduction française complète. */
-add_filter( 'gettext', function ( $texte, $original, $domaine ) {
-	if ( 'storefront' !== $domaine ) {
-		return $texte;
-	}
-	$libelles = array( 'My Account' => 'Compte', 'Cart' => 'Panier', 'Search' => 'Recherche' );
-	return isset( $libelles[ $original ] ) ? $libelles[ $original ] : $texte;
-}, 10, 3 );
