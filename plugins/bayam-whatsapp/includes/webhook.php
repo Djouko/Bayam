@@ -100,7 +100,7 @@ final class Bayam_WA_Webhook
         // Message de bienvenue une seule fois par connexion (les redémarrages du service ne le renvoient pas).
         if ($statut === 'WORKING' && !get_user_meta($vendeur, 'bayam_wa_bienvenue', true)) {
             update_user_meta($vendeur, 'bayam_wa_bienvenue', current_time('mysql'));
-            Bayam_WA_Regles::au_vendeur($vendeur, "✅ *Votre WhatsApp est connecté à BAYAM.*\nCette discussion « Message à moi-même » est maintenant votre Copilote : écrivez *menu* pour commencer.");
+            Bayam_WA_Regles::au_vendeur($vendeur, "✅ *Votre WhatsApp est connecté à BAYAM.*\nCette discussion « Message à moi-même » est maintenant votre Copilote : écrivez *bayam menu* pour commencer.");
         }
         // Surveillance des déconnexions : WhatsApp n'est plus joignable, on prévient par e-mail avec la marche à suivre.
         if ($avant === 'WORKING' && in_array($statut, ['FAILED', 'STOPPED'], true)) {
@@ -133,16 +133,13 @@ final class Bayam_WA_Webhook
         if ($chat === '' || str_contains($chat, '@g.us') || str_contains($chat, '@newsletter') || str_starts_with($chat, 'status@')) {
             return;
         }
-        $photo = null;
-        if (!empty($m['hasMedia']) && !empty($m['media']['url']) && str_starts_with((string) ($m['media']['mimetype'] ?? 'image/'), 'image/')) {
-            $binaire = Bayam_WA_Waha::client()->telecharger((string) $m['media']['url']);
-            $photo = is_wp_error($binaire) ? null : ['binaire' => $binaire];
-        }
+        // Seuls les messages qui commencent par « bayam » (ou la légende d'une photo) s'adressent à BAYAM.
+        $demande = Bayam_WA_Outils::appel($texte);
 
         if (!empty($m['fromMe'])) {
-            // Le vendeur écrit dans « Message à moi-même » : c'est le Copilote.
-            if (self::est_moi($vendeur, $chat)) {
-                foreach (Bayam_WA_Copilote::traiter($vendeur, $texte, $photo) as $reponse) {
+            // « Message à moi-même » est le Copilote, mais le vendeur y garde aussi ses notes : sans « bayam », on se tait.
+            if ($demande !== null && self::est_moi($vendeur, $chat)) {
+                foreach (Bayam_WA_Copilote::traiter($vendeur, $demande, self::photo($m)) as $reponse) {
                     self::envoyer_reponse($vendeur, null, $reponse);
                 }
             }
@@ -151,17 +148,31 @@ final class Bayam_WA_Webhook
 
         // Numéro de téléphone réel du client (WhatsApp ne montre souvent qu'un identifiant interne « LID »).
         $numero = Bayam_WA_Outils::numero_de((string) (($info['SenderAlt'] ?? '') ?: $chat));
-        Bayam_WA_Stockage::noter_message($vendeur, $chat, 'in', $texte, $id !== '' ? $id : null, 'texte', $numero);
         $reglages = Bayam_WA_Stockage::reglages($vendeur);
-        // Membre de l'équipe : ses commandes commencent par « / » (« /stock robe rouge ») pour ne pas confondre
-        // avec une conversation normale.
-        if (in_array($numero, $reglages['equipe'], true) && (str_starts_with(trim($texte), '/') || $photo)) {
-            foreach (Bayam_WA_Copilote::traiter($vendeur, ltrim(trim($texte), '/'), $photo, true) as $reponse) {
+        // Membre de l'équipe : mêmes commandes que le vendeur, précédées de « bayam » (ou de « / », forme courte).
+        $commande = $demande ?? (str_starts_with(trim($texte), '/') ? ltrim(trim($texte), '/') : null);
+        $equipe = $commande !== null && in_array($numero, $reglages['equipe'], true);
+        // Vie privée : on garde la trace qu'un client a écrit (jamais de premier contact sinon), mais le texte
+        // seulement s'il s'adresse à BAYAM (commande d'équipe, demande d'article).
+        $pour_bayam = $equipe || ($reglages['mots_cles'] && Bayam_WA_Clients::recherche($texte) !== null);
+        Bayam_WA_Stockage::noter_message($vendeur, $chat, 'in', $pour_bayam ? $texte : '', $id !== '' ? $id : null, 'texte', $numero);
+        if ($equipe) {
+            foreach (Bayam_WA_Copilote::traiter($vendeur, $commande, self::photo($m), true) as $reponse) {
                 self::envoyer_reponse($vendeur, $chat, $reponse);
             }
             return;
         }
         Bayam_WA_Clients::message($vendeur, $chat, $texte, $id !== '' ? $id : null);
+    }
+
+    /** Photo jointe au message, téléchargée seulement quand le message s'adresse à BAYAM. */
+    private static function photo(array $m): ?array
+    {
+        if (empty($m['hasMedia']) || empty($m['media']['url']) || !str_starts_with((string) ($m['media']['mimetype'] ?? 'image/'), 'image/')) {
+            return null;
+        }
+        $binaire = Bayam_WA_Waha::client()->telecharger((string) $m['media']['url']);
+        return is_wp_error($binaire) ? null : ['binaire' => $binaire];
     }
 
     /** La discussion est-elle « Message à moi-même » ? (numéro du vendeur, ou son identifiant LID) */

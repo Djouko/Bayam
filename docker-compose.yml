@@ -39,6 +39,7 @@ services:
         define('WP_MEMORY_LIMIT', '256M');
       # Connecteur WhatsApp (WAHA) : appelé par l'extension BAYAM WhatsApp.
       WAHA_URL: http://waha:3000
+      BAYAM_TUNNEL_METRICS: http://tunnel:2000
       WAHA_API_KEY: ${WAHA_API_KEY}
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
     volumes:
@@ -68,6 +69,15 @@ services:
     volumes:
       - waha:/app/.sessions
 
+  # Adresse publique temporaire (https://….trycloudflare.com) pour ouvrir le site local depuis un téléphone pendant
+  # les démonstrations. Elle change à chaque redémarrage : WordPress la lit sur /quicktunnel (mu-plugin bayam-adresses).
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.7
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://wordpress:80
+    depends_on:
+      - wordpress
+
   # Travailleur BAYAM : traite les messages WhatsApp en moins d'une seconde et les tâches programmées
   # (publications étalées, rapports), indépendamment des visites du site.
   travailleur:
@@ -83,6 +93,7 @@ services:
       WORDPRESS_DB_USER: wordpress
       WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
       WAHA_URL: http://waha:3000
+      BAYAM_TUNNEL_METRICS: http://tunnel:2000
       WAHA_API_KEY: ${WAHA_API_KEY}
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
       TZ: Africa/Douala
@@ -109,6 +120,7 @@ services:
       WP_VENDOR_PASSWORD: ${WP_VENDOR_PASSWORD}
       WP_CLI_CACHE_DIR: /tmp/wp-cli-cache
       WAHA_URL: http://waha:3000
+      BAYAM_TUNNEL_METRICS: http://tunnel:2000
       WAHA_API_KEY: ${WAHA_API_KEY}
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
       WP_CLI_CONFIG_PATH: /scripts/wp-cli.yml

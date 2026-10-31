@@ -55,7 +55,7 @@ final class Bayam_WA_Copilote
             return $c->repondre(trim($message), $photo);
         } catch (Throwable $e) {
             Bayam_WA_Outils::journal('Copilote', ['erreur' => $e->getMessage(), 'message' => $message]);
-            return [['texte' => "Désolé, je n'ai pas pu faire cette action. Réessayez ou écrivez *menu*."]];
+            return [['texte' => "Désolé, je n'ai pas pu faire cette action. Réessayez ou écrivez *bayam menu*."]];
         }
     }
 
@@ -66,7 +66,7 @@ final class Bayam_WA_Copilote
         }
         $t = Bayam_WA_Outils::normaliser($message);
         if ($t === '') {
-            return [];
+            return [['texte' => $this->menu()]]; // « bayam » seul
         }
         // Mouvement de stock : « +5 robe rouge M », « -2 robe rouge M ».
         if (preg_match('/^([+-])\s*(\d+)\s+(.+)$/u', $t, $m)) {
@@ -83,7 +83,7 @@ final class Bayam_WA_Copilote
         if ($intention === null) {
             // Un mot seul qui désigne des produits (« robes ») vaut une recherche dans le catalogue.
             $trouves = Bayam_WA_Boutique::chercher($this->vendeur, $t);
-            return $trouves ? $this->catalogue($t) : [['texte' => "Je n'ai pas compris « {$message} ». Écrivez *menu* pour voir ce que je sais faire."]];
+            return $trouves ? $this->catalogue($t) : [['texte' => "Je n'ai pas compris « {$message} ». Écrivez *bayam menu* pour voir ce que je sais faire."]];
         }
         if (in_array($intention, self::SENSIBLES, true) && ($refus = $this->controle_pin($intention, $t))) {
             return $refus;
@@ -140,7 +140,7 @@ final class Bayam_WA_Copilote
         }
         $pin = (string) Bayam_WA_Stockage::reglages($this->vendeur)['pin'];
         if ($pin === '') {
-            return [['texte' => "Cette action est réservée au propriétaire de la boutique tant qu'il n'a pas choisi de code PIN pour l'équipe (commande *pin 1234* dans sa discussion « Message à moi-même »)."]];
+            return [['texte' => "Cette action est réservée au propriétaire de la boutique tant qu'il n'a pas choisi de code PIN pour l'équipe (commande *bayam pin 1234* dans sa discussion « Message à moi-même »)."]];
         }
         if (!preg_match('/\bpin\s*(\d{4,6})$/', $texte, $m) || !hash_equals($pin, $m[1])) {
             return [['texte' => "Action sensible : ajoutez le code PIN de la boutique à la fin du message, par exemple « … pin 1234 »."]];
@@ -159,29 +159,30 @@ final class Bayam_WA_Copilote
     {
         $boutique = Bayam_WA_Outils::nom_boutique($this->vendeur);
         return "*Copilote BAYAM, {$boutique}*\n"
-            . "Écrivez une commande ici, je m'occupe du reste :\n\n"
-            . "🛍️ *robes* ou *#robes* : vos robes en stock\n"
-            . "🖼️ *cartes robes* : cartes à transférer\n"
-            . "📣 *publier robes* : dans vos groupes, envoi étalé\n"
-            . "📲 *statut robes* : visuels pour votre statut\n"
-            . "📦 *stock robe rouge* : quantités par taille\n"
-            . "➕ *+5 robe rouge M* / *-2 robe rouge M*\n"
-            . "💵 *vendu robe rouge M x2 15000 cash*\n"
-            . "🔗 *lien 15000 Marie* : lien de paiement\n"
-            . "🧾 *commandes* : à payer, à préparer\n"
-            . "📊 *bilan*, *bilan semaine*, *bilan mois*\n"
-            . "👤 *client 6 90 00 00 10*\n"
-            . "📝 *dettes*, *dette Paul 5000*, *payé Paul 2000*\n"
-            . "🏷️ *promo NOEL10 10%*\n"
-            . "📷 Photo + « robe rouge 15000 M:3 L:2 » : nouveau produit\n"
-            . "🔁 *boutique* : votre lien unique · *groupes* · *support*";
+            . "Commencez chaque message par *bayam* : vos notes personnelles ici restent tranquilles. "
+            . "Majuscules, accents et petites fautes sont acceptés (*Bayam*, *BAYAM*, *bayan*).\n\n"
+            . "🛍️ *bayam robes* : vos robes en stock\n"
+            . "🖼️ *bayam cartes robes* : cartes à transférer\n"
+            . "📣 *bayam publier robes* : dans vos groupes, envoi étalé\n"
+            . "📲 *bayam statut robes* : visuels pour votre statut\n"
+            . "📦 *bayam stock robe rouge* : quantités par taille\n"
+            . "➕ *bayam +5 robe rouge M* / *bayam -2 robe rouge M*\n"
+            . "💵 *bayam vendu robe rouge M x2 15000 cash*\n"
+            . "🔗 *bayam lien 15000 Marie* : lien de paiement\n"
+            . "🧾 *bayam commandes* : à payer, à préparer\n"
+            . "📊 *bayam bilan*, *bayam bilan semaine*, *bayam bilan mois*\n"
+            . "👤 *bayam client 6 90 00 00 10*\n"
+            . "📝 *bayam dettes*, *bayam dette Paul 5000*, *bayam payé Paul 2000*\n"
+            . "🏷️ *bayam promo NOEL10 10%*\n"
+            . "📷 Photo avec la légende *bayam robe rouge 15000 M:3 L:2* : nouveau produit\n"
+            . "🔁 *bayam boutique* : votre lien unique · *bayam groupes* · *bayam support*";
     }
 
     private function catalogue(string $mots): array
     {
         $produits = Bayam_WA_Boutique::chercher($this->vendeur, $mots);
         if (!$produits) {
-            return [['texte' => $mots === '' ? "Aucun article en stock pour le moment." : "Rien en stock pour « {$mots} ». Essayez un autre mot, ou *catalogue* pour tout voir."]];
+            return [['texte' => $mots === '' ? "Aucun article en stock pour le moment." : "Rien en stock pour « {$mots} ». Essayez un autre mot, ou *bayam catalogue* pour tout voir."]];
         }
         $lignes = [];
         foreach ($produits as $i => $p) {
@@ -189,7 +190,7 @@ final class Bayam_WA_Copilote
         }
         $titre = $mots === '' ? 'Votre catalogue' : "En stock pour « {$mots} »";
         return [['texte' => "*{$titre}* (" . count($produits) . ")\n\n" . implode("\n", $lignes)
-            . "\n\n👉 *cartes {$mots}* pour les cartes à transférer, *publier {$mots}* pour vos groupes."]];
+            . "\n\n👉 *bayam cartes {$mots}* pour les cartes à transférer, *bayam publier {$mots}* pour vos groupes."]];
     }
 
     private function cartes(string $mots, bool $statut): array
@@ -208,7 +209,7 @@ final class Bayam_WA_Copilote
             ];
         }
         $reponses[] = ['texte' => $statut
-            ? "Voici vos visuels de statut. Appuyez longuement sur une image, puis « Transférer » et choisissez *Mon statut*. Ou écrivez *publier {$mots} statut* et je les publie pour vous."
+            ? "Voici vos visuels de statut. Appuyez longuement sur une image, puis « Transférer » et choisissez *Mon statut*. Ou écrivez *bayam publier {$mots} statut* et je les publie pour vous."
             : 'Appuyez longuement sur une carte, puis « Transférer » vers vos groupes et clients. Chaque lien compte les clics.'];
         return $reponses;
     }
@@ -228,7 +229,7 @@ final class Bayam_WA_Copilote
     private function envoyer_collection(string $reste): array
     {
         if (!preg_match('/^(.*?)\s*((?:\+?237)?\s*6[\d ]{8,12})$/', $reste, $m) || !($numero = Bayam_WA_Outils::numero($m[2]))) {
-            return [['texte' => 'Écrivez par exemple : *envoie robes 6 90 00 00 10*.']];
+            return [['texte' => 'Écrivez par exemple : *bayam envoie robes 6 90 00 00 10*.']];
         }
         $produits = Bayam_WA_Boutique::chercher($this->vendeur, $m[1], true, 6);
         if (!$produits) {
@@ -286,10 +287,10 @@ final class Bayam_WA_Copilote
         }
         [$p, $v] = Bayam_WA_Boutique::designer($this->vendeur, implode(' ', $mots));
         if (!$p) {
-            return [['texte' => 'Je ne trouve pas cet article. Exemple : *vendu robe rouge M x2 15000 cash*.']];
+            return [['texte' => 'Je ne trouve pas cet article. Exemple : *bayam vendu robe rouge M x2 15000 cash*.']];
         }
         if ($p->is_type('variable') && !$v) {
-            return [['texte' => 'Précisez la variante vendue, par exemple : *vendu ' . $p->get_name() . " M*.\n" . implode(' · ', Bayam_WA_Boutique::stock_lignes($p))]];
+            return [['texte' => 'Précisez la variante vendue, par exemple : *bayam vendu ' . $p->get_name() . " M*.\n" . implode(' · ', Bayam_WA_Boutique::stock_lignes($p))]];
         }
         $article = $v ?: $p;
         if ($article->managing_stock() && (int) $article->get_stock_quantity() < $quantite) {
@@ -299,7 +300,7 @@ final class Bayam_WA_Copilote
         $restant = $article->managing_stock() ? (int) wc_get_product($article->get_id())->get_stock_quantity() : null;
         $recu = Bayam_WA_Liens::creer($this->vendeur, $commande->get_view_order_url(), 'recu');
         return [['texte' => "✅ Vente n° {$commande->get_order_number()} enregistrée : {$quantite} × " . $article->get_name() . ' = *' . Bayam_WA_Outils::fcfa((float) $commande->get_total()) . "*"
-            . ($mode === 'credit' ? " (à crédit : pensez à *dette nom montant*)" : '')
+            . ($mode === 'credit' ? " (à crédit : pensez à *bayam dette nom montant*)" : '')
             . ($restant !== null ? "\nStock restant : {$restant}." : '')
             . "\nReçu à envoyer au client : {$recu}"]];
     }
@@ -310,7 +311,7 @@ final class Bayam_WA_Copilote
             return $this->lien_boutique();
         }
         if (!preg_match('/^(\d[\d .]*\s*k?)\s*(.*)$/', $reste, $m) || !($montant = Bayam_WA_Outils::montant($m[1]))) {
-            return [['texte' => 'Exemple : *lien 15000 Marie* (montant, puis le nom du client).']];
+            return [['texte' => 'Exemple : *bayam lien 15000 Marie* (montant, puis le nom du client).']];
         }
         $nom = $m[2] !== '' ? mb_convert_case($m[2], MB_CASE_TITLE, 'UTF-8') : 'Client';
         $url = Bayam_WA_Paiements::creer_lien($this->vendeur, $montant, $nom);
@@ -344,7 +345,7 @@ final class Bayam_WA_Copilote
         if (in_array($reste, ['off', 'arret', 'stop', 'on', 'marche'], true)) {
             $actif = in_array($reste, ['on', 'marche'], true);
             Bayam_WA_Stockage::enregistrer($this->vendeur, ['rapport_actif' => $actif]);
-            return [['texte' => $actif ? '⏰ Résumés automatiques réactivés.' : '🔕 Résumés automatiques arrêtés. *rapport on* pour les reprendre.']];
+            return [['texte' => $actif ? '⏰ Résumés automatiques réactivés.' : '🔕 Résumés automatiques arrêtés. *bayam rapport on* pour les reprendre.']];
         }
         $periodes = ['semaine' => ['monday this week', 'cette semaine'], 'mois' => ['first day of this month', 'ce mois-ci'], 'hier' => ['yesterday', 'hier']];
         $choix = 'jour';
@@ -361,7 +362,7 @@ final class Bayam_WA_Copilote
     {
         $numero = Bayam_WA_Outils::numero($reste);
         if (!$numero) {
-            return [['texte' => 'Exemple : *client 6 90 00 00 10*.']];
+            return [['texte' => 'Exemple : *bayam client 6 90 00 00 10*.']];
         }
         $r = Bayam_WA_Boutique::client($this->vendeur, $numero);
         if (!$r['commandes']) {
@@ -380,18 +381,18 @@ final class Bayam_WA_Copilote
         }
         // « dette Paul 5000 » ou « dette Paul 5000 15/11 » (échéance) ou « dette Paul 6 90 00 00 10 5000 ».
         if (!preg_match('/^(.+?)\s+(\d[\d .]*k?)(?:\s+(\d{1,2})\/(\d{1,2}))?$/', $reste, $m) || !($montant = Bayam_WA_Outils::montant($m[2]))) {
-            return [['texte' => 'Exemple : *dette Paul 5000* ou *dette Paul 5000 15/11* (avec échéance).']];
+            return [['texte' => 'Exemple : *bayam dette Paul 5000* ou *bayam dette Paul 5000 15/11* (avec échéance).']];
         }
         $echeance = isset($m[3]) ? sprintf('%04d-%02d-%02d', (int) wp_date('Y'), (int) $m[4], (int) $m[3]) : null;
         $nom = mb_convert_case(trim($m[1]), MB_CASE_TITLE, 'UTF-8');
         Bayam_WA_Rapports::ajouter_dette($this->vendeur, $nom, $montant, $echeance);
-        return [['texte' => "📝 Dette notée : *{$nom}* doit " . Bayam_WA_Outils::fcfa($montant) . ($echeance ? ' pour le ' . wp_date('d/m', strtotime($echeance)) : '') . ".\nQuand il paie : *payé {$nom} montant*."]];
+        return [['texte' => "📝 Dette notée : *{$nom}* doit " . Bayam_WA_Outils::fcfa($montant) . ($echeance ? ' pour le ' . wp_date('d/m', strtotime($echeance)) : '') . ".\nQuand il paie : *bayam payé {$nom} montant*."]];
     }
 
     private function paye(string $reste): array
     {
         if (!preg_match('/^(.+?)\s+(\d[\d .]*k?)$/', $reste, $m) || !($montant = Bayam_WA_Outils::montant($m[2]))) {
-            return [['texte' => 'Exemple : *payé Paul 2000*.']];
+            return [['texte' => 'Exemple : *bayam payé Paul 2000*.']];
         }
         return [['texte' => Bayam_WA_Rapports::encaisser_dette($this->vendeur, mb_convert_case(trim($m[1]), MB_CASE_TITLE, 'UTF-8'), $montant)]];
     }
@@ -399,7 +400,7 @@ final class Bayam_WA_Copilote
     private function promo(string $reste): array
     {
         if (!preg_match('/^([a-z0-9]{3,20})\s+(\d+(?:[.,]\d+)?)\s*(%|f|fcfa)?$/', $reste, $m)) {
-            return [['texte' => 'Exemple : *promo NOEL10 10%* (pourcentage) ou *promo AMIE 2000* (montant).']];
+            return [['texte' => 'Exemple : *bayam promo NOEL10 10%* (pourcentage) ou *bayam promo AMIE 2000* (montant).']];
         }
         $pourcentage = ($m[3] ?? '') === '%';
         $valeur = (float) str_replace(',', '.', $m[2]);
@@ -438,7 +439,7 @@ final class Bayam_WA_Copilote
             return [['texte' => 'Seul le propriétaire de la boutique peut changer le code PIN.']];
         }
         if (!preg_match('/^\d{4,6}$/', $reste)) {
-            return [['texte' => 'Choisissez un code de 4 à 6 chiffres : *pin 4826*. Il protège les ventes, liens, promos et dettes demandés par votre équipe.']];
+            return [['texte' => 'Choisissez un code de 4 à 6 chiffres : *bayam pin 4826*. Il protège les ventes, liens, promos et dettes demandés par votre équipe.']];
         }
         Bayam_WA_Stockage::enregistrer($this->vendeur, ['pin' => $reste]);
         return [['texte' => '🔒 Code PIN de l\'équipe enregistré. Ne le communiquez qu\'aux personnes de confiance.']];
@@ -456,10 +457,10 @@ final class Bayam_WA_Copilote
                 $equipe[] = $numero;
             }
             Bayam_WA_Stockage::enregistrer($this->vendeur, ['equipe' => $equipe]);
-            return [['texte' => (str_starts_with($m[1], 'ajout') ? '👥 Ajouté à' : '👥 Retiré de') . " l'équipe : " . Bayam_WA_Outils::numero_lisible($numero) . '.' . ($r['pin'] === '' ? "\nPensez à choisir un code PIN (*pin 1234*) pour les actions sensibles." : '')]];
+            return [['texte' => (str_starts_with($m[1], 'ajout') ? '👥 Ajouté à' : '👥 Retiré de') . " l'équipe : " . Bayam_WA_Outils::numero_lisible($numero) . '.' . ($r['pin'] === '' ? "\nPensez à choisir un code PIN (*bayam pin 1234*) pour les actions sensibles." : '')]];
         }
         $liste = $r['equipe'] ? implode("\n• ", array_map([Bayam_WA_Outils::class, 'numero_lisible'], $r['equipe'])) : 'personne pour le moment';
-        return [['texte' => "*Équipe autorisée à piloter la boutique*\n• {$liste}\n\nAjouter : *equipe ajouter 6 90 00 00 10* · Retirer : *equipe retirer 6 90 00 00 10*"]];
+        return [['texte' => "*Équipe autorisée à piloter la boutique*\n• {$liste}\n\nAjouter : *bayam equipe ajouter 6 90 00 00 10* · Retirer : *bayam equipe retirer 6 90 00 00 10*"]];
     }
 
     /** Photo + légende « robe rouge 15000 M:3 L:2 » (ou « sac cuir 25000 4 » pour 4 pièces sans taille). */
@@ -495,6 +496,6 @@ final class Bayam_WA_Copilote
         $p = Bayam_WA_Boutique::creer_produit($this->vendeur, $nom, $prix, $tailles, $stock, $image);
         $lien = Bayam_WA_Liens::produit($this->vendeur, $p);
         $detail = $tailles ? implode(', ', array_map(static fn ($k, $v) => "$k : $v", array_keys($tailles), $tailles)) : "$stock pièce(s)";
-        return [['texte' => "✅ Produit créé : *{$p->get_name()}*, " . Bayam_WA_Outils::fcfa($prix) . " ({$detail}).\nLien à partager : {$lien}\n\n👉 *cartes " . Bayam_WA_Outils::normaliser($nom) . "* pour sa carte à transférer."]];
+        return [['texte' => "✅ Produit créé : *{$p->get_name()}*, " . Bayam_WA_Outils::fcfa($prix) . " ({$detail}).\nLien à partager : {$lien}\n\n👉 *bayam cartes " . Bayam_WA_Outils::normaliser($nom) . "* pour sa carte à transférer."]];
     }
 }

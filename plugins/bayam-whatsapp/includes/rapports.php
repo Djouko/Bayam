@@ -50,7 +50,7 @@ final class Bayam_WA_Rapports
                 continue;
             }
             update_user_meta($vendeur, 'bayam_wa_dernier_rapport', $aujourdhui);
-            Bayam_WA_Regles::au_vendeur($vendeur, self::texte_bilan($vendeur, wp_date('Y-m-d 00:00:00'), "du jour") . "\n\nBonne soirée ! (*rapport 21h* pour changer l'heure)");
+            Bayam_WA_Regles::au_vendeur($vendeur, self::texte_bilan($vendeur, wp_date('Y-m-d 00:00:00'), "du jour") . "\n\nBonne soirée ! (*bayam rapport 21h* pour changer l'heure)");
             if (wp_date('N') === '1') {
                 Bayam_WA_Regles::au_vendeur($vendeur, self::texte_bilan($vendeur, wp_date('Y-m-d 00:00:00', strtotime('monday last week')), 'de la semaine passée'));
             }
@@ -82,7 +82,7 @@ final class Bayam_WA_Rapports
         $table = Bayam_WA_Stockage::table('dettes');
         $dettes = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table WHERE vendeur = %d AND reste > 0 AND client = %s ORDER BY cree", $vendeur, $client));
         if (!$dettes) {
-            return "Je ne trouve pas de dette au nom de {$client}. *dettes* pour voir la liste.";
+            return "Je ne trouve pas de dette au nom de {$client}. *bayam dettes* pour voir la liste.";
         }
         $a_repartir = $montant;
         foreach ($dettes as $d) {
@@ -108,7 +108,7 @@ final class Bayam_WA_Rapports
             $vendeur
         ));
         if (!$lignes) {
-            return '👍 Personne ne vous doit d\'argent. Pour noter une dette : *dette Paul 5000*.';
+            return '👍 Personne ne vous doit d\'argent. Pour noter une dette : *bayam dette Paul 5000*.';
         }
         $total = array_sum(array_map(static fn ($l) => (int) $l->du, $lignes));
         $texte = '📝 *Qui me doit quoi* (' . Bayam_WA_Outils::fcfa($total) . ")\n";

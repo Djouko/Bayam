@@ -33,8 +33,33 @@ final class Bayam_WA_Liens
             exit;
         }
         $wpdb->insert(Bayam_WA_Stockage::table('clics'), ['lien' => $lien->id, 'cree' => current_time('mysql')]);
-        wp_redirect($lien->cible, 302);
+        wp_redirect(self::absolue($lien->cible), 302);
         exit;
+    }
+
+    /**
+     * Les pages du site sont enregistrées sans leur hôte (« /product/polo/ ») : le site change d'adresse selon qu'on
+     * l'ouvre depuis le poste ou depuis un téléphone (tunnel). Les anciens liens en adresse complète sont ramenés au chemin.
+     */
+    private static function relative(string $url): string
+    {
+        $morceaux = wp_parse_url($url);
+        $hote = $morceaux['host'] ?? '';
+        if ($hote !== '' && !in_array($hote, ['localhost', 'wordpress', wp_parse_url(home_url(), PHP_URL_HOST)], true) && !str_ends_with($hote, '.trycloudflare.com')) {
+            return $url; // page d'un autre site
+        }
+        return ($morceaux['path'] ?? '/') . (isset($morceaux['query']) ? '?' . $morceaux['query'] : '');
+    }
+
+    private static function absolue(string $cible): string
+    {
+        return home_url(self::relative($cible));
+    }
+
+    /** Base des liens envoyés sur WhatsApp : l'adresse publique pendant les démonstrations, sinon celle du site. */
+    private static function base(): string
+    {
+        return function_exists('bayam_url_publique') && ($publique = bayam_url_publique()) ? $publique : home_url();
     }
 
     /** Lien court vers $cible (réutilisé s'il existe déjà pour la même boutique, le même canal et le même groupe). */
@@ -42,6 +67,7 @@ final class Bayam_WA_Liens
     {
         global $wpdb;
         $table = Bayam_WA_Stockage::table('liens');
+        $cible = self::relative($cible);
         $code = $wpdb->get_var($wpdb->prepare(
             "SELECT code FROM $table WHERE vendeur = %d AND cible = %s AND canal = %s AND " . ($groupe === null ? 'groupe IS NULL' : $wpdb->prepare('groupe = %s', $groupe)),
             $vendeur, $cible, $canal
@@ -52,7 +78,7 @@ final class Bayam_WA_Liens
             } while ($wpdb->get_var($wpdb->prepare("SELECT 1 FROM $table WHERE code = %s", $code)));
             $wpdb->insert($table, ['code' => $code, 'vendeur' => $vendeur, 'cible' => $cible, 'canal' => $canal, 'groupe' => $groupe, 'produit' => $produit, 'cree' => current_time('mysql')]);
         }
-        return home_url('/b/' . $code);
+        return untrailingslashit(self::base()) . '/b/' . $code;
     }
 
     public static function produit(int $vendeur, WC_Product $p, string $canal = 'whatsapp', ?string $groupe = null): string

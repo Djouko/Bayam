@@ -57,7 +57,7 @@ $nonce = wp_create_nonce('bayam_wa');
       <section class="bwa-carte bwa-succes">
         <div>
           <h3>✅ Connecté : <span id="bwa-numero-connecte"></span></h3>
-          <p>Ouvrez votre discussion <b>« Message à moi-même »</b> (votre propre nom en haut de la liste des contacts) et écrivez <b>menu</b>. Le Copilote répond en quelques secondes.</p>
+          <p>Ouvrez votre discussion <b>« Message à moi-même »</b> (votre propre nom en haut de la liste des contacts) et écrivez <b>bayam menu</b>. Le Copilote ne lit que les messages qui commencent par « bayam » : vos notes personnelles restent les vôtres.</p>
         </div>
         <button class="bwa-bouton bwa-tonal" id="bwa-essai">M'envoyer un message d'essai</button>
       </section>
@@ -75,7 +75,7 @@ $nonce = wp_create_nonce('bayam_wa');
 
       <section class="bwa-carte">
         <h3>Réglages</h3>
-        <div class="bwa-case"><input type="checkbox" id="bwa-mots-cles" <?php checked($reglages['mots_cles']); ?>><label for="bwa-mots-cles">Répondre automatiquement aux clients qui demandent un article (« #robes », « prix des sacs ? »)</label></div>
+        <div class="bwa-case"><input type="checkbox" id="bwa-mots-cles" <?php checked($reglages['mots_cles']); ?>><label for="bwa-mots-cles">Répondre automatiquement aux clients qui demandent un article (« #robes », « bayam robe rouge »)</label></div>
         <div class="bwa-case"><input type="checkbox" id="bwa-rapport" <?php checked($reglages['rapport_actif']); ?>><label for="bwa-rapport">Résumé quotidien des ventes à</label>
           <select id="bwa-heure" aria-label="Heure du résumé quotidien"><?php for ($h = 6; $h <= 23; $h++) : ?><option value="<?php echo $h; ?>" <?php selected((int) $reglages['heure_rapport'], $h); ?>><?php echo $h; ?> h</option><?php endfor; ?></select>
         </div>

@@ -192,7 +192,7 @@ final class Bayam_WA_Page_Vendeur
     public static function ajax_essai(): void
     {
         $vendeur = self::vendeur_ajax();
-        Bayam_WA_Regles::au_vendeur($vendeur, "👋 Message d'essai envoyé depuis votre espace vendeur BAYAM. Votre Copilote est prêt : écrivez *menu*.");
+        Bayam_WA_Regles::au_vendeur($vendeur, "👋 Message d'essai envoyé depuis votre espace vendeur BAYAM. Votre Copilote est prêt : écrivez *bayam menu*.");
         wp_send_json_success(['message' => "Message envoyé dans votre discussion « Message à moi-même »."]);
     }
 

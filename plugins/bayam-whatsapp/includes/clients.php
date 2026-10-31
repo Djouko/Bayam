@@ -2,15 +2,12 @@
 defined('ABSPATH') || exit;
 
 /**
- * Côté clients du vendeur : réponses automatiques aux mots-clés (« #robes », « prix des sacs ? ») et envoi d'une
- * collection. Jamais de premier contact : on répond à qui a écrit, sinon on prépare un lien wa.me que le vendeur
+ * Côté clients du vendeur : réponses automatiques aux messages adressés à BAYAM (« #robes », « bayam robe rouge »)
+ * et envoi d'une collection. Une conversation ordinaire (« combien tu as payé ? ») n'est jamais interprétée. Jamais de premier contact : on répond à qui a écrit, sinon on prépare un lien wa.me que le vendeur
  * envoie lui-même.
  */
 final class Bayam_WA_Clients
 {
-    /** Mots qui montrent qu'un client cherche un article. */
-    private const DEMANDES = ['prix', 'combien', 'dispo', 'disponible', 'disponibles', 'catalogue', 'vous avez', 'avez-vous', 'avez vous', 'je cherche', 'je veux', 'il reste', 'en stock'];
-
     /** Mots sans valeur pour la recherche dans une question de client. */
     private const VIDES = ['prix', 'combien', 'le', 'la', 'les', 'des', 'de', 'du', 'un', 'une', 'vos', 'votre', 'vous', 'avez', 'dispo', 'disponible', 'disponibles',
         'catalogue', 'je', 'cherche', 'veux', 'il', 'reste', 'en', 'stock', 'svp', 'stp', 'bonjour', 'bonsoir', 'salut', 'cest', 'c\'est', 'est', 'ce', 'que', 'quoi', 'pour', 'a', 'et', 'ou', 'avec', 'moi'];
@@ -25,8 +22,13 @@ final class Bayam_WA_Clients
         if ($mots === null) {
             return false;
         }
-        $produits = Bayam_WA_Boutique::chercher($vendeur, $mots, true, 5);
         $boutique = Bayam_WA_Outils::nom_boutique($vendeur);
+        if ($mots === '') {
+            // « bayam » seul : le client découvre l'assistant de la boutique.
+            return Bayam_WA_Regles::repondre($vendeur, $chat, "Bonjour 👋 Je suis l'assistant BAYAM de *{$boutique}*. Écrivez # suivi de l'article recherché, "
+                . "par exemple *#robe* ou *bayam robe rouge* : je vous montre ce qui est en stock, avec les prix et les photos.", $message_id);
+        }
+        $produits = Bayam_WA_Boutique::chercher($vendeur, $mots, true, 5);
         if (!$produits) {
             // Rien en stock : réponse polie, le vendeur garde la main pour proposer autre chose.
             return Bayam_WA_Regles::repondre($vendeur, $chat, "Bonjour 👋 Merci de votre message. Nous n'avons pas « {$mots} » en stock pour le moment chez {$boutique} ; nous revenons vers vous très vite avec d'autres propositions.", $message_id);
@@ -39,25 +41,22 @@ final class Bayam_WA_Clients
             . "\n\nTouchez un lien pour voir les photos et commander, ou dites-nous la taille et la couleur souhaitées.", $message_id);
     }
 
-    /** Mots recherchés si le message est une demande d'article (« #robes », « prix robe rouge ? »), sinon null. */
+    /**
+     * Mots recherchés si le message s'adresse à BAYAM (« #robes », « Bayam, vous avez des robes rouges ? »),
+     * chaîne vide pour « bayam » seul, null pour un message ordinaire.
+     */
     public static function recherche(string $texte): ?string
     {
         $t = Bayam_WA_Outils::normaliser($texte);
         if (preg_match('/^#\s*([\p{L}\d][\p{L}\d \'-]{1,40})$/u', $t, $m)) {
             return trim($m[1]);
         }
-        $demande = false;
-        foreach (self::DEMANDES as $d) {
-            if (str_contains($t, $d)) {
-                $demande = true;
-                break;
-            }
-        }
-        if (!$demande || mb_strlen($t) > 120) {
+        $demande = Bayam_WA_Outils::appel($texte);
+        if ($demande === null || mb_strlen($demande) > 120) {
             return null;
         }
-        $mots = array_filter(preg_split('/[^\p{L}\d]+/u', $t), static fn ($m) => $m !== '' && !in_array($m, self::VIDES, true) && mb_strlen($m) > 1);
-        return $mots ? implode(' ', $mots) : null;
+        $mots = array_filter(preg_split('/[^\p{L}\d]+/u', Bayam_WA_Outils::normaliser($demande)), static fn ($m) => $m !== '' && !in_array($m, self::VIDES, true) && mb_strlen($m) > 1);
+        return implode(' ', $mots);
     }
 
     /** « envoie robes 6 90 00 00 10 » : envoi si le client a déjà écrit au vendeur, sinon lien wa.me prêt à envoyer. */

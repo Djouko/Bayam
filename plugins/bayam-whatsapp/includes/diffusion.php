@@ -26,17 +26,17 @@ final class Bayam_WA_Diffusion
         global $wpdb;
         $r = Bayam_WA_Stockage::reglages($vendeur);
         if (get_user_meta($vendeur, 'bayam_wa_statut', true) !== 'WORKING') {
-            return "Votre WhatsApp n'est pas connecté à BAYAM : je ne peux pas publier pour vous. Écrivez *cartes …* pour recevoir les cartes à transférer vous-même.";
+            return "Votre WhatsApp n'est pas connecté à BAYAM : je ne peux pas publier pour vous. Écrivez *bayam cartes …* pour recevoir les cartes à transférer vous-même.";
         }
         $cibles = $statut ? ['statut' => 'Mon statut'] : $r['groupes'];
         if (!$cibles) {
-            return "Choisissez d'abord vos groupes de publication dans votre espace vendeur BAYAM, rubrique WhatsApp. En attendant : *cartes …* pour les transférer vous-même.";
+            return "Choisissez d'abord vos groupes de publication dans votre espace vendeur BAYAM, rubrique WhatsApp. En attendant : *bayam cartes …* pour les transférer vous-même.";
         }
         $nature = $statut ? 'statut' : 'diffusion';
         $restant = Bayam_WA_Regles::PLAFONDS[$nature] - Bayam_WA_Stockage::envois_depuis($vendeur, wp_date('Y-m-d 00:00:00'), $nature) - self::en_attente($vendeur, $statut ? 'statut' : 'groupe');
         $total = count($cibles) * count($produits);
         if ($restant <= 0) {
-            return "Le nombre de publications du jour est atteint, pour protéger votre numéro. La suite demain, ou transférez les cartes vous-même (*cartes …*).";
+            return "Le nombre de publications du jour est atteint, pour protéger votre numéro. La suite demain, ou transférez les cartes vous-même (*bayam cartes …*).";
         }
         $quand = time();
         $programmes = 0;
@@ -87,7 +87,7 @@ final class Bayam_WA_Diffusion
                 $carte = Bayam_WA_Cartes::carte($p, $lien, $boutique, $d->type === 'statut');
                 $legende = $p->get_name() . ' : ' . Bayam_WA_Outils::fcfa((float) $p->get_price()) . "\nCommander : " . $lien;
                 $r = $d->type === 'statut'
-                    ? Bayam_WA_Waha::client()->statut_image($session, $carte, $legende)
+                    ? Bayam_WA_Waha::client()->statut_image($session, $carte, $legende, Bayam_WA_Stockage::reglages($vendeur)['statut_contacts'])
                     : Bayam_WA_Waha::client()->image($session, $d->chat, $carte, Bayam_WA_Outils::MARQUE . $legende);
                 if (is_wp_error($r)) {
                     $erreur = mb_substr($r->get_error_message(), 0, 250);

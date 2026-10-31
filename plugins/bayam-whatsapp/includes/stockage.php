@@ -108,6 +108,7 @@ final class Bayam_WA_Stockage
             'mots_cles' => true,           // réponses automatiques aux clients qui écrivent « #robes », « prix ? »...
             'groupes' => [],               // groupes choisis pour les publications [id => nom]
             'statut_actif' => true,
+            'statut_contacts' => [],       // numéros qui voient les statuts publiés ; vide = tous les contacts (liste réduite pour les essais)
         ]);
     }
 

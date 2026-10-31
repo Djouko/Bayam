@@ -7,6 +7,36 @@ final class Bayam_WA_Outils
     /** Marque invisible en tête de chaque message envoyé par BAYAM : le Copilote ne se répond jamais à lui-même. */
     public const MARQUE = "\u{2063}";
 
+    /** Mot qui adresse un message à BAYAM, en tête : « bayam stock robe », « Bayam, bilan », « @BAYAM menu ». */
+    public const APPEL = 'bayam';
+
+    /**
+     * Le message s'adresse-t-il à BAYAM ? Rend la demande qui suit le mot « bayam » (chaîne vide pour « bayam » seul),
+     * ou null pour un message ordinaire, que BAYAM ne doit ni garder ni interpréter. Majuscules, accents, ponctuation
+     * et une faute de frappe sont tolérés (« Bayan », « bayamm », « bayma ») ; « bayam-sellam » reste un mot ordinaire.
+     */
+    public static function appel(string $texte): ?string
+    {
+        if (!preg_match('/^\s*[@\/]?\s*(\p{L}{3,7})(?=$|[\s,:;.!?])[\s,:;.!?]*(.*)$/su', $texte, $m)) {
+            return null;
+        }
+        return self::proche(remove_accents(mb_strtolower($m[1])), self::APPEL) ? trim($m[2]) : null;
+    }
+
+    /** Au plus une faute : lettre en trop, en moins, remplacée, ou deux lettres voisines interverties. */
+    private static function proche(string $mot, string $cible): bool
+    {
+        if (levenshtein($mot, $cible) <= 1) {
+            return true;
+        }
+        if (strlen($mot) !== strlen($cible)) {
+            return false;
+        }
+        $ecarts = array_keys(array_diff_assoc(str_split($mot), str_split($cible)));
+        return count($ecarts) === 2 && $ecarts[1] === $ecarts[0] + 1
+            && $mot[$ecarts[0]] === $cible[$ecarts[1]] && $mot[$ecarts[1]] === $cible[$ecarts[0]];
+    }
+
     /** Minuscules, sans accents ni espaces superflus : « Robe  Rouge » et « robe rouge » se valent. */
     public static function normaliser(string $texte): string
     {

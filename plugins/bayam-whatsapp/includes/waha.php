@@ -152,9 +152,14 @@ class Bayam_WA_Waha
         return $this->appel('GET', "/api/$session/groups", null, ['limit' => $limite, 'offset' => $decalage, 'sortBy' => 'subject', 'sortOrder' => 'asc'], 40);
     }
 
-    public function statut_image(string $session, array $fichier, string $legende = '')
+    /** $contacts vide : statut vu par tous les contacts ; sinon, seulement par ces numéros. */
+    public function statut_image(string $session, array $fichier, string $legende = '', array $contacts = [])
     {
-        return $this->appel('POST', "/api/$session/status/image", ['file' => $fichier, 'caption' => $legende], [], 40);
+        $corps = ['file' => $fichier, 'caption' => $legende];
+        if ($contacts) {
+            $corps['contacts'] = array_map([Bayam_WA_Outils::class, 'chat_id'], $contacts);
+        }
+        return $this->appel('POST', "/api/$session/status/image", $corps, [], 40);
     }
 
     // --- Médias reçus ------------------------------------------------------------------------------------------
