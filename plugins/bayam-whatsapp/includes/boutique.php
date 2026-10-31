@@ -13,24 +13,26 @@ final class Bayam_WA_Boutique
             $choix = $tous;
         } else {
             $racines = array_map([self::class, 'racine'], explode(' ', $mots));
-            $choix = array_filter($tous, static function (WC_Product $p) use ($racines) {
+            // Nombre de mots de la demande retrouvés dans le nom ou la catégorie de chaque produit.
+            $scores = [];
+            foreach ($tous as $i => $p) {
                 $nom = Bayam_WA_Outils::normaliser($p->get_name() . ' ' . implode(' ', wp_get_post_terms($p->get_id(), 'product_cat', ['fields' => 'names'])));
-                $mots_nom = array_map([self::class, 'racine'], explode(' ', $nom));
-                foreach ($racines as $r) {
-                    $trouve = false;
+                $mots_nom = array_map([self::class, 'racine'], preg_split('/[\s-]+/', $nom));
+                $scores[$i] = count(array_filter($racines, static function (string $r) use ($mots_nom) {
                     foreach ($mots_nom as $m) {
                         // Égalité, préfixe (« rob » pour « robe ») ou une seule faute de frappe sur un mot de 5 lettres ou plus.
                         if ($m === $r || (strlen($r) >= 3 && str_starts_with($m, $r)) || (strlen($r) >= 5 && levenshtein($m, $r) <= 1)) {
-                            $trouve = true;
-                            break;
+                            return true;
                         }
                     }
-                    if (!$trouve) {
-                        return false;
-                    }
-                }
-                return true;
-            });
+                    return false;
+                }));
+            }
+            // Tous les mots d'abord ; sinon les produits qui en ont le plus : « polo rouge », « robe taille L »
+            // (la couleur et la taille servent ensuite à dire ce qui est disponible, pas à écarter l'article).
+            $meilleur = $scores ? max($scores) : 0;
+            $seuil = $meilleur === count($racines) ? $meilleur : max(1, $meilleur);
+            $choix = $meilleur ? array_values(array_filter($tous, static fn ($p, $i) => $scores[$i] >= $seuil, ARRAY_FILTER_USE_BOTH)) : [];
         }
         if ($en_stock) {
             $choix = array_filter($choix, static fn (WC_Product $p) => $p->is_in_stock());
@@ -310,7 +312,13 @@ final class Bayam_WA_Boutique
     public static function creer_promo(int $vendeur, string $code, float $valeur, bool $pourcentage)
     {
         $code = strtoupper(sanitize_text_field($code));
-        if (wc_get_coupon_id_by_code($code)) {
+        $existant = wc_get_coupon_id_by_code($code);
+        if ($existant && get_post_type($existant) !== 'shop_coupon') {
+            // Identifiant périmé (coupon supprimé sans passer par WooCommerce) : cache des codes vidé, puis relu.
+            WC_Cache_Helper::invalidate_cache_group('coupons');
+            $existant = wc_get_coupon_id_by_code($code);
+        }
+        if ($existant && get_post_status($existant) !== 'trash') {
             return new WP_Error('existe', "Le code $code existe déjà.");
         }
         $coupon = new WC_Coupon();

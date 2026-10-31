@@ -36,3 +36,11 @@ add_filter( 'pre_option_woocommerce_checkout_phone_field', function () {
 add_filter( 'pre_option_time_format', function () {
 	return 'H:i';
 } );
+
+// Coupon supprimé (espace vendeur, administration ou suppression directe) : WooCommerce garde en cache
+// « code => identifiant », et avec le cache persistant Redis un code supprimé paraît encore pris.
+add_action( 'deleted_post', function ( $id, $article ) {
+	if ( $article instanceof WP_Post && 'shop_coupon' === $article->post_type && class_exists( 'WC_Cache_Helper' ) ) {
+		WC_Cache_Helper::invalidate_cache_group( 'coupons' );
+	}
+}, 10, 2 );

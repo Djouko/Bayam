@@ -51,6 +51,13 @@ foreach (['dettes', 'diffusions', 'wa_messages', 'liens'] as $table) {
 // Le travailleur permanent se met en pause : il n'enverra pas pour de vrai les publications des essais.
 update_option('bayam_wa_essais_jusqua', time() + 600, false);
 $faux = $GLOBALS['faux'] = new Bayam_Faux_Waha();
+// Restes d'un passage interrompu : code promo d'essai, compteurs de rafale des clients d'essai.
+foreach ($wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'shop_coupon' AND post_title = 'bayamessai'") as $id_coupon) {
+    wp_delete_post((int) $id_coupon, true);
+}
+foreach (['237677000001@c.us', '237677000002@c.us'] as $chat_essai) {
+    delete_transient('bayam_wa_rafale_' . md5($vendeur . '|' . $chat_essai));
+}
 Bayam_WA_Waha::remplacer($faux);
 update_user_meta($vendeur, 'bayam_wa_moi', '237690000003@c.us');
 update_user_meta($vendeur, 'bayam_wa_statut', 'WORKING');
@@ -217,6 +224,54 @@ Bayam_WA_Webhook::evenement(['event' => 'message.any', 'session' => 'boutique-3'
 ]]);
 bayam_verifier('message rejoué une heure après (reconnexion) : pas de réponse tardive', $faux->envois === [], array_column($faux->envois, 'chemin'));
 
+echo "\nClients camerounais (couleur, taille, anglais, pidgin, réponses aux cartes, rafales)\n";
+// Un numéro par cas : la limite de rafale (6 réponses par discussion en 10 min) ne doit pas fausser les essais.
+$client_n = static fn (int $n) => sprintf('2376770001%02d@c.us', $n);
+foreach (range(1, 12) as $n) {
+    delete_transient('bayam_wa_rafale_' . md5($vendeur . '|' . $client_n($n)));
+}
+$r = bayam_dire('#polo rouge', $client_n(1), false);
+bayam_verifier('« #polo rouge » : le Polo est proposé (la couleur n’écarte pas l’article)', str_contains($joint($r), '*Polo*'), $r);
+$r = bayam_dire('Bayam vous avez le sweat à capuche en rouge svp ?', $client_n(2), false);
+bayam_verifier('sweat en rouge : la déclinaison rouge annoncée disponible', str_contains($joint($r), 'Sweat à capuche') && str_contains($joint($r), 'Rouge') && str_contains($joint($r), 'disponible'), $r);
+$r = bayam_dire('bayam do you have red hoodie please', $client_n(3), false);
+bayam_verifier('client anglophone : réponse en anglais, sweat proposé', str_contains($joint($r), 'Hello') && str_contains($joint($r), 'Sweat'), $r);
+$r = bayam_dire('Bayam una get cap?', $client_n(4), false);
+bayam_verifier('pidgin « una get cap » : casquettes, réponse en anglais', str_contains($joint($r), 'Hello') && str_contains($joint($r), 'Casquette'), $r);
+$r = bayam_dire('#shoes', $client_n(5), false);
+bayam_verifier('« #shoes » absent : réponse polie en anglais', str_contains($joint($r), "We don't have"), $r);
+$lien_polo = Bayam_WA_Liens::produit($vendeur, wc_get_product(25), 'statut');
+$cite = static function (string $texte, string $quote, string $de) use ($faux, $joint) {
+    $faux->envois = [];
+    Bayam_WA_Webhook::evenement(['event' => 'message.any', 'session' => 'boutique-3', 'payload' => [
+        'id' => 'false_' . wp_generate_password(10, false), 'from' => $de, 'fromMe' => false, 'body' => $texte,
+        'replyTo' => ['id' => 'CARTE1', 'body' => $quote],
+    ]]);
+    return array_values(array_filter(array_map(static fn ($e) => (string) ($e['corps']['text'] ?? ''), $faux->envois)));
+};
+$r = $cite('C\'est combien ?', "Polo : 12 000 FCFA\nCommander : $lien_polo", $client_n(6));
+bayam_verifier('réponse « C’est combien ? » à un statut BAYAM : prix du Polo', str_contains($joint($r), '*Polo*') && str_contains($joint($r), "12\u{202F}000"), $r);
+$r = $cite('Dispo en L ?', "Sweat à capuche : 25 200 FCFA\nCommander : " . Bayam_WA_Liens::produit($vendeur, wc_get_product(15), 'groupe'), $client_n(7));
+bayam_verifier('réponse « Dispo en L ? » à une carte BAYAM : disponibilité du sweat', str_contains($joint($r), 'Sweat à capuche') && str_contains($joint($r), 'Disponible en'), $r);
+$r = $cite('Ok à demain alors', 'Tu viens à quelle heure ?', $client_n(8));
+bayam_verifier('réponse à un message personnel : silence', $r === [], $r);
+$r = $cite('Merci !', 'Lien inconnu https://exemple.cm/b/ZZZZZZ', $client_n(9));
+bayam_verifier('citation d’un lien qui n’est pas de cette boutique : silence', $r === [], $r);
+foreach (range(1, 6) as $i) {
+    bayam_dire('#polo', $client_n(10), false);
+}
+$r = bayam_dire('#polo', $client_n(10), false);
+bayam_verifier('rafale : la 7e demande en 10 min reste sans réponse automatique', $r === [], $r);
+$r = bayam_dire('bayam lien 15k Mama Nkeng', '237690000003@c.us', true);
+bayam_verifier('« 15k » compris comme 15 000 FCFA', str_contains($joint($r), "15\u{202F}000") && str_contains($joint($r), 'Mama Nkeng'), $r);
+$r = bayam_dire('bayam lien 7 500 F Tata Odile', '237690000003@c.us', true);
+bayam_verifier('« 7 500 F » compris', str_contains($joint($r), "7\u{202F}500") && str_contains($joint($r), 'Tata Odile'), $r);
+$r = bayam_dire('bayam envoie polo +237 6 99 99 99 99', '237690000003@c.us', true);
+bayam_verifier('numéro au format +237 compris', str_contains($joint($r), 'wa.me/237699999999'), $r);
+foreach (range(1, 12) as $n) {
+    delete_transient('bayam_wa_rafale_' . md5($vendeur . '|' . $client_n($n)));
+}
+
 echo "\nEnvoi d'une collection\n";
 $r = bayam_dire('bayam envoie polo 6 77 00 00 01');
 bayam_verifier('client qui a déjà écrit : collection envoyée', str_contains($joint($r), 'Collection envoyée'), $r);
@@ -287,8 +342,8 @@ foreach ($wpdb->get_results("SELECT ID, message FROM {$wpdb->prefix}wcfm_message
 }
 // Alertes de stock faible déclenchées par les mouvements de stock des essais (le stock est rétabli plus bas).
 $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}wcfm_messages WHERE message_type = 'product_lowstk' AND created >= %s", $debut));
-if ($id = wc_get_coupon_id_by_code('BAYAMESSAI')) {
-    wp_delete_post($id, true);
+foreach ($wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'shop_coupon' AND post_title = 'bayamessai'") as $id_coupon) {
+    wp_delete_post((int) $id_coupon, true);
 }
 foreach (get_posts(['post_type' => 'product', 'author' => 3, 'date_query' => [['after' => $debut, 'inclusive' => true]], 'numberposts' => 10, 'post_status' => 'any']) as $p) {
     $w = wc_get_product($p->ID);

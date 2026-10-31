@@ -176,7 +176,9 @@ final class Bayam_WA_Webhook
         $equipe = $commande !== null && in_array($numero, $reglages['equipe'], true);
         // Vie privée : on garde la trace qu'un client a écrit (jamais de premier contact sinon), mais le texte
         // seulement s'il s'adresse à BAYAM (commande d'équipe, demande d'article).
-        $pour_bayam = $equipe || ($reglages['mots_cles'] && Bayam_WA_Clients::recherche($texte) !== null);
+        // Réponse à une carte, un statut ou une liste de BAYAM (« Dispo en L ? ») : le message parle de ces articles.
+        $cites = $reglages['mots_cles'] && !empty($m['replyTo']['body']) ? Bayam_WA_Clients::produits_cites($vendeur, (string) $m['replyTo']['body']) : [];
+        $pour_bayam = $equipe || $cites || ($reglages['mots_cles'] && Bayam_WA_Clients::recherche($texte) !== null);
         Bayam_WA_Stockage::noter_message($vendeur, $chat, 'in', $pour_bayam ? $texte : '', $id !== '' ? $id : null, 'texte', $numero);
         if ($equipe) {
             foreach (Bayam_WA_Copilote::traiter($vendeur, $commande, self::photo($m), true) as $reponse) {
@@ -185,7 +187,7 @@ final class Bayam_WA_Webhook
             return;
         }
         if ($frais) {
-            Bayam_WA_Clients::message($vendeur, $chat, $texte, $id !== '' ? $id : null);
+            Bayam_WA_Clients::message($vendeur, $chat, $texte, $id !== '' ? $id : null, $cites);
         }
     }
 
