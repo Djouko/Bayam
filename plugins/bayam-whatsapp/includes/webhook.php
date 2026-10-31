@@ -53,10 +53,19 @@ final class Bayam_WA_Webhook
         }
         // Un même événement peut arriver deux fois (nouvel essai de WAHA) : son identifiant unique le dédoublonne.
         // Le travailleur lit cette table en continu : aucune autre file à alimenter, la réponse à WAHA reste immédiate.
-        $wpdb->query($wpdb->prepare(
+        $insere = $wpdb->query($wpdb->prepare(
             'INSERT IGNORE INTO ' . Bayam_WA_Stockage::table('wa_evenements') . ' (evt_id, session, type, charge, recu) VALUES (%s, %s, %s, %s, %s)',
             mb_substr((string) ($evt['id'] ?? wp_generate_uuid4()), 0, 64), sanitize_key($evt['session']), sanitize_text_field((string) $evt['event']), $requete->get_body(), current_time('mysql')
         ));
+        // Réveil immédiat des travailleurs (sans Redis, ils relisent la base toutes les demi-secondes).
+        if ($insere && ($redis = Bayam_WA_Outils::redis())) {
+            try {
+                $redis->lPush(Bayam_WA_Outils::FILE_EVENEMENTS, '1');
+                $redis->lTrim(Bayam_WA_Outils::FILE_EVENEMENTS, 0, 999);
+            } catch (Throwable $e) {
+                Bayam_WA_Outils::journal('Redis indisponible', ['erreur' => $e->getMessage()]);
+            }
+        }
         return new WP_REST_Response(['ok' => true], 200);
     }
 

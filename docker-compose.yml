@@ -19,8 +19,17 @@ services:
       interval: 5s
       retries: 30
 
+  # Redis : cache d'objets persistant de WordPress et signal de réveil du travailleur à chaque événement WhatsApp.
+  # Données reconstituables (la base reste la référence) : pas d'écriture sur disque, éviction des clés anciennes.
+  redis:
+    image: redis:8.2.2-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+
   wordpress:
-    image: wordpress:7.0.4-php8.3-apache
+    # Image officielle + extension PHP Redis (images/wordpress/Dockerfile).
+    image: bayam/wordpress:7.0.4-redis
+    build: images/wordpress
     restart: unless-stopped
     depends_on:
       db:
@@ -37,9 +46,15 @@ services:
         define('WP_HOME', 'http://localhost:8080');
         define('WP_SITEURL', 'http://localhost:8080');
         define('WP_MEMORY_LIMIT', '256M');
+        define('WP_REDIS_HOST', 'redis');
+        define('WP_REDIS_PREFIX', 'bayam:');
       # Connecteur WhatsApp (WAHA) : appelé par l'extension BAYAM WhatsApp.
       WAHA_URL: http://waha:3000
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
+      BAYAM_REDIS: redis
+      CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
+      CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
+      CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
       WAHA_API_KEY: ${WAHA_API_KEY}
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
     volumes:
@@ -48,6 +63,7 @@ services:
       # Code BAYAM suivi ici : charte des pages vendeur (mu-plugins) et extension WhatsApp.
       - ./mu-plugins:/var/www/html/wp-content/mu-plugins
       - ./plugins/bayam-whatsapp:/var/www/html/wp-content/plugins/bayam-whatsapp
+      - ./plugins/bayam-cinetpay:/var/www/html/wp-content/plugins/bayam-cinetpay
       - ./themes/bayam-vitrine:/var/www/html/wp-content/themes/bayam-vitrine
 
   # WhatsApp en mode connecté (appareil lié par QR code), connecteur libre WAHA, moteur GOWS sans navigateur.
@@ -81,7 +97,8 @@ services:
   # Travailleur BAYAM : traite les messages WhatsApp en moins d'une seconde et les tâches programmées
   # (publications étalées, rapports), indépendamment des visites du site.
   travailleur:
-    image: wordpress:cli-2.12.0-php8.3
+    image: bayam/wp-cli:2.12.0-redis
+    build: images/wp-cli
     restart: unless-stopped
     user: "33:33"
     depends_on:
@@ -92,8 +109,15 @@ services:
       WORDPRESS_DB_NAME: wordpress
       WORDPRESS_DB_USER: wordpress
       WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_REDIS_HOST', 'redis');
+        define('WP_REDIS_PREFIX', 'bayam:');
       WAHA_URL: http://waha:3000
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
+      BAYAM_REDIS: redis
+      CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
+      CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
+      CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
       WAHA_API_KEY: ${WAHA_API_KEY}
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
       TZ: Africa/Douala
@@ -101,10 +125,11 @@ services:
       - wp:/var/www/html
       - ./mu-plugins:/var/www/html/wp-content/mu-plugins
       - ./plugins/bayam-whatsapp:/var/www/html/wp-content/plugins/bayam-whatsapp
+      - ./plugins/bayam-cinetpay:/var/www/html/wp-content/plugins/bayam-cinetpay
       - ./themes/bayam-vitrine:/var/www/html/wp-content/themes/bayam-vitrine
 
   cli:
-    image: wordpress:cli-2.12.0-php8.3
+    image: bayam/wp-cli:2.12.0-redis
     profiles: ["outils"]
     user: "33:33"
     depends_on:
@@ -119,8 +144,15 @@ services:
       WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD}
       WP_VENDOR_PASSWORD: ${WP_VENDOR_PASSWORD}
       WP_CLI_CACHE_DIR: /tmp/wp-cli-cache
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_REDIS_HOST', 'redis');
+        define('WP_REDIS_PREFIX', 'bayam:');
       WAHA_URL: http://waha:3000
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
+      BAYAM_REDIS: redis
+      CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
+      CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
+      CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
       WAHA_API_KEY: ${WAHA_API_KEY}
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
       WP_CLI_CONFIG_PATH: /scripts/wp-cli.yml
@@ -129,6 +161,7 @@ services:
       - ./scripts:/scripts
       - ./mu-plugins:/var/www/html/wp-content/mu-plugins
       - ./plugins/bayam-whatsapp:/var/www/html/wp-content/plugins/bayam-whatsapp
+      - ./plugins/bayam-cinetpay:/var/www/html/wp-content/plugins/bayam-cinetpay
       - ./themes/bayam-vitrine:/var/www/html/wp-content/themes/bayam-vitrine
 
 volumes:

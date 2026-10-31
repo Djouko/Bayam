@@ -6,6 +6,29 @@ defined('ABSPATH') || exit;
  * traite les événements WhatsApp en moins d'une seconde et fait tourner les tâches programmées (publications
  * étalées, rapports), sans dépendre des visites du site comme le cron de WordPress.
  */
+/**
+ * Attente du prochain événement : jusqu'à 1 s sur la file Redis (réveil immédiat par le webhook), sinon une
+ * demi-seconde. Plusieurs travailleurs peuvent tourner (« docker compose up --scale travailleur=3 ») : chaque
+ * événement et chaque publication est réservé atomiquement en base.
+ */
+final class Bayam_WA_Travailleur
+{
+    public static function attendre(): void
+    {
+        $redis = Bayam_WA_Outils::redis();
+        if (!$redis) {
+            usleep(500000);
+            return;
+        }
+        try {
+            $redis->brPop([Bayam_WA_Outils::FILE_EVENEMENTS], 1);
+        } catch (Throwable $e) {
+            Bayam_WA_Outils::redis(true); // connexion perdue : nouvelle tentative au tour suivant
+            usleep(500000);
+        }
+    }
+}
+
 if (defined('WP_CLI') && WP_CLI) {
     WP_CLI::add_command('bayam-wa travailleur', static function ($args, $options) {
         $fin = time() + (int) ($options['duree'] ?? 3600); // redémarré par Docker toutes les heures (mémoire propre)
@@ -35,9 +58,10 @@ if (defined('WP_CLI') && WP_CLI) {
             }
             $ids = $wpdb->get_col('SELECT id FROM ' . Bayam_WA_Stockage::table('wa_evenements') . ' WHERE traite = 0 ORDER BY id LIMIT 20');
             if ($ids || time() >= $prochaine_file) {
-                // Le cache de WordPress vit aussi longtemps que ce processus : sans ce vidage, un réglage changé
-                // sur la page vendeur (groupes, réponses automatiques) ne serait vu qu'au prochain redémarrage.
-                wp_cache_flush();
+                // La copie du cache gardée en mémoire par ce processus vieillit : sans ce vidage, un réglage changé
+                // sur la page vendeur ne serait vu qu'au redémarrage. Avec Redis, seule cette copie locale est vidée
+                // (le cache partagé du site reste intact) ; sans Redis, cela revient à vider le cache du processus.
+                wp_cache_flush_runtime();
             }
             foreach ($ids as $id) {
                 Bayam_WA_Webhook::traiter((int) $id);
@@ -54,7 +78,7 @@ if (defined('WP_CLI') && WP_CLI) {
             }
             $wpdb->flush();
             if (!$ids) {
-                usleep(500000);
+                Bayam_WA_Travailleur::attendre();
             }
         }
     });

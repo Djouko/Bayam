@@ -7,6 +7,33 @@ final class Bayam_WA_Outils
     /** Marque invisible en tête de chaque message envoyé par BAYAM : le Copilote ne se répond jamais à lui-même. */
     public const MARQUE = "\u{2063}";
 
+    /** File Redis qui réveille les travailleurs à chaque nouvel événement WhatsApp. */
+    public const FILE_EVENEMENTS = 'bayam:evenements';
+
+    /**
+     * Connexion Redis (service BAYAM_REDIS), ou null : tout fonctionne aussi sans Redis, en relisant la base.
+     * $neuve force une nouvelle connexion (travailleur permanent après une coupure).
+     */
+    public static function redis(bool $neuve = false): ?Redis
+    {
+        static $connexion = false;
+        if ($connexion === false || $neuve) {
+            $connexion = null;
+            $hote = getenv('BAYAM_REDIS');
+            if ($hote && class_exists('Redis')) {
+                try {
+                    $r = new Redis();
+                    if ($r->connect($hote, 6379, 1.0)) {
+                        $connexion = $r;
+                    }
+                } catch (Throwable $e) {
+                    self::journal('Redis indisponible', ['erreur' => $e->getMessage()]);
+                }
+            }
+        }
+        return $connexion;
+    }
+
     /** Mot qui adresse un message à BAYAM, en tête : « bayam stock robe », « Bayam, bilan », « @BAYAM menu ». */
     public const APPEL = 'bayam';
 
