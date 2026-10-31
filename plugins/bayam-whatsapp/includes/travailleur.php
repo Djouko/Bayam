@@ -10,6 +10,7 @@ if (defined('WP_CLI') && WP_CLI) {
     WP_CLI::add_command('bayam-wa travailleur', static function ($args, $options) {
         $fin = time() + (int) ($options['duree'] ?? 3600); // redémarré par Docker toutes les heures (mémoire propre)
         $prochaine_file = 0;
+        $prochaine_diffusion = 0;
         // Le code chargé reste en mémoire : à la moindre mise à jour de l'extension, on s'arrête et Docker relance.
         $version = static function (): int {
             clearstatcache();
@@ -40,6 +41,11 @@ if (defined('WP_CLI') && WP_CLI) {
             }
             foreach ($ids as $id) {
                 Bayam_WA_Webhook::traiter((int) $id);
+            }
+            if (time() >= $prochaine_diffusion) {
+                // Publications dues : lues ici toutes les 10 s, sans attendre la file des tâches programmées.
+                Bayam_WA_Diffusion::traiter_file();
+                $prochaine_diffusion = time() + 10;
             }
             if (time() >= $prochaine_file && class_exists('ActionScheduler_QueueRunner')) {
                 // Tâches dues (publications étalées chaque minute, rapports chaque heure) du groupe de l'extension.

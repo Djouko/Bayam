@@ -26,7 +26,24 @@ class Bayam_WA_Waha
     }
 
     /** @return array|WP_Error */
+    /**
+     * Pendant une reconnexion à WhatsApp (coupure réseau, quelques secondes), WAHA refuse les envois : on réessaie
+     * après 3, puis 8 secondes, plutôt que de perdre la réponse au client.
+     */
     protected function appel(string $methode, string $chemin, ?array $corps = null, array $requete = [], int $delai = 20)
+    {
+        $r = $this->appel_une_fois($methode, $chemin, $corps, $requete, $delai);
+        foreach ([3, 8] as $pause) {
+            if (!is_wp_error($r) || $methode !== 'POST' || !str_contains($r->get_error_message(), 'Session status is not as expected')) {
+                break;
+            }
+            sleep($pause);
+            $r = $this->appel_une_fois($methode, $chemin, $corps, $requete, $delai);
+        }
+        return $r;
+    }
+
+    private function appel_une_fois(string $methode, string $chemin, ?array $corps, array $requete, int $delai)
     {
         $url = $this->url() . $chemin . ($requete ? '?' . http_build_query($requete) : '');
         $reponse = wp_remote_request($url, [
@@ -66,8 +83,9 @@ class Bayam_WA_Waha
         $config = [
             'metadata' => ['bayam.vendeur' => (string) $vendeur],
             'client' => ['deviceName' => 'BAYAM', 'browserName' => 'Chrome'],
-            // Les statuts publiés par les contacts et les chaînes ne servent pas à la boutique : WAHA ne les transmet pas.
-            'ignore' => ['status' => true, 'channels' => true],
+            // Messages de groupes, statuts, chaînes et listes de diffusion : jamais lus par BAYAM, donc jamais envoyés
+            // (un commerçant actif est dans des centaines de groupes : c'est l'essentiel du trafic).
+            'ignore' => ['status' => true, 'channels' => true, 'groups' => true, 'broadcast' => true],
             'webhooks' => [[
                 'url' => bayam_wa_url_interne('/wp-json/bayam/v1/whatsapp/webhook'),
                 'events' => ['message.any', 'session.status'],

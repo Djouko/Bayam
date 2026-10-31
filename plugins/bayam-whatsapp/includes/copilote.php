@@ -89,6 +89,8 @@ final class Bayam_WA_Copilote
             return $refus;
         }
         $reste = $this->sans_pin($reste);
+        // Les noms de clients gardent leurs accents (« Nadège ») : même découpage, sans retirer les accents.
+        $avec_accents = $this->sans_pin(array_pad(explode(' ', mb_strtolower(preg_replace('/\s+/u', ' ', trim($message)), 'UTF-8'), 2), 2, '')[1]);
         return match ($intention) {
             'menu' => [['texte' => $this->menu()]],
             'catalogue' => $this->catalogue($reste),
@@ -98,12 +100,12 @@ final class Bayam_WA_Copilote
             'envoie' => $this->envoyer_collection($reste),
             'stock' => $this->stock($reste),
             'vendu' => $this->vendu($reste),
-            'lien' => $this->lien($reste),
+            'lien' => $this->lien($avec_accents),
             'commandes' => $this->commandes(),
             'bilan' => $this->bilan($reste),
             'client' => $this->client($reste),
-            'dettes' => $this->dettes($reste),
-            'paye' => $this->paye($reste),
+            'dettes' => $this->dettes($avec_accents),
+            'paye' => $this->paye($avec_accents),
             'promo' => $this->promo($reste),
             'groupes' => $this->groupes(),
             'boutique' => $this->lien_boutique(),
@@ -142,9 +144,23 @@ final class Bayam_WA_Copilote
         if ($pin === '') {
             return [['texte' => "Cette action est réservée au propriétaire de la boutique tant qu'il n'a pas choisi de code PIN pour l'équipe (commande *bayam pin 1234* dans sa discussion « Message à moi-même »)."]];
         }
-        if (!preg_match('/\bpin\s*(\d{4,6})$/', $texte, $m) || !hash_equals($pin, $m[1])) {
+        // Un code de 4 chiffres se devine par essais : après 5 erreurs en 15 minutes, actions sensibles bloquées.
+        $compteur = 'bayam_wa_pin_echecs_' . $this->vendeur;
+        $echecs = (int) get_transient($compteur);
+        if ($echecs >= 5) {
+            return [['texte' => "🔒 Trop de codes PIN erronés : les actions sensibles de l'équipe sont bloquées pendant 15 minutes."]];
+        }
+        if (!preg_match('/\bpin\s*(\d{4,6})$/', $texte, $m)) {
             return [['texte' => "Action sensible : ajoutez le code PIN de la boutique à la fin du message, par exemple « … pin 1234 »."]];
         }
+        if (!hash_equals($pin, $m[1])) {
+            set_transient($compteur, ++$echecs, 15 * MINUTE_IN_SECONDS);
+            if ($echecs === 5) {
+                Bayam_WA_Regles::au_vendeur($this->vendeur, "⚠️ 5 codes PIN erronés viennent d'être tapés par un numéro de votre équipe. Les ventes, liens, promos et dettes de l'équipe sont bloqués 15 minutes. Si ce n'est pas normal, changez le code : *bayam pin 1234*.");
+            }
+            return [['texte' => 'Code PIN incorrect. Vérifiez-le auprès du propriétaire de la boutique.']];
+        }
+        delete_transient($compteur);
         return null;
     }
 

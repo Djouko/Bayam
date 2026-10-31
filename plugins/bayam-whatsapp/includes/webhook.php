@@ -8,6 +8,9 @@ defined('ABSPATH') || exit;
  */
 final class Bayam_WA_Webhook
 {
+    /** Âge maximal (secondes) d'un message auquel BAYAM répond encore. */
+    private const FRAICHEUR = 900;
+
     public static function init(): void
     {
         add_action('rest_api_init', static function () {
@@ -17,7 +20,6 @@ final class Bayam_WA_Webhook
                 'permission_callback' => [self::class, 'signature_valide'],
             ]);
         });
-        add_action('bayam_wa_evenement', [self::class, 'traiter'], 10, 1);
     }
 
     /** Signature HMAC de WAHA (en-têtes X-Webhook-Hmac et X-Webhook-Hmac-Algorithm) sur le corps brut. */
@@ -42,14 +44,19 @@ final class Bayam_WA_Webhook
         if (!is_array($evt) || empty($evt['session']) || empty($evt['event'])) {
             return new WP_REST_Response(['ok' => false], 400);
         }
+        // Groupes, chaînes, statuts et listes de diffusion ne pilotent rien : écartés avant toute écriture (WAHA les
+        // filtre déjà, sauf ceux qu'il rejoue à la reconnexion).
+        $info = (array) ($evt['payload']['_data']['Info'] ?? []);
+        $chat = (string) (($info['Chat'] ?? '') ?: ($evt['payload']['from'] ?? ''));
+        if ($evt['event'] === 'message.any' && preg_match('/@g\.us|@newsletter|@broadcast|^status@/', $chat)) {
+            return new WP_REST_Response(['ok' => true, 'ignore' => true], 200);
+        }
         // Un même événement peut arriver deux fois (nouvel essai de WAHA) : son identifiant unique le dédoublonne.
-        $insere = $wpdb->query($wpdb->prepare(
+        // Le travailleur lit cette table en continu : aucune autre file à alimenter, la réponse à WAHA reste immédiate.
+        $wpdb->query($wpdb->prepare(
             'INSERT IGNORE INTO ' . Bayam_WA_Stockage::table('wa_evenements') . ' (evt_id, session, type, charge, recu) VALUES (%s, %s, %s, %s, %s)',
             mb_substr((string) ($evt['id'] ?? wp_generate_uuid4()), 0, 64), sanitize_key($evt['session']), sanitize_text_field((string) $evt['event']), $requete->get_body(), current_time('mysql')
         ));
-        if ($insere) {
-            as_enqueue_async_action('bayam_wa_evenement', [(int) $wpdb->insert_id], 'bayam-whatsapp');
-        }
         return new WP_REST_Response(['ok' => true], 200);
     }
 
@@ -135,6 +142,12 @@ final class Bayam_WA_Webhook
         }
         // Seuls les messages qui commencent par « bayam » (ou la légende d'une photo) s'adressent à BAYAM.
         $demande = Bayam_WA_Outils::appel($texte);
+        // Message ancien rejoué par WhatsApp à la reconnexion (après une coupure) : répondre des heures plus tard
+        // surprendrait le client et répéterait une réponse déjà faite. On garde la trace, sans répondre.
+        $frais = time() - (int) ($m['timestamp'] ?? time()) <= self::FRAICHEUR;
+        if (!$frais) {
+            $demande = null;
+        }
 
         if (!empty($m['fromMe'])) {
             // « Message à moi-même » est le Copilote, mais le vendeur y garde aussi ses notes : sans « bayam », on se tait.
@@ -162,7 +175,9 @@ final class Bayam_WA_Webhook
             }
             return;
         }
-        Bayam_WA_Clients::message($vendeur, $chat, $texte, $id !== '' ? $id : null);
+        if ($frais) {
+            Bayam_WA_Clients::message($vendeur, $chat, $texte, $id !== '' ? $id : null);
+        }
     }
 
     /** Photo jointe au message, téléchargée seulement quand le message s'adresse à BAYAM. */

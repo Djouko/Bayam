@@ -62,7 +62,7 @@ final class Bayam_WA_Diffusion
     private static function en_attente(int $vendeur, string $type): int
     {
         global $wpdb;
-        return (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . Bayam_WA_Stockage::table('diffusions') . " WHERE vendeur = %d AND type = %s AND statut = 'attente'", $vendeur, $type));
+        return (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . Bayam_WA_Stockage::table('diffusions') . " WHERE vendeur = %d AND type = %s AND statut IN ('attente', 'envoi')", $vendeur, $type));
     }
 
     /** Envoie les publications arrivées à échéance (au plus 4 par minute) et prévient le vendeur à la fin d'une série. */
@@ -73,6 +73,10 @@ final class Bayam_WA_Diffusion
         $dues = $wpdb->get_results($wpdb->prepare("SELECT * FROM $table WHERE statut = 'attente' AND prevu <= %s ORDER BY prevu LIMIT 4", current_time('mysql')));
         $vendeurs = [];
         foreach ($dues as $d) {
+            // Réservation atomique : un seul travailleur envoie cette publication, même s'ils sont plusieurs.
+            if (!$wpdb->query($wpdb->prepare("UPDATE $table SET statut = 'envoi' WHERE id = %d AND statut = 'attente'", $d->id))) {
+                continue;
+            }
             $vendeur = (int) $d->vendeur;
             $p = wc_get_product((int) $d->produit);
             $erreur = null;

@@ -119,6 +119,8 @@ $r = bayam_dire('bayam vendu sweat capuche rouge non 25000 cash');
 bayam_verifier('vente d’une variante (rouge, sans logo)', str_contains($joint($r), 'enregistrée'), $r);
 $r = bayam_dire('bayam lien 15000 Marie');
 bayam_verifier('lien de paiement', str_contains($joint($r), '15') && str_contains($joint($r), 'Marie') && str_contains($joint($r), '/b/'), $r);
+$r = bayam_dire('bayam lien 8500 nadège');
+bayam_verifier('nom du client avec ses accents (« Nadège »)', str_contains($joint($r), 'Nadège'), $r);
 $r = bayam_dire('bayamm commandes');
 bayam_verifier('commandes en cours (lien de paiement en attente)', str_contains($joint($r), 'En attente de paiement') && str_contains($joint($r), 'Marie'), $r);
 $r = bayam_dire('Bayma bilan');
@@ -181,6 +183,18 @@ $r = bayam_dire('/vendu polo 12000 cash pin 4826', '237677000002@c.us', false);
 bayam_verifier('membre : vente acceptée avec PIN', str_contains($joint($r), 'enregistrée'), $r);
 $r = bayam_dire('/pin 1111', '237677000002@c.us', false);
 bayam_verifier('membre : ne change pas le PIN', str_contains($joint($r), 'propriétaire'), $r);
+$r = bayam_dire('bayam lien 5000 Awa pin 1111', '237677000002@c.us', false);
+bayam_verifier('membre : PIN faux signalé comme tel', str_contains($joint($r), 'Code PIN incorrect'), $r);
+foreach (['2222', '3333', '4444'] as $faux_pin) {
+    bayam_dire("bayam lien 5000 Awa pin $faux_pin", '237677000002@c.us', false);
+}
+$faux->envois = [];
+bayam_dire('bayam lien 5000 Awa pin 5555', '237677000002@c.us', false);
+$alerte = array_filter($faux->envois, static fn ($e) => str_contains((string) ($e['corps']['text'] ?? ''), '5 codes PIN erronés'));
+bayam_verifier('5e PIN faux : le vendeur est alerté', (bool) $alerte, array_column($faux->envois, 'chemin'));
+$r = bayam_dire('bayam lien 5000 Awa pin 4826', '237677000002@c.us', false);
+bayam_verifier('après 5 erreurs : même le bon PIN est bloqué 15 min', str_contains($joint($r), 'bloquées pendant 15 minutes'), $r);
+delete_transient('bayam_wa_pin_echecs_' . $vendeur);
 
 echo "\nClients du vendeur\n";
 $r = bayam_dire('#polo', '237677000001@c.us', false);
@@ -197,6 +211,11 @@ $r = bayam_dire('bayam vous avez des chaussures ?', '237677000001@c.us', false);
 bayam_verifier('article absent : réponse polie', str_contains($joint($r), "n'avons pas"), $r);
 $r = bayam_dire(Bayam_WA_Outils::MARQUE . 'menu');
 bayam_verifier('nos propres messages sont ignorés (pas de boucle)', $r === [], $r);
+$faux->envois = [];
+Bayam_WA_Webhook::evenement(['event' => 'message.any', 'session' => 'boutique-3', 'payload' => [
+    'id' => 'false_ancien', 'from' => '237677000001@c.us', 'fromMe' => false, 'body' => '#polo', 'timestamp' => time() - 3600,
+]]);
+bayam_verifier('message rejoué une heure après (reconnexion) : pas de réponse tardive', $faux->envois === [], array_column($faux->envois, 'chemin'));
 
 echo "\nEnvoi d'une collection\n";
 $r = bayam_dire('bayam envoie polo 6 77 00 00 01');
