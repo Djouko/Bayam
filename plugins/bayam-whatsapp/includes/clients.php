@@ -101,7 +101,7 @@ final class Bayam_WA_Clients
                 continue;
             }
             $libelle = wc_get_formatted_variation($v, true, false, false);
-            $valeurs = self::valeurs($v);
+            $valeurs = Bayam_WA_Boutique::valeurs_declinaison($v);
             $quantite = $v->managing_stock() ? (int) $v->get_stock_quantity() : null;
             $en_stock = $v->is_in_stock();
             if ($en_stock) {
@@ -131,32 +131,12 @@ final class Bayam_WA_Clients
         $valeurs = [];
         foreach ($p->get_children() as $id) {
             $v = wc_get_product($id);
-            foreach ($v ? self::valeurs($v) : [] as $valeur) {
+            foreach ($v ? Bayam_WA_Boutique::valeurs_declinaison($v) : [] as $valeur) {
                 $valeurs[$valeur] = true;
             }
         }
         $mots = array_map(static fn ($m) => self::SYNONYMES[$m] ?? $m, preg_split('/[^\p{L}\d]+/u', Bayam_WA_Outils::normaliser($texte), -1, PREG_SPLIT_NO_EMPTY));
         return array_values(array_unique(array_filter($mots, static fn ($m) => isset($valeurs[$m]))));
-    }
-
-    /**
-     * Valeurs d'une déclinaison, normalisées : identifiant (« red ») et nom affiché (« rouge ») des attributs de
-     * catalogue, valeur telle quelle des attributs propres au produit.
-     */
-    private static function valeurs(WC_Product $v): array
-    {
-        $valeurs = [];
-        foreach ($v->get_attributes() as $attribut => $valeur) {
-            if ($valeur === '') {
-                continue;
-            }
-            $valeurs[] = Bayam_WA_Outils::normaliser((string) $valeur);
-            $terme = taxonomy_exists($attribut) ? get_term_by('slug', $valeur, $attribut) : null;
-            if ($terme) {
-                $valeurs[] = Bayam_WA_Outils::normaliser($terme->name);
-            }
-        }
-        return array_values(array_unique($valeurs));
     }
 
     /**

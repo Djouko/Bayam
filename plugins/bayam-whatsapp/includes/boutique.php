@@ -13,31 +13,92 @@ final class Bayam_WA_Boutique
             $choix = $tous;
         } else {
             $racines = array_map([self::class, 'racine'], explode(' ', $mots));
-            // Nombre de mots de la demande retrouvés dans le nom ou la catégorie de chaque produit.
-            $scores = [];
+            // Mots retrouvés (nom ou catégorie) pour choisir les articles ; poids pour les classer : un mot du nom
+            // compte plus qu'un mot de catégorie, et la couleur ou la taille demandée fait monter les articles qui l'ont.
+            $scores = $poids = [];
             foreach ($tous as $i => $p) {
-                $nom = Bayam_WA_Outils::normaliser($p->get_name() . ' ' . implode(' ', wp_get_post_terms($p->get_id(), 'product_cat', ['fields' => 'names'])));
-                $mots_nom = array_map([self::class, 'racine'], preg_split('/[\s-]+/', $nom));
-                $scores[$i] = count(array_filter($racines, static function (string $r) use ($mots_nom) {
-                    foreach ($mots_nom as $m) {
-                        // Égalité, préfixe (« rob » pour « robe ») ou une seule faute de frappe sur un mot de 5 lettres ou plus.
-                        if ($m === $r || (strlen($r) >= 3 && str_starts_with($m, $r)) || (strlen($r) >= 5 && levenshtein($m, $r) <= 1)) {
-                            return true;
-                        }
+                $index = self::index_mots($p);
+                $scores[$i] = $poids[$i] = 0;
+                foreach ($racines as $r) {
+                    if (self::correspond($r, $index['nom'])) {
+                        $scores[$i]++;
+                        $poids[$i] += 4;
+                    } elseif (self::correspond($r, $index['categorie'])) {
+                        $scores[$i]++;
+                        $poids[$i] += 2;
+                    } elseif (in_array($r, $index['declinaisons'], true)) {
+                        $poids[$i] += 1;
                     }
-                    return false;
-                }));
+                }
             }
-            // Tous les mots d'abord ; sinon les produits qui en ont le plus : « polo rouge », « robe taille L »
-            // (la couleur et la taille servent ensuite à dire ce qui est disponible, pas à écarter l'article).
+            // Tous les mots d'abord ; sinon les articles qui en ont le plus : « polo rouge », « robe taille L ».
             $meilleur = $scores ? max($scores) : 0;
             $seuil = $meilleur === count($racines) ? $meilleur : max(1, $meilleur);
-            $choix = $meilleur ? array_values(array_filter($tous, static fn ($p, $i) => $scores[$i] >= $seuil, ARRAY_FILTER_USE_BOTH)) : [];
+            $retenus = $meilleur ? array_keys(array_filter($scores, static fn ($s) => $s >= $seuil)) : [];
+            usort($retenus, static fn ($a, $b) => [$poids[$b], $a] <=> [$poids[$a], $b]); // à poids égal, le plus récent
+            $choix = array_map(static fn ($i) => $tous[$i], $retenus);
         }
         if ($en_stock) {
             $choix = array_filter($choix, static fn (WC_Product $p) => $p->is_in_stock());
         }
         return array_slice(array_values($choix), 0, $limite);
+    }
+
+    /** Égalité, préfixe (« rob » pour « robe ») ou une seule faute de frappe sur un mot de 5 lettres ou plus. */
+    private static function correspond(string $r, array $mots): bool
+    {
+        foreach ($mots as $m) {
+            if ($m === $r || (strlen($r) >= 3 && str_starts_with($m, $r)) || (strlen($r) >= 5 && levenshtein($m, $r) <= 1)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Mots d'un article (nom, catégories, valeurs de ses déclinaisons), gardés dans le cache d'objets (Redis)
+     * jusqu'à la prochaine modification de l'article : la recherche ne relit pas chaque déclinaison à chaque message.
+     */
+    private static function index_mots(WC_Product $p): array
+    {
+        $cle = 'mots_' . $p->get_id() . '_' . ($p->get_date_modified() ? $p->get_date_modified()->getTimestamp() : 0);
+        $index = wp_cache_get($cle, 'bayam_wa');
+        if (is_array($index)) {
+            return $index;
+        }
+        $racines = static fn (string $texte) => array_values(array_unique(array_map([self::class, 'racine'], preg_split('/[\s-]+/', Bayam_WA_Outils::normaliser($texte), -1, PREG_SPLIT_NO_EMPTY))));
+        $declinaisons = [];
+        foreach ($p->is_type('variable') ? $p->get_children() : [] as $id) {
+            $v = wc_get_product($id);
+            $declinaisons = array_merge($declinaisons, $v ? self::valeurs_declinaison($v) : []);
+        }
+        $index = [
+            'nom' => $racines($p->get_name()),
+            'categorie' => $racines(implode(' ', wp_get_post_terms($p->get_id(), 'product_cat', ['fields' => 'names']))),
+            'declinaisons' => array_values(array_unique(array_map([self::class, 'racine'], $declinaisons))),
+        ];
+        wp_cache_set($cle, $index, 'bayam_wa', DAY_IN_SECONDS);
+        return $index;
+    }
+
+    /**
+     * Valeurs d'une déclinaison, normalisées : identifiant (« red ») et nom affiché (« rouge ») des attributs de
+     * catalogue, valeur telle quelle des attributs propres au produit.
+     */
+    public static function valeurs_declinaison(WC_Product $v): array
+    {
+        $valeurs = [];
+        foreach ($v->get_attributes() as $attribut => $valeur) {
+            if ($valeur === '') {
+                continue;
+            }
+            $valeurs[] = Bayam_WA_Outils::normaliser((string) $valeur);
+            $terme = taxonomy_exists($attribut) ? get_term_by('slug', $valeur, $attribut) : null;
+            if ($terme) {
+                $valeurs[] = Bayam_WA_Outils::normaliser($terme->name);
+            }
+        }
+        return array_values(array_unique($valeurs));
     }
 
     /** @return WC_Product[] */
