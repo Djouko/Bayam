@@ -67,9 +67,9 @@ if (defined('WP_CLI') && WP_CLI) {
                 Bayam_WA_Webhook::traiter((int) $id);
             }
             if (time() >= $prochaine_diffusion) {
-                // Publications dues : lues ici toutes les 10 s, sans attendre la file des tâches programmées.
+                // Publications dues : lues ici toutes les 2 s, sans attendre la file des tâches programmées.
                 Bayam_WA_Diffusion::traiter_file();
-                $prochaine_diffusion = time() + 10;
+                $prochaine_diffusion = time() + 2; // rythme des publications à la seconde près
             }
             if (time() >= $prochaine_file && class_exists('ActionScheduler_QueueRunner')) {
                 // Tâches dues (publications étalées chaque minute, rapports chaque heure) du groupe de l'extension.

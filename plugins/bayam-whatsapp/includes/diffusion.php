@@ -7,9 +7,6 @@ defined('ABSPATH') || exit;
  */
 final class Bayam_WA_Diffusion
 {
-    /** Écart aléatoire entre deux publications (secondes) : un humain ne poste pas dans dix groupes à la seconde. */
-    private const ECART = [60, 150];
-
     public static function init(): void
     {
         add_action('bayam_wa_diffuser', [self::class, 'traiter_file']);
@@ -21,42 +18,81 @@ final class Bayam_WA_Diffusion
     }
 
     /** Programme la publication des produits dans les groupes choisis (ou le statut) ; rend le message au vendeur. */
-    public static function programmer(int $vendeur, array $produits, bool $statut): string
+    /**
+     * Programme la publication d'articles dans les groupes choisis, dans le statut, ou les deux (« partout »).
+     * Rythme d'un vendeur qui transfère lui-même : les photos d'un même groupe s'enchaînent (3 à 8 s), le groupe
+     * suivant vient 10 à 25 s plus tard, les statuts toutes les 4 à 10 s. Assez rapide pour le vendeur, assez
+     * humain pour WhatsApp.
+     *
+     * @param string $ou « groupes », « statut » ou « partout »
+     * @param array|null $groupes groupes visés [id => nom], sinon ceux choisis dans l'espace vendeur
+     */
+    /**
+     * Programme la publication d'articles dans les groupes choisis, dans le statut, ou les deux (« partout »).
+     * Rythme d'un vendeur qui transfère lui-même : les photos d'un même groupe s'enchaînent (3 à 8 s), le groupe
+     * suivant vient 10 à 25 s plus tard, les statuts toutes les 4 à 10 s. Assez rapide pour le vendeur, assez
+     * humain pour WhatsApp.
+     *
+     * @param string $ou « groupes », « statut » ou « partout »
+     * @param array|null $groupes groupes visés [id => nom], sinon ceux choisis dans l'espace vendeur
+     */
+    public static function programmer(int $vendeur, array $produits, string $ou = 'groupes', ?array $groupes = null): string
     {
         global $wpdb;
-        $r = Bayam_WA_Stockage::reglages($vendeur);
         if (get_user_meta($vendeur, 'bayam_wa_statut', true) !== 'WORKING') {
             return "Votre WhatsApp n'est pas connecté à BAYAM : je ne peux pas publier pour vous. Écrivez *bayam cartes …* pour recevoir les cartes à transférer vous-même.";
         }
-        $cibles = $statut ? ['statut' => 'Mon statut'] : $r['groupes'];
-        if (!$cibles) {
-            return "Choisissez d'abord vos groupes de publication dans votre espace vendeur BAYAM, rubrique WhatsApp. En attendant : *bayam cartes …* pour les transférer vous-même.";
+        $groupes = $groupes ?? Bayam_WA_Stockage::reglages($vendeur)['groupes'];
+        if ($ou !== 'statut' && !$groupes) {
+            return "Choisissez d'abord vos groupes de publication dans votre espace vendeur BAYAM, rubrique WhatsApp. En attendant : *bayam publier … statut*, ou *bayam cartes …* pour les transférer vous-même.";
         }
-        $nature = $statut ? 'statut' : 'diffusion';
-        $restant = Bayam_WA_Regles::PLAFONDS[$nature] - Bayam_WA_Stockage::envois_depuis($vendeur, wp_date('Y-m-d 00:00:00'), $nature) - self::en_attente($vendeur, $statut ? 'statut' : 'groupe');
-        $total = count($cibles) * count($produits);
-        if ($restant <= 0) {
-            return "Le nombre de publications du jour est atteint, pour protéger votre numéro. La suite demain, ou transférez les cartes vous-même (*bayam cartes …*).";
-        }
-        $quand = time();
-        $programmes = 0;
-        foreach ($produits as $p) {
-            foreach ($cibles as $chat => $nom) {
-                if ($programmes >= $restant) {
-                    break 2;
+        $plan = [];
+        if ($ou !== 'statut') {
+            foreach ($groupes as $chat => $nom) {
+                foreach ($produits as $p) {
+                    $plan[] = ['groupe', $chat, $p];
                 }
-                $wpdb->insert(Bayam_WA_Stockage::table('diffusions'), [
-                    'vendeur' => $vendeur, 'type' => $statut ? 'statut' : 'groupe', 'chat' => $statut ? null : $chat,
-                    'produit' => $p->get_id(), 'prevu' => wp_date('Y-m-d H:i:s', $quand),
-                ]);
-                $quand += mt_rand(...self::ECART);
-                $programmes++;
             }
         }
-        $minutes = max(1, (int) round(($quand - time()) / 60));
-        $cible = $statut ? 'votre statut' : count($cibles) . ' groupe(s)';
-        return "📣 {$programmes} publication(s) programmée(s) dans {$cible}" . ($programmes < $total ? " (plafond du jour atteint pour le reste)" : '')
-            . ", envoi étalé sur environ {$minutes} min pour protéger votre numéro. Je vous fais le bilan à la fin.";
+        if ($ou !== 'groupes') {
+            foreach ($produits as $p) {
+                $plan[] = ['statut', null, $p];
+            }
+        }
+        $minuit = wp_date('Y-m-d 00:00:00');
+        $restant = [
+            'groupe' => Bayam_WA_Regles::PLAFONDS['diffusion'] - Bayam_WA_Stockage::envois_depuis($vendeur, $minuit, 'diffusion') - self::en_attente($vendeur, 'groupe'),
+            'statut' => Bayam_WA_Regles::PLAFONDS['statut'] - Bayam_WA_Stockage::envois_depuis($vendeur, $minuit, 'statut') - self::en_attente($vendeur, 'statut'),
+        ];
+        $quand = time();
+        $faits = ['groupe' => 0, 'statut' => 0];
+        foreach ($plan as $i => [$type, $chat, $p]) {
+            if ($restant[$type] <= 0) {
+                continue;
+            }
+            $wpdb->insert(Bayam_WA_Stockage::table('diffusions'), [
+                'vendeur' => $vendeur, 'type' => $type, 'chat' => $chat, 'produit' => $p->get_id(), 'prevu' => wp_date('Y-m-d H:i:s', $quand),
+            ]);
+            $restant[$type]--;
+            $faits[$type]++;
+            $suivant = $plan[$i + 1] ?? null;
+            $quand += $type === 'statut' ? mt_rand(4, 10) : ($suivant && $suivant[1] === $chat ? mt_rand(3, 8) : mt_rand(10, 25));
+        }
+        if (!array_sum($faits)) {
+            return "Le nombre de publications du jour est atteint, pour protéger votre numéro. La suite demain, ou transférez les cartes vous-même (*bayam cartes …*).";
+        }
+        $parties = [];
+        if ($faits['groupe']) {
+            $parties[] = $faits['groupe'] . ' dans ' . count($groupes) . ' groupe' . (count($groupes) > 1 ? 's' : '');
+        }
+        if ($faits['statut']) {
+            $parties[] = $faits['statut'] . ' en statut';
+        }
+        $duree = $quand - time();
+        $delai = $duree < 90 ? "environ {$duree} s" : 'environ ' . (int) round($duree / 60) . ' min';
+        $manque = count($plan) - array_sum($faits);
+        return '📣 ' . array_sum($faits) . ' publication(s) : ' . implode(', ', $parties) . ", envoyées en {$delai}"
+            . ($manque > 0 ? " (plafond du jour atteint pour {$manque} autre(s))" : '') . '. Je vous fais le bilan à la fin.';
     }
 
     private static function en_attente(int $vendeur, string $type): int

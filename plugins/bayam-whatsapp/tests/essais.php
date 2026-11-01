@@ -381,6 +381,20 @@ bayam_verifier('2 cartes publiées dans les 2 groupes', count($images) === 2, ar
 bayam_verifier('lien suivi par groupe', (int) $wpdb->get_var("SELECT COUNT(*) FROM " . Bayam_WA_Stockage::table('liens') . " WHERE vendeur = 3 AND groupe LIKE '120363%' AND id > {$depart['liens']}") === 2);
 bayam_verifier('bilan de série envoyé au vendeur', (bool) array_filter($faux->envois, static fn ($e) => str_contains((string) ($e['corps']['text'] ?? ''), 'Publication terminée')));
 
+echo "\nPublication en quelques secondes\n";
+$r = bayam_dire('bayam publier nouveautés partout');
+bayam_verifier('« publier nouveautés partout » : 15 publications en 3 min au plus (25 min avant)', str_contains($joint($r), 'dans 2 groupes') && str_contains($joint($r), 'en statut') && preg_match('/environ (\d+) (s|min)/', $joint($r), $duree) && ($duree[2] === 's' || (int) $duree[1] <= 3), $r);
+$prevus = $wpdb->get_col($wpdb->prepare("SELECT UNIX_TIMESTAMP(prevu) FROM $t WHERE vendeur = 3 AND statut = 'attente' AND type = 'groupe' AND id > %d ORDER BY prevu", $depart['diffusions']));
+$ecarts = array_map(static fn ($a, $b) => $b - $a, array_slice($prevus, 0, -1), array_slice($prevus, 1));
+bayam_verifier('rythme humain : quelques secondes entre deux photos, jamais deux envois collés', $ecarts && min($ecarts) >= 3 && max($ecarts) <= 25, $ecarts);
+$r = bayam_dire('bayam publier polo dans clientes mode aicha');
+bayam_verifier('« publier polo dans Clientes Mode Aïcha » : un seul groupe', str_contains($joint($r), '1 publication(s) : 1 dans 1 groupe'), $r);
+$r = bayam_dire('bayam publier polo dans les tontines du quartier');
+bayam_verifier('groupe inconnu : expliqué, rien n’est publié', str_contains($joint($r), 'Je ne trouve pas le groupe'), $r);
+$r = bayam_dire('bayam Robe wax 15000 M:2 publier partout', photo: true);
+bayam_verifier('photo + « publier partout » : article créé et publié en une fois', str_contains($joint($r), 'Produit créé') && str_contains($joint($r), 'publication(s)') && str_contains($joint($r), 'en statut'), $r);
+$wpdb->query($wpdb->prepare("UPDATE $t SET statut = 'annule' WHERE vendeur = 3 AND statut = 'attente' AND id > %d", $depart['diffusions']));
+
 echo "\nRapport automatique\n";
 Bayam_WA_Stockage::enregistrer($vendeur, ['heure_rapport' => (int) wp_date('G')]);
 delete_user_meta($vendeur, 'bayam_wa_dernier_rapport');

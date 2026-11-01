@@ -290,16 +290,42 @@ final class Bayam_WA_Copilote
         return $reponses;
     }
 
+    /**
+     * « bayam publier robes », « … statut », « … partout », « … dans Clientes Akwa », « bayam publier nouveautés »,
+     * « bayam publier promos » : la sélection part en quelques secondes, au rythme d'un vendeur.
+     */
     private function publier(string $reste): array
     {
-        $vers_statut = (bool) preg_match('/\bstatut\b/', $reste);
-        $mots = trim(preg_replace('/\b(statut|groupes?|dans|mes|sur|mon|le|les)\b/', '', $reste));
-        $produits = Bayam_WA_Boutique::chercher($this->vendeur, $mots, true, 5);
+        $ou = preg_match('/\bpartout\b/', $reste) ? 'partout' : (preg_match('/\b(statut|status)\b/', $reste) ? 'statut' : 'groupes');
+        $groupes = null;
+        if (preg_match('/\bdans (?:le groupe |mon groupe )?(.+)$/', $reste, $m) && !preg_match('/^(?:tous )?(?:mes |les )?groupes?$/', trim($m[1]))) {
+            $nom = trim(preg_replace('/\b(?:et )?(?:statut|status|partout)\b/', '', $m[1]));
+            foreach (Bayam_WA_Stockage::reglages($this->vendeur)['groupes'] as $id => $libelle) {
+                $l = Bayam_WA_Outils::normaliser($libelle);
+                if ($nom !== '' && (str_contains($l, $nom) || str_contains($nom, $l))) {
+                    $groupes[$id] = $libelle;
+                }
+            }
+            if (!$groupes) {
+                return [['texte' => "Je ne trouve pas le groupe « {$nom} » parmi vos groupes de publication (*bayam groupes* pour la liste)."]];
+            }
+            $reste = trim(substr($reste, 0, strpos($reste, $m[0])));
+        }
+        $mots = trim(preg_replace('/\b(statut|status|partout|groupes?|dans|mes|sur|mon|le|les|et|tous|tout)\b/', '', $reste));
+        $mots = trim(preg_replace('/\s+/', ' ', $mots));
+        if (preg_match('/\b(nouveautes?|nouveaux?|nouvelles?|derniers?|dernieres?|new)\b/', $mots)) {
+            $en_stock = array_filter(Bayam_WA_Boutique::produits($this->vendeur), static fn (WC_Product $p) => $p->is_in_stock());
+            $recents = array_filter($en_stock, static fn (WC_Product $p) => $p->get_date_created() && $p->get_date_created()->getTimestamp() > time() - 7 * DAY_IN_SECONDS);
+            $produits = array_slice(array_values($recents ?: $en_stock), 0, 5); // sans nouveauté de la semaine : les 5 derniers
+        } elseif (preg_match('/\b(promos?|promotions?|soldes?)\b/', $mots)) {
+            $produits = array_slice(array_values(array_filter(Bayam_WA_Boutique::produits($this->vendeur), static fn (WC_Product $p) => $p->is_in_stock() && $p->is_on_sale())), 0, 5);
+        } else {
+            $produits = Bayam_WA_Boutique::chercher($this->vendeur, $mots, true, 5);
+        }
         if (!$produits) {
             return [['texte' => "Rien en stock pour « {$mots} »."]];
         }
-        $r = Bayam_WA_Diffusion::programmer($this->vendeur, $produits, $vers_statut);
-        return [['texte' => $r]];
+        return [['texte' => Bayam_WA_Diffusion::programmer($this->vendeur, $produits, $ou, $groupes)]];
     }
 
     private function envoyer_collection(string $reste): array
@@ -679,6 +705,11 @@ final class Bayam_WA_Copilote
         $p = Bayam_WA_Boutique::creer_produit($this->vendeur, $nom, $prix, $tailles, $stock, $image);
         $lien = Bayam_WA_Liens::produit($this->vendeur, $p);
         $detail = $tailles ? implode(', ', array_map(static fn ($k, $v) => "$k : $v", array_keys($tailles), $tailles)) : "$stock pièce(s)";
+        if (preg_match('/\bpubli(?:er|e|ez)\b(.*)$/', $reste, $pub)) {
+            $ou = preg_match('/\bpartout\b/', $pub[1]) ? 'partout' : (preg_match('/\b(statut|status)\b/', $pub[1]) ? 'statut' : 'groupes');
+            return [['texte' => "✅ Produit créé : *{$p->get_name()}*, " . Bayam_WA_Outils::fcfa($prix) . " ({$detail}).\nLien : {$lien}"],
+                ['texte' => Bayam_WA_Diffusion::programmer($this->vendeur, [$p], $ou)]];
+        }
         return [['texte' => "✅ Produit créé : *{$p->get_name()}*, " . Bayam_WA_Outils::fcfa($prix) . " ({$detail}).\nLien à partager : {$lien}\n\n👉 *bayam cartes " . Bayam_WA_Outils::normaliser($nom) . "* pour sa carte à transférer."]];
     }
 }
