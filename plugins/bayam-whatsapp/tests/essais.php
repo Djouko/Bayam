@@ -51,13 +51,23 @@ foreach (['dettes', 'diffusions', 'wa_messages', 'liens'] as $table) {
 // Le travailleur permanent se met en pause : il n'enverra pas pour de vrai les publications des essais.
 update_option('bayam_wa_essais_jusqua', time() + 600, false);
 $faux = $GLOBALS['faux'] = new Bayam_Faux_Waha();
-// Restes d'un passage interrompu : code promo d'essai, compteurs de rafale des clients d'essai.
+// Restes d'un passage interrompu (coupure, arrêt forcé) : code promo, compteurs de rafale, stock du T-shirt,
+// dette, publications et liens des groupes d'essai ; les essais repartent toujours du même état.
 foreach ($wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'shop_coupon' AND post_title = 'bayamessai'") as $id_coupon) {
     wp_delete_post((int) $id_coupon, true);
 }
 foreach (['237677000001@c.us', '237677000002@c.us'] as $chat_essai) {
     delete_transient('bayam_wa_rafale_' . md5($vendeur . '|' . $chat_essai));
 }
+$tshirt_essai = wc_get_product(17);
+$tshirt_essai->set_manage_stock(false);
+$tshirt_essai->set_stock_status('instock');
+$tshirt_essai->save();
+$wpdb->query($wpdb->prepare('DELETE FROM ' . Bayam_WA_Stockage::table('dettes') . " WHERE vendeur = %d AND client = 'Ndzana'", $vendeur));
+$groupes_essai = "('120363000000000001@g.us', '120363000000000002@g.us')";
+$wpdb->query('DELETE c FROM ' . Bayam_WA_Stockage::table('clics') . ' c JOIN ' . Bayam_WA_Stockage::table('liens') . " l ON l.id = c.lien WHERE l.groupe IN $groupes_essai");
+$wpdb->query('DELETE FROM ' . Bayam_WA_Stockage::table('liens') . " WHERE groupe IN $groupes_essai");
+$wpdb->query('DELETE FROM ' . Bayam_WA_Stockage::table('diffusions') . " WHERE chat IN $groupes_essai");
 Bayam_WA_Waha::remplacer($faux);
 update_user_meta($vendeur, 'bayam_wa_moi', '237690000003@c.us');
 update_user_meta($vendeur, 'bayam_wa_statut', 'WORKING');
@@ -141,6 +151,27 @@ $r = bayam_dire('bayam dettes');
 bayam_verifier('liste des dettes', str_contains($joint($r), 'Qui me doit quoi') && str_contains($joint($r), 'Ndzana'), $r);
 $r = bayam_dire('bayam payé Ndzana 2000');
 bayam_verifier('paiement partiel d’une dette', str_contains($joint($r), "Reste à payer : 3\u{202F}000"), $r);
+
+echo "\nPhrases naturelles de vendeurs\n";
+$r = bayam_dire('Bayam Ndzana a payé 1000');
+bayam_verifier('« Ndzana a payé 1000 » : paiement de dette', str_contains($joint($r), "Reste à payer : 2\u{202F}000"), $r);
+$r = bayam_dire('Bayam Zacharie m’a payé 500');
+bayam_verifier('paiement d’un inconnu : aucune liste d’articles au hasard', str_contains($joint($r), 'Je ne trouve pas de dette'), $r);
+$r = bayam_dire('bayam qui me doit ?');
+bayam_verifier('« qui me doit ? » : liste des dettes', str_contains($joint($r), 'Qui me doit quoi'), $r);
+$r = bayam_dire('Bayam combien de polo il reste ?');
+bayam_verifier('« combien de polo il reste ? » : stock du Polo', str_contains($joint($r), '*Stock : Polo*'), $r);
+$r = bayam_dire('bayam stock');
+bayam_verifier('« bayam stock » seul : état du stock de la boutique', str_contains($joint($r), 'Stock de votre boutique'), $r);
+$r = bayam_dire('bayam mes ventes de la semaine');
+bayam_verifier('« mes ventes de la semaine » : bilan de la semaine', str_contains($joint($r), 'cette semaine'), $r);
+$r = bayam_dire('bayam montre moi mes commandes');
+bayam_verifier('« montre-moi mes commandes » : commandes en cours', str_contains($joint($r), 'commandes'), $r);
+$r = bayam_dire("bayam j'ai reçu 5 t-shirt");
+bayam_verifier('« j’ai reçu 5 t-shirt » : entrée de stock', str_contains($joint($r), 'Entrée de 5'), $r);
+Bayam_WA_Boutique::mouvement(wc_get_product(17), -5);
+$r = bayam_dire('bayam fais moi un café');
+bayam_verifier('phrase inconnue : « pas compris », jamais d’articles au hasard', str_contains($joint($r), "pas compris"), $r);
 $r = bayam_dire('bayam promo BAYAMESSAI 10%');
 bayam_verifier('code promo et message prêt à partager', count($r) === 2 && str_contains($r[0], 'BAYAMESSAI') && str_contains($r[1], '-10 %'), $r);
 $r = bayam_dire('bayam promo BAYAMESSAI 10%');

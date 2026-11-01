@@ -5,7 +5,7 @@ defined('ABSPATH') || exit;
 final class Bayam_WA_Boutique
 {
     /** Produits publiés du vendeur dont le nom correspond aux mots (pluriels et fautes légères tolérés). */
-    public static function chercher(int $vendeur, string $mots, bool $en_stock = true, int $limite = 8): array
+    public static function chercher(int $vendeur, string $mots, bool $en_stock = true, int $limite = 8, bool $tous_les_mots = false): array
     {
         $mots = trim(Bayam_WA_Outils::normaliser(ltrim($mots, '#')));
         $tous = self::produits($vendeur);
@@ -33,7 +33,7 @@ final class Bayam_WA_Boutique
             }
             // Tous les mots d'abord ; sinon les articles qui en ont le plus : « polo rouge », « robe taille L ».
             $meilleur = $scores ? max($scores) : 0;
-            $seuil = $meilleur === count($racines) ? $meilleur : max(1, $meilleur);
+            $seuil = $meilleur === count($racines) || $tous_les_mots ? count($racines) : max(1, $meilleur);
             $retenus = $meilleur ? array_keys(array_filter($scores, static fn ($s) => $s >= $seuil)) : [];
             usort($retenus, static fn ($a, $b) => [$poids[$b], $a] <=> [$poids[$a], $b]); // à poids égal, le plus récent
             $choix = array_map(static fn ($i) => $tous[$i], $retenus);

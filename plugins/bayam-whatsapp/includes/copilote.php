@@ -80,9 +80,17 @@ final class Bayam_WA_Copilote
         }
         [$premier, $reste] = array_pad(explode(' ', $t, 2), 2, '');
         $intention = $this->intention($premier);
+        $naturel = $intention === null ? $this->naturel($t, mb_strtolower(trim($message), 'UTF-8')) : null;
+        if ($naturel) {
+            [$intention, $reste] = $naturel;
+            if ($intention === 'entree') {
+                return $this->mouvement((int) strtok($reste, ' '), (string) strtok(''));
+            }
+        }
         if ($intention === null) {
-            // Un mot seul qui désigne des produits (« robes ») vaut une recherche dans le catalogue.
-            $trouves = Bayam_WA_Boutique::chercher($this->vendeur, $t);
+            // Des noms d'articles seuls (« robes », « sweat zippé ») valent une recherche dans le catalogue ; tous les
+            // mots doivent y être, pour qu'une phrase inconnue ne renvoie pas d'articles au hasard.
+            $trouves = Bayam_WA_Boutique::chercher($this->vendeur, $t, true, 8, true);
             return $trouves ? $this->catalogue($t) : [['texte' => "Je n'ai pas compris « {$message} ». Écrivez *bayam menu* pour voir ce que je sais faire."]];
         }
         if (in_array($intention, self::SENSIBLES, true) && ($refus = $this->controle_pin($intention, $t))) {
@@ -90,7 +98,7 @@ final class Bayam_WA_Copilote
         }
         $reste = $this->sans_pin($reste);
         // Les noms de clients gardent leurs accents (« Nadège ») : même découpage, sans retirer les accents.
-        $avec_accents = $this->sans_pin(array_pad(explode(' ', mb_strtolower(preg_replace('/\s+/u', ' ', trim($message)), 'UTF-8'), 2), 2, '')[1]);
+        $avec_accents = $naturel ? $reste : $this->sans_pin(array_pad(explode(' ', mb_strtolower(preg_replace('/\s+/u', ' ', trim($message)), 'UTF-8'), 2), 2, '')[1]);
         return match ($intention) {
             'menu' => [['texte' => $this->menu()]],
             'catalogue' => $this->catalogue($reste),
@@ -113,6 +121,40 @@ final class Bayam_WA_Copilote
             'equipe' => $this->equipe_commande($reste),
             'support' => [['texte' => "L'équipe BAYAM vous répond du lundi au samedi, de 8 h à 19 h : écrivez à contact@bayam.cm en décrivant votre souci (et une capture d'écran si possible)."]],
         };
+    }
+
+    /**
+     * Phrases courantes des vendeurs, dites comme ils parlent : « combien de polo il reste ? », « mes ventes de la
+     * semaine », « qui me doit ? », « Paul a payé 2000 », « j'ai reçu 10 casquettes », « montre-moi mes commandes ».
+     *
+     * @return array{0: string, 1: string}|null intention et reste de la demande
+     */
+    private function naturel(string $t, string $brut): ?array
+    {
+        $t = trim(preg_replace('/[?!.]+/', ' ', str_replace('’', "'", $t)));
+        $brut = trim(preg_replace('/[?!.]+/', ' ', str_replace('’', "'", $brut)));
+        if (preg_match('/^(?:j\'?ai )?(?:ajoute|ajouter|recu|arrivage de|rentre|nouveau stock de)\s+(\d+)\s+(.+)$/u', $t, $m)) {
+            return ['entree', $m[1] . ' ' . $m[2]];
+        }
+        // Le nom vient du texte d'origine : « Hélène a payé 2000 » garde son accent.
+        if (preg_match('/^(.+?)\s+(?:a|m\'a|ma)\s+(?:payé|paye|remboursé|rembourse|réglé|regle|donné|donne|versé|verse)\s+(\d[\d .]*k?)\s*(?:f|fcfa|frs?)?$/u', $brut, $m)) {
+            return ['paye', $m[1] . ' ' . $m[2]];
+        }
+        if (preg_match('/\bqui (?:me|nous) doi(?:t|vent)\b|\b(?:mes|les) (?:dettes|credits)\b/u', $t)) {
+            return ['dettes', ''];
+        }
+        if (preg_match('/\bcommandes?\b/u', $t)) {
+            return ['commandes', ''];
+        }
+        if (preg_match('/\b(?:reste|restent|stock)\b/u', $t)) {
+            $vides = ['combien', 'de', 'des', 'du', 'd', 'il', 'me', 'nous', 'reste', 'restent', 'en', 'stock', 't', 'y', 'a', 'est', 'ce', 'que', 'qu', 'encore', 'les', 'mes', 'la', 'le'];
+            $mots = array_filter(preg_split("/[\\s']+/u", $t), static fn ($m) => $m !== '' && !in_array($m, $vides, true));
+            return ['stock', implode(' ', $mots)];
+        }
+        if (preg_match('/\b(?:ventes?|vendu|bilan|chiffre|recette)\b/u', $t)) {
+            return ['bilan', preg_match('/\b(semaine|mois|hier)\b/u', $t, $p) ? $p[1] : ''];
+        }
+        return null;
     }
 
     private function intention(string $mot): ?string
@@ -256,6 +298,9 @@ final class Bayam_WA_Copilote
 
     private function stock(string $reste): array
     {
+        if ($reste === '') {
+            return [['texte' => $this->etat_du_stock()]];
+        }
         [$p] = Bayam_WA_Boutique::designer($this->vendeur, $reste);
         if (!$p) {
             return [['texte' => "Je ne trouve pas « {$reste} » dans votre boutique."]];
@@ -283,9 +328,27 @@ final class Bayam_WA_Copilote
         return abs($n);
     }
 
+    /** État du stock de la boutique : articles épuisés d'abord, puis les autres avec leurs quantités. */
+    private function etat_du_stock(): string
+    {
+        $epuises = $autres = [];
+        foreach (Bayam_WA_Boutique::produits($this->vendeur) as $p) {
+            $ligne = '• ' . $p->get_name() . ' : ' . implode(' · ', Bayam_WA_Boutique::stock_lignes($p));
+            $p->is_in_stock() ? $autres[] = $ligne : $epuises[] = $ligne;
+        }
+        if (!$epuises && !$autres) {
+            return "Aucun article dans votre boutique pour l'instant. Envoyez une photo avec la légende *bayam robe rouge 15000 M:3* pour en créer un.";
+        }
+        return '*Stock de votre boutique*' . ($epuises ? "\n\n⚠️ Épuisés :\n" . implode("\n", $epuises) : '')
+            . ($autres ? "\n\n" . implode("\n", array_slice($autres, 0, 25)) : '')
+            . (count($autres) > 25 ? "\n… et " . (count($autres) - 25) . " autres. *bayam stock nom de l'article* pour le détail." : '');
+    }
+
     private function vendu(string $reste): array
     {
         $modes = ['cash' => 'cash', 'especes' => 'cash', 'espece' => 'cash', 'momo' => 'momo', 'mtn' => 'momo', 'om' => 'om', 'orange' => 'om', 'credit' => 'credit'];
+        $nombres = ['un' => 1, 'une' => 1, 'deux' => 2, 'trois' => 3, 'quatre' => 4, 'cinq' => 5, 'six' => 6, 'sept' => 7, 'huit' => 8, 'neuf' => 9, 'dix' => 10,
+            'one' => 1, 'two' => 2, 'three' => 3, 'four' => 4, 'five' => 5];
         $mode = 'cash';
         $quantite = 1;
         $montant = null;
@@ -293,8 +356,10 @@ final class Bayam_WA_Copilote
         foreach (explode(' ', $reste) as $mot) {
             if (isset($modes[$mot])) {
                 $mode = $modes[$mot];
-            } elseif (preg_match('/^x(\d+)$/', $mot, $m)) {
-                $quantite = max(1, (int) $m[1]);
+            } elseif (preg_match('/^(?:x(\d+)|(\d+)x)$/', $mot, $m)) {
+                $quantite = max(1, (int) ($m[1] ?: $m[2]));
+            } elseif (!$mots && (isset($nombres[$mot]) || (ctype_digit($mot) && (int) $mot > 0 && (int) $mot < 100))) {
+                $quantite = $nombres[$mot] ?? (int) $mot; // quantité dite avant l'article
             } elseif (($n = Bayam_WA_Outils::montant($mot)) !== null && $n >= 100) {
                 $montant = $n;
             } else {
