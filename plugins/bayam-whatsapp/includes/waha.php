@@ -83,11 +83,12 @@ class Bayam_WA_Waha
         $config = [
             'metadata' => ['bayam.vendeur' => (string) $vendeur],
             'client' => ['deviceName' => 'BAYAM', 'browserName' => 'Chrome'],
-            // Messages de groupes, statuts, chaînes et listes de diffusion : jamais lus par BAYAM, donc jamais envoyés
-            // (un commerçant actif est dans des centaines de groupes : c'est l'essentiel du trafic).
-            'ignore' => ['status' => true, 'channels' => true, 'groups' => true, 'broadcast' => true],
+            // Statuts des contacts, chaînes et listes de diffusion : jamais lus par BAYAM, donc jamais envoyés.
+            'ignore' => ['status' => true, 'channels' => true, 'broadcast' => true],
             'webhooks' => [[
-                'url' => bayam_wa_url_interne('/wp-json/bayam/v1/whatsapp/webhook'),
+                // La passerelle (service « passerelle ») ne transmet que les groupes utiles : commentaires sous une
+                // publication de BAYAM. Sans elle, les événements vont droit à WordPress.
+                'url' => getenv('BAYAM_WA_WEBHOOK') ?: bayam_wa_url_interne('/wp-json/bayam/v1/whatsapp/webhook'),
                 'events' => ['message.any', 'session.status'],
                 'hmac' => ['key' => getenv('WAHA_WEBHOOK_SECRET') ?: ''],
                 'retries' => ['policy' => 'constant', 'delaySeconds' => 3, 'attempts' => 5],
@@ -137,9 +138,10 @@ class Bayam_WA_Waha
 
     // --- Messages --------------------------------------------------------------------------------------------
 
-    public function texte(string $session, string $chat, string $texte)
+    /** $citer : identifiant du message auquel on répond (réponse citée, comme dans WhatsApp). */
+    public function texte(string $session, string $chat, string $texte, ?string $citer = null)
     {
-        return $this->appel('POST', '/api/sendText', ['session' => $session, 'chatId' => $chat, 'text' => $texte, 'linkPreview' => true]);
+        return $this->appel('POST', '/api/sendText', array_filter(['session' => $session, 'chatId' => $chat, 'text' => $texte, 'linkPreview' => true, 'reply_to' => $citer], static fn ($v) => $v !== null));
     }
 
     /** $fichier : ['mimetype' => ..., 'data' => base64] ou ['mimetype' => ..., 'url' => ...]. */

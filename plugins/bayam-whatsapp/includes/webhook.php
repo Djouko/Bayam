@@ -44,11 +44,9 @@ final class Bayam_WA_Webhook
         if (!is_array($evt) || empty($evt['session']) || empty($evt['event'])) {
             return new WP_REST_Response(['ok' => false], 400);
         }
-        // Groupes, chaînes, statuts et listes de diffusion ne pilotent rien : écartés avant toute écriture (WAHA les
-        // filtre déjà, sauf ceux qu'il rejoue à la reconnexion).
-        $info = (array) ($evt['payload']['_data']['Info'] ?? []);
-        $chat = (string) (($info['Chat'] ?? '') ?: ($evt['payload']['from'] ?? ''));
-        if ($evt['event'] === 'message.any' && preg_match('/@g\.us|@newsletter|@broadcast|^status@/', $chat)) {
+        // Même règle que la passerelle, si les événements arrivent sans elle : chaînes, statuts et listes de diffusion
+        // écartés, et des groupes seuls les commentaires sous une publication de BAYAM, avant toute écriture.
+        if ($evt['event'] === 'message.any' && !self::utile((array) ($evt['payload'] ?? []))) {
             return new WP_REST_Response(['ok' => true, 'ignore' => true], 200);
         }
         // Un même événement peut arriver deux fois (nouvel essai de WAHA) : son identifiant unique le dédoublonne.
@@ -145,8 +143,15 @@ final class Bayam_WA_Webhook
             $chat = !empty($m['fromMe']) ? (string) (($m['to'] ?? '') ?: ($m['from'] ?? '')) : (string) ($m['from'] ?? '');
         }
         $chat = str_replace('@s.whatsapp.net', '@c.us', $chat);
-        // Statuts, groupes et chaînes ne pilotent rien.
-        if ($chat === '' || str_contains($chat, '@g.us') || str_contains($chat, '@newsletter') || str_starts_with($chat, 'status@')) {
+        // Groupes : seuls arrivent (par la passerelle) les commentaires sous une publication de BAYAM.
+        if (str_contains($chat, '@g.us')) {
+            if (empty($m['fromMe']) && time() - (int) ($m['timestamp'] ?? time()) <= self::FRAICHEUR) {
+                self::commentaire_groupe($vendeur, $chat, $m, $texte, $id);
+            }
+            return;
+        }
+        // Statuts et chaînes ne pilotent rien.
+        if ($chat === '' || str_contains($chat, '@newsletter') || str_starts_with($chat, 'status@')) {
             return;
         }
         // Seuls les messages qui commencent par « bayam » (ou la légende d'une photo) s'adressent à BAYAM.
@@ -198,6 +203,55 @@ final class Bayam_WA_Webhook
         if ($frais) {
             Bayam_WA_Clients::message($vendeur, $chat, $texte, $id !== '' ? $id : null, $cites);
         }
+    }
+
+    /**
+     * Commentaire sous une publication BAYAM dans un groupe (« prix ? », « dispo en L ? », « je prends ») :
+     * l'assistant y répond en citant le commentaire et invite à continuer en privé ; sans assistant, le vendeur est
+     * prévenu dans « Message à moi-même », une fois par personne et par article (pas d'avalanche d'alertes).
+     */
+    private static function commentaire_groupe(int $vendeur, string $groupe, array $m, string $texte, string $id): void
+    {
+        $cite = (string) ($m['replyTo']['body'] ?? '');
+        $produits = str_starts_with($cite, Bayam_WA_Outils::MARQUE) ? Bayam_WA_Clients::produits_cites($vendeur, $cite) : [];
+        if (!$produits) {
+            return;
+        }
+        // Numéro de téléphone de l'auteur (et non son identifiant interne « LID ») pour le lien de réponse.
+        $info = (array) ($m['_data']['Info'] ?? []);
+        $auteur = '';
+        foreach ([$info['SenderAlt'] ?? '', $info['Sender'] ?? '', $m['participant'] ?? ''] as $candidat) {
+            if (preg_match('/@(s\.whatsapp\.net|c\.us)$/', (string) $candidat)) {
+                $auteur = Bayam_WA_Outils::numero_de((string) $candidat);
+                break;
+            }
+        }
+        $nom_groupe = Bayam_WA_Stockage::reglages($vendeur)['groupes'][$groupe] ?? 'un de vos groupes';
+        if (Bayam_WA_Assistant::actif($vendeur) && Bayam_WA_Assistant::disponible()) {
+            Bayam_WA_Assistant::commentaire($vendeur, $groupe, $nom_groupe, $texte, $id !== '' ? $id : null, $produits);
+            return;
+        }
+        $cle = 'bayam_wa_comm_' . md5($vendeur . '|' . ($auteur ?: $texte) . '|' . $produits[0]->get_id());
+        if (get_transient($cle)) {
+            return;
+        }
+        set_transient($cle, 1, HOUR_IN_SECONDS);
+        Bayam_WA_Regles::au_vendeur($vendeur, '💬 *Commentaire dans « ' . $nom_groupe . ' »* sur ' . $produits[0]->get_name() . " :\n« " . mb_substr($texte, 0, 200) . ' »'
+            . ($auteur !== '' ? ' de ' . Bayam_WA_Outils::numero_lisible($auteur) . "\nRépondre en privé : https://wa.me/{$auteur}" : '')
+            . "\n*bayam je suis occupé* pour que votre assistant réponde à votre place.");
+    }
+
+    /** Message utile à BAYAM : privé, ou commentaire de groupe qui répond à une publication de BAYAM. */
+    public static function utile(array $p): bool
+    {
+        $chat = (string) (($p['_data']['Info']['Chat'] ?? '') ?: ($p['from'] ?? ''));
+        if (preg_match('/@newsletter|@broadcast|^status@/', $chat)) {
+            return false;
+        }
+        if (str_contains($chat, '@g.us')) {
+            return empty($p['fromMe']) && str_starts_with((string) ($p['replyTo']['body'] ?? ''), Bayam_WA_Outils::MARQUE);
+        }
+        return true;
     }
 
     /** Photo jointe au message, téléchargée seulement quand le message s'adresse à BAYAM. */

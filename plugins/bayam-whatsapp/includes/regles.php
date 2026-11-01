@@ -38,7 +38,7 @@ final class Bayam_WA_Regles
      * Réponse à un client qui vient d'écrire (jamais de premier contact) : vu, frappe simulée, délai, envoi.
      * Rend false si le plafond du jour est atteint ou si WhatsApp restreint le numéro.
      */
-    public static function repondre(int $vendeur, string $chat, string $texte, ?string $message_recu = null, string $nature = 'reponse'): bool
+    public static function repondre(int $vendeur, string $chat, string $texte, ?string $message_recu = null, string $nature = 'reponse', ?string $citer = null): bool
     {
         if (!self::autorise($vendeur, $nature)) {
             return false;
@@ -50,7 +50,7 @@ final class Bayam_WA_Regles
         // Temps de frappe humain : 1,2 à 3,5 secondes selon la longueur, avec une part de hasard.
         usleep((int) (min(3.5, 1.2 + mb_strlen($texte) / 120) * 1e6 * (0.8 + mt_rand(0, 40) / 100)));
         $waha->frappe($session, $chat, false);
-        return self::envoyer($vendeur, $session, $chat, $texte, $nature);
+        return self::envoyer($vendeur, $session, $chat, $texte, $nature, $citer);
     }
 
     public static function repondre_image(int $vendeur, string $chat, array $fichier, string $legende, string $nature = 'reponse'): bool
@@ -99,9 +99,9 @@ final class Bayam_WA_Regles
         return $moi ? Bayam_WA_Outils::chat_id(Bayam_WA_Outils::numero_de($moi)) : null;
     }
 
-    private static function envoyer(int $vendeur, string $session, string $chat, string $texte, string $nature): bool
+    private static function envoyer(int $vendeur, string $session, string $chat, string $texte, string $nature, ?string $citer = null): bool
     {
-        $r = Bayam_WA_Waha::client()->texte($session, $chat, Bayam_WA_Outils::MARQUE . $texte);
+        $r = Bayam_WA_Waha::client()->texte($session, $chat, Bayam_WA_Outils::MARQUE . $texte, $citer);
         if (is_wp_error($r)) {
             Bayam_WA_Outils::journal('Envoi refusé', ['vendeur' => $vendeur, 'erreur' => $r->get_error_message()]);
             return false;

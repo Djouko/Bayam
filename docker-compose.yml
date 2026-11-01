@@ -51,6 +51,7 @@ services:
       # Connecteur WhatsApp (WAHA) : appelé par l'extension BAYAM WhatsApp.
       WAHA_URL: http://waha:3000
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
+      BAYAM_WA_WEBHOOK: http://passerelle:8090/whatsapp
       BAYAM_REDIS: redis
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
@@ -98,6 +99,21 @@ services:
     depends_on:
       - wordpress
 
+  # Passerelle des événements WhatsApp (passerelle/serveur.js) : vérifie la signature de WAHA et ne transmet à
+  # WordPress que ce qui concerne BAYAM (privé, session, commentaires sous une publication BAYAM). Un commerçant
+  # actif est dans des centaines de groupes : WordPress ne traite plus que l'utile.
+  passerelle:
+    image: node:22.21.1-alpine
+    restart: unless-stopped
+    command: ["node", "/app/serveur.js"]
+    environment:
+      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
+      BAYAM_WP_WEBHOOK: http://wordpress/wp-json/bayam/v1/whatsapp/webhook
+    volumes:
+      - ./passerelle:/app:ro
+    depends_on:
+      - wordpress
+
   # Travailleur BAYAM : traite les messages WhatsApp en moins d'une seconde et les tâches programmées
   # (publications étalées, rapports), indépendamment des visites du site.
   travailleur:
@@ -118,6 +134,7 @@ services:
         define('WP_REDIS_PREFIX', 'bayam:');
       WAHA_URL: http://waha:3000
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
+      BAYAM_WA_WEBHOOK: http://passerelle:8090/whatsapp
       BAYAM_REDIS: redis
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
@@ -168,6 +185,7 @@ services:
         define('WP_REDIS_PREFIX', 'bayam:');
       WAHA_URL: http://waha:3000
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
+      BAYAM_WA_WEBHOOK: http://passerelle:8090/whatsapp
       BAYAM_REDIS: redis
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}

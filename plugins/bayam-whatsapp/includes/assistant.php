@@ -123,12 +123,34 @@ final class Bayam_WA_Assistant
         }
     }
 
-    /** Décision du modèle : action, message au client, commande éventuelle. null si le modèle est injoignable. */
-    private static function decider(int $vendeur, string $chat, string $texte, array $cites): ?array
+    /**
+     * Commentaire public sous une publication de la boutique dans un groupe : réponse brève qui cite le commentaire
+     * (prix, disponibilité) et invite à continuer en privé, où l'assistant négocie et prend la commande.
+     *
+     * @param WC_Product[] $produits articles de la publication commentée
+     */
+    public static function commentaire(int $vendeur, string $groupe, string $nom_groupe, string $texte, ?string $message_id, array $produits): void
+    {
+        $vendeur_num = Bayam_WA_Outils::numero_de((string) get_user_meta($vendeur, 'bayam_wa_moi', true));
+        $situation = "Ce message est un commentaire public dans le groupe WhatsApp « {$nom_groupe} », sous la publication de la boutique sur : "
+            . implode(', ', array_map(static fn ($p) => $p->get_name(), $produits)) . ". Réponds en public en une ou deux phrases (prix affiché, disponibilité), "
+            . "sans négocier ici, et invite la personne à écrire en privé pour commander" . ($vendeur_num ? " : https://wa.me/{$vendeur_num}" : '') . ". "
+            . "Si le commentaire n'appelle pas de réponse de la boutique (remerciement, émoji, discussion entre membres), action « ignorer ».";
+        $decision = self::decider($vendeur, $groupe, $texte, $produits, $situation, [['role' => 'user', 'content' => $texte]]);
+        if ($decision && ($decision['action'] ?? '') !== 'ignorer' && trim((string) ($decision['message'] ?? '')) !== '') {
+            Bayam_WA_Regles::repondre($vendeur, $groupe, trim((string) $decision['message']), $message_id, 'assistant', $message_id);
+        }
+    }
+
+    /**
+     * Décision du modèle : action, message au client, commande éventuelle. null si le modèle est injoignable.
+     * $situation précise le cadre (commentaire public…) ; $messages remplace le fil de la discussion.
+     */
+    private static function decider(int $vendeur, string $chat, string $texte, array $cites, string $situation = '', ?array $messages = null): ?array
     {
         $systeme = self::consignes();
-        $boutique = self::contexte_boutique($vendeur, $texte, $cites);
-        $messages = self::historique($vendeur, $chat, $texte);
+        $boutique = self::contexte_boutique($vendeur, $texte, $cites) . ($situation !== '' ? "\n\nSituation : {$situation}" : '');
+        $messages ??= self::historique($vendeur, $chat, $texte);
         if (self::$decideur) {
             return (self::$decideur)($systeme, $boutique, $messages);
         }

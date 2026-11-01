@@ -40,9 +40,15 @@ final class Bayam_Faux_Waha extends Bayam_WA_Waha
 $vendeur = 3;
 // Les essais tournent sur une vraie boutique : on garde son WhatsApp (réglages, identité) et ses données pour les rendre à la fin.
 global $wpdb;
-$sauvegarde = [];
-foreach (['bayam_wa', 'bayam_wa_moi', 'bayam_wa_lid', 'bayam_wa_statut', 'bayam_wa_dernier_rapport', 'bayam_wa_bienvenue'] as $cle) {
-    $sauvegarde[$cle] = get_user_meta($vendeur, $cle, true);
+// Instantané gardé en base le temps des essais : après un passage interrompu, le suivant restaure le vrai état
+// (et non l'état d'essai laissé derrière lui).
+$sauvegarde = get_option('bayam_wa_essais_sauvegarde');
+if (!is_array($sauvegarde)) {
+    $sauvegarde = [];
+    foreach (['bayam_wa', 'bayam_wa_moi', 'bayam_wa_lid', 'bayam_wa_statut', 'bayam_wa_dernier_rapport', 'bayam_wa_bienvenue'] as $cle) {
+        $sauvegarde[$cle] = get_user_meta($vendeur, $cle, true);
+    }
+    update_option('bayam_wa_essais_sauvegarde', $sauvegarde, false);
 }
 $depart = [];
 foreach (['dettes', 'diffusions', 'wa_messages', 'liens'] as $table) {
@@ -308,6 +314,35 @@ bayam_verifier('« je reprends » : l’assistant s’arrête', str_contains($jo
 $appels_avant = count($appels_modele);
 $r = bayam_dire('Bonjour vous êtes ouvert dimanche ?', '237677000205@c.us', false);
 bayam_verifier('assistant arrêté : aucun appel au modèle', count($appels_modele) === $appels_avant, $r);
+
+// Commentaires sous une publication BAYAM dans un groupe (arrivés par la passerelle).
+$carte_polo = Bayam_WA_Outils::MARQUE . "Polo : 12 000 FCFA\nCommander : " . Bayam_WA_Liens::produit($vendeur, wc_get_product(25), 'groupe', '120363000000000001@g.us');
+$commenter = static function (string $texte, string $cite, string $id) use ($faux) {
+    $faux->envois = [];
+    Bayam_WA_Webhook::evenement(['event' => 'message.any', 'session' => 'boutique-3', 'payload' => [
+        'id' => $id, 'from' => '120363000000000001@g.us', 'fromMe' => false, 'body' => $texte, 'participant' => '41000000000301@lid',
+        'replyTo' => ['id' => 'CARTE-GROUPE', 'body' => $cite],
+        '_data' => ['Info' => ['Chat' => '120363000000000001@g.us', 'Sender' => '41000000000301@lid', 'SenderAlt' => '237677000301@s.whatsapp.net']],
+    ]]);
+    return $faux->envois;
+};
+$envois = $commenter('Prix en L svp ?', $carte_polo, 'false_comm1');
+$alerte = implode(' ', array_map(static fn ($e) => (string) ($e['corps']['text'] ?? ''), $envois));
+bayam_verifier('commentaire de groupe, assistant arrêté : le vendeur est prévenu avec le lien du client', str_contains($alerte, 'Commentaire dans « Clientes Mode Aïcha »') && str_contains($alerte, 'wa.me/237677000301'), $alerte);
+$envois = $commenter('Prix en L svp ??', $carte_polo, 'false_comm2');
+bayam_verifier('même client, même article : pas d’alerte en double', $envois === [], array_column($envois, 'chemin'));
+$envois = $commenter('Rdv à 18h devant la pharmacie', 'Qui vient au mariage samedi ?', 'false_comm3');
+bayam_verifier('réponse de groupe à un message ordinaire : ignorée', $envois === [], array_column($envois, 'chemin'));
+Bayam_WA_Assistant::activer($vendeur);
+$envois = $commenter('Bonsoir, c’est combien ?', $carte_polo, 'false_comm4');
+$reponse = array_values(array_filter($envois, static fn ($e) => $e['chemin'] === '/api/sendText'));
+bayam_verifier('commentaire de groupe, assistant actif : réponse publique qui cite le commentaire', $reponse && ($reponse[0]['corps']['reply_to'] ?? '') === 'false_comm4' && ($reponse[0]['corps']['chatId'] ?? '') === '120363000000000001@g.us', $envois);
+Bayam_WA_Assistant::desactiver($vendeur);
+delete_transient('bayam_wa_comm_' . md5($vendeur . '|237677000301|25'));
+$groupe = ['from' => '120363000000000001@g.us', '_data' => ['Info' => ['Chat' => '120363000000000001@g.us']]];
+bayam_verifier('webhook : commentaire sous une publication BAYAM accepté', Bayam_WA_Webhook::utile($groupe + ['replyTo' => ['body' => $carte_polo]]));
+bayam_verifier('webhook : message ordinaire de groupe écarté avant écriture', !Bayam_WA_Webhook::utile($groupe + ['body' => 'Bonsoir la famille']));
+bayam_verifier('webhook : statuts et chaînes écartés', !Bayam_WA_Webhook::utile(['from' => 'status@broadcast']) && !Bayam_WA_Webhook::utile(['from' => '1203@newsletter']));
 $polo = wc_get_product(25);
 $polo->delete_meta_data('_bayam_prix_plancher');
 $polo->save();
@@ -480,6 +515,7 @@ foreach (['dettes', 'diffusions', 'wa_messages', 'liens'] as $table) {
 foreach ($sauvegarde as $cle => $valeur) {
     $valeur === '' ? delete_user_meta($vendeur, $cle) : update_user_meta($vendeur, $cle, $valeur);
 }
+delete_option('bayam_wa_essais_sauvegarde');
 Bayam_WA_Waha::remplacer(null);
 delete_option('bayam_wa_essais_jusqua');
 echo "  données de démonstration restaurées\n";
