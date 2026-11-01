@@ -256,14 +256,10 @@ body.bayam-wcfm #wcfmmp-store-content .tab_area ul.tab_links li.active a{backgro
 body.bayam-wcfm #wcfmmp-store-content .left_sidebar{background:#fff!important;border:1px solid var(--b-line);border-radius:16px;box-shadow:var(--b-sh);padding:12px}
 body.bayam-wcfm #wcfmmp-store-content .widget-title{font-family:Poppins,Inter,sans-serif;color:var(--b-night);border-bottom:2px solid var(--b-mint);padding-bottom:6px}
 body.bayam-wcfm #wcfmmp-store-content select,body.bayam-wcfm #wcfmmp-store-content input[type=search],body.bayam-wcfm #wcfmmp-store-content input[type=text]{border:1px solid var(--b-line);border-radius:var(--b-r);min-height:42px;padding:0 12px;background:#fff;color:var(--b-night)}
-body.bayam-wcfm #wcfmmp-store-content ul.products li.product{background:#fff;border:1px solid var(--b-line);border-radius:16px;box-shadow:var(--b-sh);padding:10px;overflow:hidden;transition:transform var(--b-t),box-shadow var(--b-t)}
-body.bayam-wcfm #wcfmmp-store-content ul.products li.product:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(11,37,69,.12)}
-body.bayam-wcfm #wcfmmp-store-content ul.products li.product img{border-radius:var(--b-r)}
-body.bayam-wcfm #wcfmmp-store-content .woocommerce-loop-product__title{font-family:Poppins,Inter,sans-serif;color:var(--b-night);font-weight:600;font-size:15px}
 body.bayam-wcfm .price,body.bayam-wcfm .price .amount,body.bayam-wcfm .price ins{color:var(--b-em-d)!important;font-weight:700}
 body.bayam-wcfm .price del,body.bayam-wcfm .price del .amount{color:#94a3b8!important;font-weight:400}
 body.bayam-wcfm span.onsale{background:var(--b-coral);color:#fff;border:0;border-radius:999px;min-height:0;min-width:0;padding:4px 12px;line-height:1.4;font-weight:600;font-size:12px;top:10px;left:10px;right:auto;margin:0;box-shadow:none}
-body.bayam-wcfm a.button,body.bayam-wcfm button.button,body.bayam-wcfm .added_to_cart,body.bayam-wcfm a.button.alt,body.bayam-wcfm #wcfmmp-store-content .button{background:var(--b-em-d)!important;color:#fff!important;border:0;border-radius:var(--b-r);font-weight:600;min-height:42px;display:inline-flex;align-items:center;justify-content:center;transition:background var(--b-t),transform var(--b-t)}
+body.bayam-wcfm a.button:not(ul.products a),body.bayam-wcfm button.button,body.bayam-wcfm .added_to_cart:not(ul.products a),body.bayam-wcfm a.button.alt:not(ul.products a){background:var(--b-em-d)!important;color:#fff!important;border:0;border-radius:var(--b-r);font-weight:600;min-height:42px;display:inline-flex;align-items:center;justify-content:center;transition:background var(--b-t),transform var(--b-t)}
 body.bayam-wcfm a.button:hover,body.bayam-wcfm button.button:hover,body.bayam-wcfm .added_to_cart:hover{background:var(--b-em)!important}
 body.bayam-wcfm #wcfmmp-store-content .wcfm_buttons a.wcfm_button{background:var(--b-mint)!important;color:var(--b-em-d)!important;min-height:36px}
 body.bayam-wcfm #wcfmmp-store-content .wcfm_buttons .wcfm_button_separator{display:none}
@@ -287,3 +283,11 @@ body.bayam-wcfm #wcfm-main-contentainer .wcfm_dashboard_stats_block span.fa-curr
 body.bayam-wcfm #wcfmmp-store-content #wcfm_store_header .header_wrapper,body.bayam-wcfm #wcfmmp-store-content #wcfm_store_header .header_area,body.bayam-wcfm #wcfmmp-store-content #wcfm_store_header .header_right,body.bayam-wcfm #wcfmmp-store-content #wcfm_store_header .header_left{background:var(--b-night)!important}
 @media (max-width:768px){body.bayam-wcfm #wcfm-main-contentainer .dataTables_wrapper select,body.bayam-wcfm #wcfm-main-contentainer .wcfm-content select{width:100%;max-width:100%;box-sizing:border-box}}
 body.bayam-wcfm #wcfm-main-contentainer .wcfm_menu_toggler{color:var(--b-sun)!important}
+
+/* En-tête de la page boutique : nom à gauche, lisible, sans chevaucher les visuels de la bannière (à droite) ;
+   courriel du vendeur jamais affiché (il se joint par WhatsApp et le formulaire « Question ») ; pas d'étoiles vides. */
+body.bayam-wcfm #wcfmmp-store .banner_area .banner_text{top:auto!important;bottom:36px!important;left:230px!important;right:auto!important;transform:none!important;width:auto!important;max-width:42%;text-align:left!important}
+body.bayam-wcfm #wcfmmp-store .banner_area .banner_text h1{margin:0;font-family:Poppins,Inter,sans-serif;font-weight:800;font-size:clamp(28px,3.4vw,44px)!important;line-height:1.1!important;letter-spacing:0!important;text-transform:none!important;color:#fff!important;text-shadow:0 2px 14px rgba(11,37,69,.35)}
+body.bayam-wcfm #wcfmmp-store .banner_area .banner_text h1::before,body.bayam-wcfm #wcfmmp-store .banner_area .banner_text h1::after{display:none!important}
+body.bayam-wcfm #wcfmmp-store .wcfmmp_store_header_email,body.bayam-wcfm #wcfmmp-store .header_left .wcfmmp-store-rating{display:none!important}
+@media (max-width:768px){body.bayam-wcfm #wcfmmp-store .banner_area .banner_text{left:20px!important;bottom:20px!important;max-width:60%}}
