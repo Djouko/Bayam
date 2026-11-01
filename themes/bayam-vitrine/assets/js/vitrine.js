@@ -98,6 +98,20 @@
 		}, 5000);
 	});
 
+	// Barre d'achat du téléphone : ajoute au panier (article simple) ou mène aux options à choisir.
+	var achat = document.querySelector('[data-achat-panier]');
+	if (achat) {
+		achat.addEventListener('click', function () {
+			var bouton = document.querySelector('form.cart .single_add_to_cart_button');
+			if (!bouton) { return; }
+			if (document.querySelector('form.variations_form') && bouton.classList.contains('disabled')) {
+				document.querySelector('form.variations_form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+				return;
+			}
+			bouton.click();
+		});
+	}
+
 	// Annuaire des boutiques : filtre instantané sur le nom et le quartier, accents et majuscules ignorés.
 	var filtre = document.querySelector('[data-filtre-boutiques]');
 	var cartes = document.querySelectorAll('[data-boutiques] .bv-shop');

@@ -275,6 +275,112 @@ function bayam_vitrine_pied() {
 	<?php
 }
 
+/* ---------- Fiche produit : WhatsApp, réassurance, onglets ---------- */
+
+/** Numéro WhatsApp d'une boutique : celui connecté à BAYAM, sinon le téléphone de la boutique (237…). */
+function bayam_vitrine_whatsapp_boutique( $vendeur ) {
+	$numero = preg_replace( '/\D+/', '', (string) get_user_meta( $vendeur, 'bayam_wa_moi', true ) );
+	if ( ! $numero ) {
+		$profil = (array) get_user_meta( $vendeur, 'wcfmmp_profile_settings', true );
+		$numero = preg_replace( '/\D+/', '', (string) ( $profil['phone'] ?? '' ) );
+	}
+	if ( 9 === strlen( $numero ) ) {
+		$numero = '237' . $numero;
+	}
+	return strlen( $numero ) >= 11 ? $numero : '';
+}
+
+/** Modes de livraison réellement réglés (zones WooCommerce), pour la réassurance. */
+function bayam_vitrine_livraison() {
+	$modes = array();
+	foreach ( WC_Shipping_Zones::get_zones() as $zone ) {
+		foreach ( $zone['shipping_methods'] as $methode ) {
+			if ( $methode->is_enabled() ) {
+				$cout    = (float) $methode->get_option( 'cost', 0 );
+				$modes[] = $methode->get_title() . ' : ' . ( $cout > 0 ? wp_strip_all_tags( wc_price( $cout ) ) : 'gratuit' );
+			}
+		}
+	}
+	return $modes;
+}
+
+/* Commander sur WhatsApp : l'acheteur écrit à la boutique comme il en a l'habitude, avec l'article déjà cité. */
+add_action( 'woocommerce_single_product_summary', function () {
+	global $product;
+	if ( ! $product || ! function_exists( 'wcfm_get_vendor_id_by_post' ) ) {
+		return;
+	}
+	$vendeur = wcfm_get_vendor_id_by_post( $product->get_id() );
+	$numero  = $vendeur ? bayam_vitrine_whatsapp_boutique( $vendeur ) : '';
+	if ( ! $numero ) {
+		return;
+	}
+	$boutique = function_exists( 'wcfmmp_get_store' ) ? wcfmmp_get_store( $vendeur )->get_shop_name() : '';
+	$prix     = html_entity_decode( wp_strip_all_tags( wc_price( (float) $product->get_price() ) ), ENT_QUOTES, 'UTF-8' );
+	$lien     = get_permalink( $product->get_id() );
+	// Le vendeur ouvre ce lien sur son téléphone : jamais l'adresse locale du poste, toujours l'adresse publique.
+	$publique = function_exists( 'bayam_url_publique' ) ? bayam_url_publique() : null;
+	if ( $publique ) {
+		$lien = $publique . substr( $lien, strlen( untrailingslashit( home_url() ) ) );
+	}
+	$message = sprintf( 'Bonjour %s, je suis intéressé(e) par « %s » à %s : %s', $boutique, $product->get_name(), $prix, $lien );
+	printf(
+		'<a class="bv-whatsapp" href="%s" target="_blank" rel="noopener">%s<span>%s</span></a>',
+		esc_url( 'https://wa.me/' . $numero . '?text=' . rawurlencode( $message ) ),
+		bayam_icone( 'chat' ), // phpcs:ignore WordPress.Security.EscapeOutput
+		esc_html__( 'Commander sur WhatsApp', 'bayam-vitrine' )
+	);
+}, 31 );
+
+/* Réassurance : livraison et paiements réellement proposés, vendeur joignable. */
+add_action( 'woocommerce_single_product_summary', function () {
+	$paiements = array();
+	foreach ( WC()->payment_gateways() ? WC()->payment_gateways()->get_available_payment_gateways() : array() as $passerelle ) {
+		$paiements[] = $passerelle->get_title();
+	}
+	$lignes = array(
+		array( 'box', 'Livraison', implode( ' · ', bayam_vitrine_livraison() ) ),
+		array( 'card', 'Paiement', implode( ' · ', $paiements ) ),
+		array( 'chat', 'Une question ?', __( 'Le vendeur vous répond sur WhatsApp.', 'bayam-vitrine' ) ),
+	);
+	echo '<ul class="bv-rassure">';
+	foreach ( $lignes as list( $icone, $titre, $texte ) ) {
+		if ( '' !== $texte ) {
+			printf( '<li>%s<span><strong>%s</strong>%s</span></li>', bayam_icone( $icone ), esc_html( $titre ), esc_html( $texte ) ); // phpcs:ignore WordPress.Security.EscapeOutput
+		}
+	}
+	echo '</ul>';
+}, 32 );
+
+/* Onglets : titres en français ; la référence interne (UGS) n'a pas de sens pour l'acheteur. */
+add_filter( 'woocommerce_product_tabs', function ( $onglets ) {
+	if ( isset( $onglets['wcfm_policies_tab'] ) ) {
+		$onglets['wcfm_policies_tab']['title'] = __( 'Conditions de la boutique', 'bayam-vitrine' );
+	}
+	if ( isset( $onglets['wcfm_enquiry_tab'] ) ) {
+		$onglets['wcfm_enquiry_tab']['title'] = __( 'Questions', 'bayam-vitrine' );
+	}
+	return $onglets;
+}, 99 );
+add_action( 'template_redirect', function () {
+	if ( is_product() ) {
+		add_filter( 'wc_product_sku_enabled', '__return_false' );
+	}
+} );
+
+/* Barre d'achat en verre sur téléphone (comme dans l'application) : prix, panier, WhatsApp, toujours à portée. */
+add_action( 'woocommerce_after_single_product', function () {
+	global $product;
+	if ( ! $product || ! $product->is_purchasable() || ! $product->is_in_stock() ) {
+		return;
+	}
+	printf(
+		'<div class="bv-achat" data-achat><span class="bv-achat__prix">%s</span><button type="button" class="button alt bv-achat__panier" data-achat-panier>%s</button></div>',
+		wp_kses_post( $product->get_price_html() ),
+		esc_html( $product->is_type( 'simple' ) ? __( 'Ajouter au panier', 'bayam-vitrine' ) : __( 'Choisir', 'bayam-vitrine' ) )
+	);
+} );
+
 /* ---------- Fiche produit : bloc « Vendu par » ---------- */
 
 add_action( 'woocommerce_single_product_summary', function () {

@@ -343,6 +343,25 @@ body.single-product .storefront-sticky-add-to-cart{display:none}
 /* La mention « vendu par » native de WCFM fait doublon avec ce bloc. */
 body.single-product .wcfmmp_sold_by_container,body.single-product .wcfmmp_sold_by_wrapper{display:none}
 
+/* Fiche produit : WhatsApp, réassurance, barre d'achat du téléphone */
+.bv-whatsapp{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:52px;margin:0 0 20px;border-radius:14px;background:#25D366;color:#073B1E!important;font-weight:700;font-size:16px;box-shadow:0 8px 20px rgba(37,211,102,.25)}
+.bv-whatsapp:hover{background:#1FBF5B;transform:translateY(-1px)}
+.bv-whatsapp .bv-ico{width:22px;height:22px}
+.bv-rassure{display:grid;gap:10px;margin:0 0 24px;padding:16px;border:1px solid var(--ligne);border-radius:16px;background:#fff;list-style:none}
+.bv-rassure li{display:flex;align-items:flex-start;gap:12px;margin:0;font-size:14px;color:var(--ardoise)}
+.bv-rassure .bv-ico{flex:none;width:22px;height:22px;margin-top:2px;color:var(--em-d)}
+.bv-rassure strong{display:block;color:var(--nuit);font-size:14px}
+.bv-achat{display:none}
+@media (max-width:767px){
+ body.single-product .bv-onglets{display:none}
+ body.single-product{padding-bottom:calc(84px + env(safe-area-inset-bottom))}
+ .bv-achat{position:fixed;left:12px;right:12px;bottom:calc(10px + env(safe-area-inset-bottom));z-index:999;display:flex;align-items:center;gap:12px;padding:8px 8px 8px 18px;border:1px solid rgba(226,232,240,.9);border-radius:28px;background:rgba(255,255,255,.86);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);box-shadow:0 10px 30px rgba(11,37,69,.16)}
+ .bv-achat__prix{flex:1;min-width:0;color:var(--em-d);font-family:Poppins,sans-serif;font-weight:700;font-size:18px;line-height:1.2}
+ .bv-achat__prix del{display:block;color:#94a3b8;font-family:Inter,sans-serif;font-weight:500;font-size:12px}
+ .bv-achat__prix ins{text-decoration:none}
+ body .bv-achat__panier{flex:none;margin:0}
+}
+
 /* 9. Panier */
 body table.shop_table{width:100%;margin:0 0 24px;border:1px solid var(--ligne);border-radius:var(--r-g);border-collapse:separate;border-spacing:0;background:#fff;overflow:hidden;box-shadow:var(--ombre)}
 body table.shop_table th{padding:14px 16px;background:var(--nuage);color:var(--nuit);font-weight:600;font-size:14px;text-align:left}
