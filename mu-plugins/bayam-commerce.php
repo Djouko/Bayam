@@ -44,3 +44,23 @@ add_action( 'deleted_post', function ( $id, $article ) {
 		WC_Cache_Helper::invalidate_cache_group( 'coupons' );
 	}
 }, 10, 2 );
+
+// Stripe (cartes bancaires, extension officielle WooCommerce Stripe Gateway) : clés lues dans l'environnement (.env),
+// jamais enregistrées en base ; mode test tant que STRIPE_MODE ne vaut pas « live ».
+add_filter( 'option_woocommerce_stripe_settings', function ( $reglages ) {
+	$publique = (string) getenv( 'STRIPE_PUBLISHABLE_KEY' );
+	$secrete  = (string) getenv( 'STRIPE_SECRET_KEY' );
+	if ( '' === $publique || '' === $secrete ) {
+		return $reglages;
+	}
+	$test    = 'live' !== getenv( 'STRIPE_MODE' );
+	$prefixe = $test ? 'test_' : '';
+	return array_merge( is_array( $reglages ) ? $reglages : array(), array(
+		'enabled'                   => 'yes',
+		'testmode'                  => $test ? 'yes' : 'no',
+		'title'                     => 'Carte bancaire (Visa, Mastercard)',
+		$prefixe . 'publishable_key' => $publique,
+		$prefixe . 'secret_key'      => $secrete,
+		$prefixe . 'webhook_secret'  => (string) getenv( 'STRIPE_WEBHOOK_SECRET' ),
+	) );
+} );

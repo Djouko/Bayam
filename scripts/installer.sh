@@ -33,10 +33,12 @@ installer wordpress-importer 0.9.6
 wp plugin activate bayam-whatsapp
 # Paiement Mobile Money par CinetPay (plugins/bayam-cinetpay, monté) ; identifiants dans .env.
 wp plugin activate bayam-cinetpay
+# Cartes bancaires : extension officielle Stripe ; clés dans .env (STRIPE_*), lues par le mu-plugin bayam-commerce.
+installer woocommerce-gateway-stripe 11.1.1
 # Cache d'objets persistant dans Redis (service redis) : moins de requêtes à la base à chaque page.
 installer redis-cache 3.0.0
 wp redis enable || true   # déjà activé : la commande le signale sans rien changer
-for ext in woocommerce wc-multivendor-marketplace wc-frontend-manager wc-multivendor-membership; do
+for ext in woocommerce wc-multivendor-marketplace wc-frontend-manager wc-multivendor-membership woocommerce-gateway-stripe; do
   wp language plugin install "$ext" fr_FR || true   # certaines extensions n'ont pas de traduction publiée
 done
 

@@ -56,6 +56,11 @@ services:
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
       CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
+      # Cartes bancaires (Stripe) : clés de test ou de production, jamais en base.
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_MODE: ${STRIPE_MODE:-test}
       # Assistant du vendeur (API Anthropic) : sans clé, il reste inactif.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       BAYAM_ASSISTANT_MODELE: ${BAYAM_ASSISTANT_MODELE:-claude-opus-5-5}
@@ -139,6 +144,11 @@ services:
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
       CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
+      # Cartes bancaires (Stripe) : clés de test ou de production, jamais en base.
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_MODE: ${STRIPE_MODE:-test}
       # Assistant du vendeur (API Anthropic) : sans clé, il reste inactif.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       BAYAM_ASSISTANT_MODELE: ${BAYAM_ASSISTANT_MODELE:-claude-opus-5-5}
@@ -190,6 +200,11 @@ services:
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
       CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
+      # Cartes bancaires (Stripe) : clés de test ou de production, jamais en base.
+      STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_MODE: ${STRIPE_MODE:-test}
       # Assistant du vendeur (API Anthropic) : sans clé, il reste inactif.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       BAYAM_ASSISTANT_MODELE: ${BAYAM_ASSISTANT_MODELE:-claude-opus-5-5}
