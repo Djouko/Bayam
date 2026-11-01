@@ -325,8 +325,14 @@ final class Bayam_WA_Boutique
         $nom = trim($nom);
         $nom = mb_strtoupper($nom, 'UTF-8') === $nom ? mb_strtolower($nom, 'UTF-8') : $nom;
         $nom = mb_strtoupper(mb_substr($nom, 0, 1, 'UTF-8'), 'UTF-8') . mb_substr($nom, 1, null, 'UTF-8');
+        // Brouillon au nom du vendeur dès le départ, publié une fois complet (prix, tailles, stock) : un arrêt en
+        // cours de route ne laisse jamais en vitrine un article sans vendeur ni prix.
+        $id = wp_insert_post(['post_type' => 'product', 'post_status' => 'draft', 'post_author' => $vendeur, 'post_title' => $nom], true);
+        if (is_wp_error($id)) {
+            return null;
+        }
         if ($tailles) {
-            $p = new WC_Product_Variable();
+            $p = new WC_Product_Variable($id);
             $attribut = new WC_Product_Attribute();
             $attribut->set_name('Taille');
             $attribut->set_options(array_keys($tailles));
@@ -334,18 +340,19 @@ final class Bayam_WA_Boutique
             $attribut->set_variation(true);
             $p->set_attributes([$attribut]);
         } else {
-            $p = new WC_Product_Simple();
+            $p = new WC_Product_Simple($id);
             $p->set_regular_price((string) $prix);
             $p->set_manage_stock(true);
             $p->set_stock_quantity($stock_simple);
         }
-        $p->set_name($nom);
-        $p->set_status('publish');
         if ($image_id) {
             $p->set_image_id($image_id);
         }
-        $id = $p->save();
-        wp_update_post(['ID' => $id, 'post_author' => $vendeur]);
+        $rayon = self::rayon_probable($nom);
+        if ($rayon) {
+            $p->set_category_ids([$rayon]);
+        }
+        $p->save();
         foreach ($tailles as $taille => $quantite) {
             $v = new WC_Product_Variation();
             $v->set_parent_id($id);
@@ -358,7 +365,45 @@ final class Bayam_WA_Boutique
         if ($tailles) {
             WC_Product_Variable::sync($id);
         }
-        return wc_get_product($id);
+        $p = wc_get_product($id);
+        $p->set_status('publish');
+        $p->save();
+        return $p;
+    }
+
+    /**
+     * Rayon d'un nouvel article d'après son nom : le rayon qui porte l'un de ses mots (« sweat » : Sweats à capuche),
+     * sinon celui d'un article en ligne qui commence pareil (« casquette » : Accessoires) ; le premier mot est l'article,
+     * les suivants le décrivent (« Robe rouge » n'est pas rangée avec un « Bonnet rouge »). Null si rien ne correspond.
+     */
+    private static function rayon_probable(string $nom): ?int
+    {
+        $racine = static fn (string $mot): string => preg_replace('/(s|x)$/', '', $mot);
+        $mots = array_filter(preg_split('/[^\p{L}]+/u', Bayam_WA_Outils::normaliser($nom)), static fn ($m) => mb_strlen($m) >= 3);
+        $rayons = get_terms(['taxonomy' => 'product_cat', 'hide_empty' => false, 'exclude' => [(int) get_option('default_product_cat')]]);
+        foreach ($mots as $mot) {
+            foreach ($rayons as $rayon) {
+                foreach (preg_split('/[^\p{L}]+/u', Bayam_WA_Outils::normaliser($rayon->name)) as $mot_rayon) {
+                    if (mb_strlen($mot_rayon) >= 3 && $racine($mot_rayon) === $racine($mot)) {
+                        return $rayon->term_id;
+                    }
+                }
+            }
+        }
+        global $wpdb;
+        foreach (array_slice($mots, 0, 1) as $mot) {
+            $semblables = $wpdb->get_col($wpdb->prepare(
+                "SELECT ID FROM {$wpdb->posts} WHERE post_type = 'product' AND post_status = 'publish' AND post_title LIKE %s ORDER BY ID DESC LIMIT 5",
+                '%' . $wpdb->esc_like($mot) . '%'
+            ));
+            foreach ($semblables as $id) {
+                $ids = array_diff(wc_get_product_term_ids((int) $id, 'product_cat'), [(int) get_option('default_product_cat')]);
+                if ($ids) {
+                    return (int) reset($ids);
+                }
+            }
+        }
+        return null;
     }
 
     /** Photo reçue sur WhatsApp ajoutée à la médiathèque du vendeur. */

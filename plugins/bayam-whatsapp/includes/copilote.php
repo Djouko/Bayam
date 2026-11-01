@@ -703,6 +703,9 @@ final class Bayam_WA_Copilote
         }
         $image = Bayam_WA_Boutique::importer_image($this->vendeur, $photo['binaire'], $nom);
         $p = Bayam_WA_Boutique::creer_produit($this->vendeur, $nom, $prix, $tailles, $stock, $image);
+        if (!$p) {
+            return [['texte' => "❌ Le produit *{$nom}* n'a pas pu être créé. Renvoyez la photo avec la même légende."]];
+        }
         $lien = Bayam_WA_Liens::produit($this->vendeur, $p);
         $detail = $tailles ? implode(', ', array_map(static fn ($k, $v) => "$k : $v", array_keys($tailles), $tailles)) : "$stock pièce(s)";
         if (preg_match('/\bpubli(?:er|e|ez)\b(.*)$/', $reste, $pub)) {

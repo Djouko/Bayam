@@ -74,16 +74,35 @@ $groupes_essai = "('120363000000000001@g.us', '120363000000000002@g.us')";
 $wpdb->query('DELETE c FROM ' . Bayam_WA_Stockage::table('clics') . ' c JOIN ' . Bayam_WA_Stockage::table('liens') . " l ON l.id = c.lien WHERE l.groupe IN $groupes_essai");
 $wpdb->query('DELETE FROM ' . Bayam_WA_Stockage::table('liens') . " WHERE groupe IN $groupes_essai");
 $wpdb->query('DELETE FROM ' . Bayam_WA_Stockage::table('diffusions') . " WHERE chat IN $groupes_essai");
+if (get_option('bayam_wa_essais_debut')) {
+    bayam_supprimer_produits_essai($vendeur, get_option('bayam_wa_essais_debut'));
+}
 Bayam_WA_Waha::remplacer($faux);
 update_user_meta($vendeur, 'bayam_wa_moi', '237690000003@c.us');
 update_user_meta($vendeur, 'bayam_wa_statut', 'WORKING');
 delete_user_meta($vendeur, 'bayam_wa');
 $debut = current_time('mysql');
 $debut_ts = time();
+update_option('bayam_wa_essais_debut', $debut, false);
 $GLOBALS['reussis'] = 0;
 $GLOBALS['echecs'] = [];
 
 /** Rejoue un message et rend les textes (et légendes d'images) envoyés en réponse. */
+/** Articles créés par les essais depuis $depuis (brouillons compris), avec leurs tailles et leur photo. */
+function bayam_supprimer_produits_essai(int $vendeur, string $depuis): void
+{
+    foreach (get_posts(['post_type' => 'product', 'author' => $vendeur, 'date_query' => [['after' => $depuis, 'inclusive' => true]], 'numberposts' => 20, 'post_status' => 'any']) as $p) {
+        $w = wc_get_product($p->ID);
+        if ($w) {
+            foreach ($w->get_children() as $c) {
+                wp_delete_post($c, true);
+            }
+            wp_delete_attachment($w->get_image_id(), true);
+            $w->delete(true);
+        }
+    }
+}
+
 function bayam_dire(string $texte, string $de = '237690000003@c.us', bool $moi = true, bool $photo = false): array
 {
     $faux = $GLOBALS['faux'];
@@ -205,6 +224,9 @@ $r = bayam_dire('Robe verte 9000', photo: true);
 bayam_verifier('photo sans « bayam » en légende : aucun produit créé', $r === [], $r);
 $r = bayam_dire('bayam ROBE ROUGE 15000 M:3 L:2', photo: true);
 bayam_verifier('photo + légende : produit à tailles créé', str_contains($joint($r), 'Produit créé') && str_contains($joint($r), 'M : 3'), $r);
+$robe = get_posts(['post_type' => 'product', 'author' => $vendeur, 'title' => 'Robe rouge', 'post_status' => 'any', 'date_query' => [['after' => $debut, 'inclusive' => true]]]);
+$robe = $robe ? wc_get_product($robe[0]->ID) : null;
+bayam_verifier('produit créé : publié, au vendeur, complet', $robe && $robe->get_status() === 'publish' && count($robe->get_children()) === 2 && (float) $robe->get_price() === 15000.0);
 $r = bayam_dire('bayam casquette brodée 6500 4', photo: true);
 bayam_verifier('photo : accents gardés, quantité après le prix', str_contains($joint($r), '*Casquette brodée*') && str_contains($joint($r), "6\u{202F}500") && str_contains($joint($r), '4 pièce(s)'), $r);
 $r = bayam_dire('bayam Sandales pointure 42 25 000 42:2', photo: true);
@@ -487,16 +509,7 @@ $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}wcfm_messages WHERE mess
 foreach ($wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'shop_coupon' AND post_title = 'bayamessai'") as $id_coupon) {
     wp_delete_post((int) $id_coupon, true);
 }
-foreach (get_posts(['post_type' => 'product', 'author' => 3, 'date_query' => [['after' => $debut, 'inclusive' => true]], 'numberposts' => 10, 'post_status' => 'any']) as $p) {
-    $w = wc_get_product($p->ID);
-    if ($w) {
-        foreach ($w->get_children() as $c) {
-            wp_delete_post($c, true);
-        }
-        wp_delete_attachment($w->get_image_id(), true);
-        $w->delete(true);
-    }
-}
+bayam_supprimer_produits_essai($vendeur, $debut);
 $tshirt = wc_get_product(17);
 $tshirt->set_manage_stock(false);
 $tshirt->set_stock_status('instock');
@@ -516,6 +529,7 @@ foreach ($sauvegarde as $cle => $valeur) {
     $valeur === '' ? delete_user_meta($vendeur, $cle) : update_user_meta($vendeur, $cle, $valeur);
 }
 delete_option('bayam_wa_essais_sauvegarde');
+delete_option('bayam_wa_essais_debut');
 Bayam_WA_Waha::remplacer(null);
 delete_option('bayam_wa_essais_jusqua');
 echo "  données de démonstration restaurées\n";
