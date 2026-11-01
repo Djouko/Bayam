@@ -14,9 +14,14 @@ const BAYAM_WA_VERSION = '1.1.0';
 define('BAYAM_WA_DIR', __DIR__ . '/');
 define('BAYAM_WA_URL', plugin_dir_url(__FILE__));
 
+// SDK Anthropic de l'assistant (docker compose run --rm composer install) ; sans lui, l'assistant reste inactif.
+if (is_readable(BAYAM_WA_DIR . 'vendor/autoload.php')) {
+    require_once BAYAM_WA_DIR . 'vendor/autoload.php';
+}
+
 foreach ([
     'outils', 'stockage', 'waha', 'regles', 'boutique', 'cartes', 'liens',
-    'copilote', 'clients', 'webhook', 'diffusion', 'rapports', 'paiements', 'page-vendeur', 'travailleur',
+    'copilote', 'clients', 'assistant', 'webhook', 'diffusion', 'rapports', 'paiements', 'page-vendeur', 'travailleur',
 ] as $fichier) {
     require_once BAYAM_WA_DIR . "includes/{$fichier}.php";
 }

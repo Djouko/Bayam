@@ -30,10 +30,15 @@ final class Bayam_WA_Copilote
         'pin' => ['pin'],
         'equipe' => ['equipe', 'team'],
         'support' => ['support', 'assistance', 'humain'],
+        'assistant' => ['assistant', 'occupe', 'occupee', 'remplace', 'remplace-moi'],
+        'plancher' => ['plancher', 'minimum'],
+        'remise' => ['remise', 'reduction'],
+        'ok' => ['ok', 'confirme', 'valide'],
+        'annule' => ['annule', 'annuler'],
     ];
 
     /** Actions qu'un membre de l'équipe ne peut faire qu'avec le code PIN (le vendeur, lui, tient son téléphone). */
-    private const SENSIBLES = ['vendu', 'lien', 'promo', 'dettes', 'paye', 'moins'];
+    private const SENSIBLES = ['vendu', 'lien', 'promo', 'dettes', 'paye', 'moins', 'plancher', 'remise', 'ok', 'annule'];
 
     private int $vendeur;
     private bool $equipe;
@@ -119,6 +124,11 @@ final class Bayam_WA_Copilote
             'boutique' => $this->lien_boutique(),
             'pin' => $this->pin($reste),
             'equipe' => $this->equipe_commande($reste),
+            'assistant' => $this->assistant($reste),
+            'plancher' => $this->plancher($reste),
+            'remise' => $this->remise($reste),
+            'ok' => $this->confirmer_commande($reste, true),
+            'annule' => $this->confirmer_commande($reste, false),
             'support' => [['texte' => "L'équipe BAYAM vous répond du lundi au samedi, de 8 h à 19 h : écrivez à contact@bayam.cm en décrivant votre souci (et une capture d'écran si possible)."]],
         };
     }
@@ -133,6 +143,12 @@ final class Bayam_WA_Copilote
     {
         $t = trim(preg_replace('/[?!.]+/', ' ', str_replace('’', "'", $t)));
         $brut = trim(preg_replace('/[?!.]+/', ' ', str_replace('’', "'", $brut)));
+        if (preg_match('/^je suis (?:occupee?|prise?|en route|au marche|en reunion|en voyage)\b(.*)$/u', $t, $m) || preg_match('/^remplace[- ]?moi\b(.*)$/u', $t, $m)) {
+            return ['assistant', trim($m[1])];
+        }
+        if (preg_match('/^(?:je suis (?:la|de retour|revenue?)|je (?:reprends|reprend|suis dispo|suis disponible))\b/u', $t)) {
+            return ['assistant', 'off'];
+        }
         if (preg_match('/^(?:j\'?ai )?(?:ajoute|ajouter|recu|arrivage de|rentre|nouveau stock de)\s+(\d+)\s+(.+)$/u', $t, $m)) {
             return ['entree', $m[1] . ' ' . $m[2]];
         }
@@ -233,6 +249,8 @@ final class Bayam_WA_Copilote
             . "📝 *bayam dettes*, *bayam dette Paul 5000*, *bayam payé Paul 2000*\n"
             . "🏷️ *bayam promo NOEL10 10%*\n"
             . "📷 Photo avec la légende *bayam robe rouge 15000 M:3 L:2* : nouveau produit\n"
+            . "🤖 *bayam je suis occupé* : votre assistant répond à vos clients · *bayam je reprends*\n"
+            . "🔒 *bayam plancher robe rouge 12000* : prix minimum en négociation · *bayam remise 15%*\n"
             . "🔁 *bayam boutique* : votre lien unique · *bayam groupes* · *bayam support*";
     }
 
@@ -326,6 +344,90 @@ final class Bayam_WA_Copilote
     private function abs(int $n): int
     {
         return abs($n);
+    }
+
+    /** « bayam je suis occupé », « bayam assistant 2h », « bayam je reprends » : l'assistant prend ou rend la main. */
+    private function assistant(string $reste): array
+    {
+        if (preg_match('/^(?:off|stop|arret|non|fin|reprends|je reprends)$/', $reste)) {
+            Bayam_WA_Assistant::desactiver($this->vendeur);
+            return [['texte' => "👋 Vous reprenez la main : l'assistant ne répond plus à vos clients."]];
+        }
+        if (!Bayam_WA_Assistant::disponible()) {
+            return [['texte' => "L'assistant n'est pas encore branché sur votre boutique : l'équipe BAYAM l'active dès que possible. Écrivez *bayam support* si c'est urgent."]];
+        }
+        $heures = null;
+        if (preg_match('/(\d+(?:[.,]\d+)?)\s*(h|heures?|min|minutes?)\b/', $reste, $m)) {
+            $n = (float) str_replace(',', '.', $m[1]);
+            $heures = str_starts_with($m[2], 'm') ? $n / 60 : $n;
+        }
+        Bayam_WA_Assistant::activer($this->vendeur, $heures);
+        $remise = (int) Bayam_WA_Stockage::reglages($this->vendeur)['remise_max'];
+        $duree = $heures ? ' pendant ' . ($heures < 1 ? round($heures * 60) . ' min' : rtrim(rtrim(number_format($heures, 1, ',', ''), '0'), ',') . ' h') : ' jusqu\'à *bayam je reprends*';
+        return [['texte' => "🤖 *Votre assistant prend le relais*{$duree}.\n"
+            . "Il répond à vos clients en privé (prix, tailles, livraison), négocie sans jamais descendre sous vos prix minimums "
+            . "({$remise} % de remise au plus, ou *bayam plancher polo 10000* article par article) et vous envoie chaque commande à confirmer.\n"
+            . "Vos discussions personnelles restent sans réponse, et dès que vous écrivez vous-même à un client, il s'efface de cette discussion."]];
+    }
+
+    /** « bayam plancher polo 10000 » : prix minimum en négociation ; « bayam plancher polo » : le prix minimum actuel. */
+    private function plancher(string $reste): array
+    {
+        if (preg_match('/^(.+?)\s+(\d[\d .]*k?)$/', $reste, $m) && ($montant = Bayam_WA_Outils::montant($m[2]))) {
+            [$p] = Bayam_WA_Boutique::designer($this->vendeur, $m[1]);
+            if (!$p) {
+                return [['texte' => "Je ne trouve pas « {$m[1]} » dans votre boutique."]];
+            }
+            if ($montant > (float) $p->get_price()) {
+                return [['texte' => 'Ce prix minimum dépasse le prix affiché de *' . $p->get_name() . '* (' . Bayam_WA_Outils::fcfa((float) $p->get_price()) . ').']];
+            }
+            $p->update_meta_data('_bayam_prix_plancher', $montant);
+            $p->save();
+            return [['texte' => '🔒 Prix minimum de *' . $p->get_name() . '* : ' . Bayam_WA_Outils::fcfa($montant) . ' (prix affiché ' . Bayam_WA_Outils::fcfa((float) $p->get_price()) . ").\nVotre assistant ne descendra jamais en dessous."]];
+        }
+        [$p] = $reste !== '' ? Bayam_WA_Boutique::designer($this->vendeur, $reste) : [null];
+        if (!$p) {
+            return [['texte' => 'Exemple : *bayam plancher polo 10000* (prix le plus bas que votre assistant peut accepter).']];
+        }
+        return [['texte' => 'Prix minimum de *' . $p->get_name() . '* : ' . Bayam_WA_Outils::fcfa(Bayam_WA_Assistant::plancher($this->vendeur, $p)) . ' (prix affiché ' . Bayam_WA_Outils::fcfa((float) $p->get_price()) . ').']];
+    }
+
+    /** « bayam remise 15% » : remise maximale de l'assistant, pour les articles sans prix minimum fixé. */
+    private function remise(string $reste): array
+    {
+        if (!preg_match('/^(?:max(?:imum|imale)?\s*)?(\d{1,2})\s*%?$/', $reste, $m)) {
+            return [['texte' => 'Remise maximale actuelle : ' . Bayam_WA_Stockage::reglages($this->vendeur)['remise_max'] . " %. Exemple : *bayam remise 15%*."]];
+        }
+        if ((int) $m[1] > 50) {
+            return [['texte' => 'Plus de 50 % de remise ressemble à une erreur : vérifiez le chiffre.']];
+        }
+        Bayam_WA_Stockage::enregistrer($this->vendeur, ['remise_max' => (int) $m[1]]);
+        return [['texte' => "🏷️ Votre assistant peut accorder jusqu'à {$m[1]} % de remise en négociation (sauf prix minimum fixé article par article)."]];
+    }
+
+    /** « bayam ok 740 » / « bayam annule 740 » : commande conclue par l'assistant, confirmée ou annulée. */
+    private function confirmer_commande(string $reste, bool $ok): array
+    {
+        if (!preg_match('/^(\d+)/', $reste, $m)) {
+            return [['texte' => 'Exemple : *bayam ok 740* pour confirmer, *bayam annule 740* pour annuler.']];
+        }
+        $commande = wc_get_order((int) $m[1]);
+        if (!$commande || (int) $commande->get_meta('_bayam_vendeur') !== $this->vendeur || !$commande->get_meta('_bayam_assistant')) {
+            return [['texte' => "Je ne trouve pas de commande n° {$m[1]} conclue par votre assistant."]];
+        }
+        if (!$commande->has_status('on-hold')) {
+            return [['texte' => "La commande n° {$m[1]} est déjà " . wc_get_order_status_name($commande->get_status()) . '.']];
+        }
+        $numero = Bayam_WA_Outils::numero($commande->get_billing_phone());
+        if (!$ok) {
+            $commande->update_status('cancelled', 'Annulée par la boutique sur WhatsApp.');
+            return [['texte' => "❌ Commande n° {$m[1]} annulée." . ($numero ? " Prévenez le client si besoin : https://wa.me/{$numero}" : '')]];
+        }
+        $commande->update_status('processing', 'Confirmée par la boutique sur WhatsApp.');
+        $articles = implode(', ', array_map(static fn ($l) => $l->get_quantity() . ' × ' . $l->get_name(), $commande->get_items()));
+        $prevenu = $numero && Bayam_WA_Regles::repondre($this->vendeur, Bayam_WA_Outils::chat_id($numero),
+            '✅ ' . Bayam_WA_Outils::nom_boutique($this->vendeur) . " confirme votre commande n° {$m[1]} : {$articles}, total " . Bayam_WA_Outils::fcfa((float) $commande->get_total()) . ". Nous vous contactons pour la livraison. Merci !", null, 'assistant');
+        return [['texte' => "✅ Commande n° {$m[1]} confirmée." . ($prevenu ? ' Le client est prévenu sur WhatsApp.' : '')]];
     }
 
     /** État du stock de la boutique : articles épuisés d'abord, puis les autres avec leurs quantités. */

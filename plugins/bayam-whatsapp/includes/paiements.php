@@ -49,7 +49,8 @@ final class Bayam_WA_Paiements
     public static function nouvelle_commande(int $id): void
     {
         $commande = wc_get_order($id);
-        if (!$commande || $commande->get_created_via() === 'bayam-whatsapp' || $commande->get_meta('_bayam_alerte_nouvelle')) {
+        // Ventes du Copilote et commandes de l'assistant : le vendeur a déjà son propre message.
+        if (!$commande || in_array($commande->get_created_via(), ['bayam-whatsapp', 'bayam-assistant'], true) || $commande->get_meta('_bayam_alerte_nouvelle')) {
             return;
         }
         $commande->update_meta_data('_bayam_alerte_nouvelle', 1);

@@ -5,3 +5,5 @@ secrets/
 installation.log
 # Captures d'écran (volumineuses, régénérables)
 captures/
+# Dépendances PHP installées dans un volume Docker (docker compose run --rm composer install)
+plugins/bayam-whatsapp/vendor/

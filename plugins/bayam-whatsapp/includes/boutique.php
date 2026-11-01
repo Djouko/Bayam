@@ -297,6 +297,27 @@ final class Bayam_WA_Boutique
         return ['ca' => $ca, 'commandes' => count($commandes), 'encaisse' => $encaisse, 'top' => $top, 'ruptures' => array_values($ruptures)];
     }
 
+    /**
+     * Commande conclue par l'assistant, au prix négocié, en attente de la confirmation du vendeur
+     * (« bayam ok 740 ») : elle n'est payée ni livrée tant qu'il ne l'a pas validée.
+     */
+    public static function commande_a_confirmer(int $vendeur, WC_Product $p, ?WC_Product $variante, int $quantite, int $prix_total, string $client, string $numero, string $livraison): WC_Order
+    {
+        $commande = wc_create_order(['status' => 'pending', 'created_via' => 'bayam-assistant']);
+        $commande->add_product($variante ?: $p, $quantite, ['subtotal' => $prix_total, 'total' => $prix_total]);
+        $commande->set_address(['first_name' => $client ?: 'Client WhatsApp', 'phone' => $numero, 'address_1' => $livraison, 'country' => 'CM'], 'billing');
+        $commande->set_payment_method('cod');
+        $commande->set_payment_method_title('À convenir avec la boutique');
+        $commande->update_meta_data('_bayam_vendeur', $vendeur);
+        $commande->update_meta_data('_bayam_assistant', 1);
+        $commande->add_order_note("Commande conclue sur WhatsApp par l'assistant BAYAM, au prix négocié ; à confirmer par la boutique.");
+        $commande->calculate_totals(false);
+        $commande->save();
+        do_action('woocommerce_checkout_order_processed', $commande->get_id(), [], $commande);
+        $commande->update_status('on-hold', 'En attente de la confirmation de la boutique.');
+        return $commande;
+    }
+
     /** Produit créé depuis le Copilote (« [photo] robe rouge 15000 M:3 L:2 »). */
     public static function creer_produit(int $vendeur, string $nom, int $prix, array $tailles, int $stock_simple, ?int $image_id)
     {

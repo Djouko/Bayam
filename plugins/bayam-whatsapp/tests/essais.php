@@ -255,6 +255,68 @@ Bayam_WA_Webhook::evenement(['event' => 'message.any', 'session' => 'boutique-3'
 ]]);
 bayam_verifier('message rejoué une heure après (reconnexion) : pas de réponse tardive', $faux->envois === [], array_column($faux->envois, 'chemin'));
 
+echo "\nAssistant du vendeur occupé (modèle simulé : aucun appel réel)\n";
+$appels_modele = [];
+// Modèle simulé : décide selon le dernier message du client, et garde ce qu'on lui a transmis.
+Bayam_WA_Assistant::remplacer(static function (string $systeme, string $boutique, array $messages) use (&$appels_modele) {
+    $appels_modele[] = ['boutique' => $boutique, 'messages' => $messages];
+    $dernier = mb_strtolower(end($messages)['content']);
+    $commande = ['produit_id' => 0, 'quantite' => 0, 'prix_unitaire' => 0, 'precision' => '', 'livraison' => '', 'nom_client' => ''];
+    if (str_contains($dernier, 'maman')) {
+        return ['action' => 'ignorer', 'message' => '', 'commande' => $commande, 'resume_vendeur' => ''];
+    }
+    if (str_contains($dernier, 'je prends')) {
+        $prix = str_contains($dernier, '5000') ? 5000 : 11000;
+        return ['action' => 'commande', 'message' => 'C’est noté Nadège, la boutique vous recontacte pour la livraison.', 'resume_vendeur' => 'Cliente sérieuse, veut être livrée ce soir.',
+            'commande' => ['produit_id' => 25, 'quantite' => 2, 'prix_unitaire' => $prix, 'precision' => '', 'livraison' => 'Bonamoussadi, face Total', 'nom_client' => 'Nadège']];
+    }
+    return ['action' => 'repondre', 'message' => 'Bonjour ! Oui le polo est disponible à 12 000 FCFA.', 'commande' => $commande, 'resume_vendeur' => ''];
+});
+$client_a = '237677000201@c.us';
+$r = bayam_dire('Bayam je suis occupé');
+bayam_verifier('« je suis occupé » : l’assistant prend le relais', str_contains($joint($r), 'prend le relais') && Bayam_WA_Assistant::actif($vendeur), $r);
+$r = bayam_dire('Bonjour, le polo que vous avez posté est à combien ?', $client_a, false);
+bayam_verifier('client qui demande le prix sans mot-clé : l’assistant répond', str_contains($joint($r), 'disponible à 12'), $r);
+bayam_verifier('le modèle reçoit le catalogue avec les prix minimums', str_contains(end($appels_modele)['boutique'], 'Polo') && str_contains(end($appels_modele)['boutique'], 'prix minimum'), end($appels_modele)['boutique']);
+$r = bayam_dire('Maman dit que tu passes ce soir', '237677000202@c.us', false);
+bayam_verifier('message personnel : silence et texte effacé', $r === [] && !$wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . Bayam_WA_Stockage::table('wa_messages') . " WHERE vendeur = %d AND chat = %s AND texte LIKE %s", $vendeur, '237677000202@c.us', '%Maman%')), $r);
+$faux->envois = [];
+$r = bayam_dire('Ok je prends 2 à 11000, livrez à Bonamoussadi', $client_a, false);
+$alerte = implode(' ', array_map(static fn ($e) => (string) ($e['corps']['text'] ?? ''), $faux->envois));
+preg_match('/n° (\d+), à confirmer/', $alerte, $num_commande);
+$commande_assistant = !empty($num_commande[1]) ? wc_get_order((int) $num_commande[1]) : null;
+bayam_verifier('commande négociée : commande à confirmer au prix convenu, vendeur alerté', $commande_assistant && $commande_assistant->has_status('on-hold') && (int) $commande_assistant->get_total() === 22000 && str_contains($alerte, 'bayam ok'), $alerte);
+$faux->envois = [];
+bayam_dire('Ok je prends 2 à 5000 seulement', '237677000203@c.us', false);
+$alerte = implode(' ', array_map(static fn ($e) => (string) ($e['corps']['text'] ?? ''), $faux->envois));
+bayam_verifier('prix sous le minimum : jamais conclu, demande transmise au vendeur', str_contains($alerte, 'vous transmet') && !str_contains($alerte, 'Commande conclue'), $alerte);
+$r = bayam_dire('bayam ok ' . ($num_commande[1] ?? '0'));
+bayam_verifier('« bayam ok N » : commande confirmée, client prévenu', str_contains($joint($r), 'confirmée') && wc_get_order((int) ($num_commande[1] ?? 0))->has_status('processing'), $r);
+// Le vendeur écrit lui-même au client : l'assistant s'efface de cette discussion.
+Bayam_WA_Webhook::evenement(['event' => 'message.any', 'session' => 'boutique-3', 'payload' => ['id' => 'false_vendeur1', 'from' => '237690000003@c.us', 'to' => '237677000204@c.us', 'fromMe' => true, 'body' => 'Je vous appelle tout de suite', '_data' => ['Info' => ['Chat' => '237677000204@c.us']]]]);
+$appels_avant = count($appels_modele);
+$r = bayam_dire('D’accord je vous attends', '237677000204@c.us', false);
+bayam_verifier('vendeur qui a repris la discussion : l’assistant ne répond pas', $r === [] && count($appels_modele) === $appels_avant, $r);
+$r = bayam_dire('bayam plancher polo 11500');
+bayam_verifier('« plancher polo 11500 » : prix minimum fixé', str_contains($joint($r), 'Prix minimum de *Polo*') && Bayam_WA_Assistant::plancher($vendeur, wc_get_product(25)) === 11500, $r);
+$r = bayam_dire('bayam plancher polo 50000');
+bayam_verifier('prix minimum au-dessus du prix affiché : refusé', str_contains($joint($r), 'dépasse le prix affiché'), $r);
+$r = bayam_dire('bayam remise 15%');
+bayam_verifier('« remise 15% » : remise maximale de l’assistant', str_contains($joint($r), '15 %') && (int) Bayam_WA_Stockage::reglages($vendeur)['remise_max'] === 15, $r);
+$r = bayam_dire('bayam je reprends');
+bayam_verifier('« je reprends » : l’assistant s’arrête', str_contains($joint($r), 'reprenez la main') && !Bayam_WA_Assistant::actif($vendeur), $r);
+$appels_avant = count($appels_modele);
+$r = bayam_dire('Bonjour vous êtes ouvert dimanche ?', '237677000205@c.us', false);
+bayam_verifier('assistant arrêté : aucun appel au modèle', count($appels_modele) === $appels_avant, $r);
+$polo = wc_get_product(25);
+$polo->delete_meta_data('_bayam_prix_plancher');
+$polo->save();
+Bayam_WA_Assistant::remplacer(null);
+foreach (['237677000201@c.us', '237677000202@c.us', '237677000203@c.us', '237677000204@c.us', '237677000205@c.us'] as $chat_essai) {
+    delete_transient('bayam_wa_rafale_' . md5($vendeur . '|' . $chat_essai));
+    delete_transient('bayam_wa_main_' . md5($vendeur . '|' . Bayam_WA_Outils::numero_de($chat_essai)));
+}
+
 echo "\nClients camerounais (couleur, taille, anglais, pidgin, réponses aux cartes, rafales)\n";
 // Un numéro par cas : la limite de rafale (6 réponses par discussion en 10 min) ne doit pas fausser les essais.
 $client_n = static fn (int $n) => sprintf('2376770001%02d@c.us', $n);
@@ -360,7 +422,7 @@ file_put_contents('/var/www/html/wp-content/uploads/bayam-statut-essai.jpg', bas
 
 // --- Remise en état ---------------------------------------------------------------------------------------------
 echo "\nRemise en état\n";
-foreach (wc_get_orders(['created_via' => 'bayam-whatsapp', 'limit' => -1, 'date_created' => '>=' . ($debut_ts - 5)]) as $c) {
+foreach (wc_get_orders(['created_via' => ['bayam-whatsapp', 'bayam-assistant'], 'limit' => -1, 'date_created' => '>=' . ($debut_ts - 5)]) as $c) {
     $c->delete(true);
 }
 $wpdb->query($wpdb->prepare("DELETE FROM {$wpdb->prefix}wcfm_marketplace_orders WHERE vendor_id = 3 AND created >= %s", $debut));

@@ -156,6 +156,12 @@ final class Bayam_WA_Clients
         return self::vocabulaire(Bayam_WA_Outils::normaliser($demande));
     }
 
+    /** Mots d'articles d'une phrase libre (« vous avez encore la robe rouge ? » donne « robe rouge »). */
+    public static function mots_utiles(string $texte): string
+    {
+        return self::vocabulaire(Bayam_WA_Outils::normaliser($texte));
+    }
+
     /** Mots utiles d'une demande, en vocabulaire des fiches : « do you have red dress » donne « red robe ». */
     private static function vocabulaire(string $texte): string
     {

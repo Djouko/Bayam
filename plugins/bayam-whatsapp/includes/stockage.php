@@ -108,7 +108,10 @@ final class Bayam_WA_Stockage
             'mots_cles' => true,           // réponses automatiques aux clients qui écrivent « #robes », « prix ? »...
             'groupes' => [],               // groupes choisis pour les publications [id => nom]
             'statut_actif' => true,
-            'statut_contacts' => [],       // numéros qui voient les statuts publiés ; vide = tous les contacts (liste réduite pour les essais)
+            'statut_contacts' => [],
+            'assistant' => false,          // l'assistant répond aux clients à la place du vendeur occupé
+            'assistant_jusqua' => null,    // fin prévue (horodatage), null = jusqu'à « bayam je reprends »
+            'remise_max' => Bayam_WA_Assistant::REMISE_MAX, // en %, sans prix minimum fixé par article       // numéros qui voient les statuts publiés ; vide = tous les contacts (liste réduite pour les essais)
         ]);
     }
 

@@ -164,8 +164,11 @@ final class Bayam_WA_Webhook
                 foreach (Bayam_WA_Copilote::traiter($vendeur, $demande, self::photo($m)) as $reponse) {
                     self::envoyer_reponse($vendeur, null, $reponse);
                 }
+            } elseif (!self::est_moi($vendeur, $chat)) {
+                // Le vendeur écrit lui-même à un client : l'assistant s'efface de cette discussion.
+                Bayam_WA_Assistant::vendeur_intervient($vendeur, $chat);
             }
-            return; // Messages du vendeur à ses clients : rien à faire.
+            return;
         }
 
         // Numéro de téléphone réel du client (WhatsApp ne montre souvent qu'un identifiant interne « LID »).
@@ -178,12 +181,18 @@ final class Bayam_WA_Webhook
         // seulement s'il s'adresse à BAYAM (commande d'équipe, demande d'article).
         // Réponse à une carte, un statut ou une liste de BAYAM (« Dispo en L ? ») : le message parle de ces articles.
         $cites = $reglages['mots_cles'] && !empty($m['replyTo']['body']) ? Bayam_WA_Clients::produits_cites($vendeur, (string) $m['replyTo']['body']) : [];
-        $pour_bayam = $equipe || $cites || ($reglages['mots_cles'] && Bayam_WA_Clients::recherche($texte) !== null);
+        // Assistant actif (vendeur occupé) et discussion que le vendeur n'a pas reprise : le texte sert au fil de la
+        // conversation ; s'il s'avère personnel, l'assistant l'efface aussitôt.
+        $assistant = !$equipe && $frais && Bayam_WA_Assistant::actif($vendeur) && !Bayam_WA_Assistant::vendeur_a_la_main($vendeur, $chat);
+        $pour_bayam = $equipe || $assistant || $cites || ($reglages['mots_cles'] && Bayam_WA_Clients::recherche($texte) !== null);
         Bayam_WA_Stockage::noter_message($vendeur, $chat, 'in', $pour_bayam ? $texte : '', $id !== '' ? $id : null, 'texte', $numero);
         if ($equipe) {
             foreach (Bayam_WA_Copilote::traiter($vendeur, $commande, self::photo($m), true) as $reponse) {
                 self::envoyer_reponse($vendeur, $chat, $reponse);
             }
+            return;
+        }
+        if ($assistant && Bayam_WA_Assistant::message($vendeur, $chat, $numero, $texte, $id !== '' ? $id : null, $cites)) {
             return;
         }
         if ($frais) {

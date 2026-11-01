@@ -1,0 +1,18 @@
+{
+    "name": "bayam/whatsapp",
+    "description": "Extension BAYAM WhatsApp",
+    "type": "wordpress-plugin",
+    "require": {
+        "anthropic-ai/sdk": "^1.3",
+        "symfony/http-client": "^7.4",
+        "nyholm/psr7": "^1.8"
+    },
+    "config": {
+        "platform": {
+            "php": "8.3.0"
+        },
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    }
+}
