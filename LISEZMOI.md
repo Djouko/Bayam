@@ -18,6 +18,21 @@ Réglages : site en français, fuseau de Douala, devise FCFA sans décimales, ve
 
 Données de démonstration : le jeu officiel de WooCommerce (18 produits, prix convertis en FCFA) réparti entre trois boutiques fictives : Mode Aïcha (vêtements, Akwa), Accessoires Akwa, Musique Bonamoussadi.
 
+## Architecture (migration progressive vers des microservices)
+
+WordPress reste la boutique pendant la transition ; les nouvelles fonctions naissent dans des services indépendants (dossier `services/`, TypeScript exécuté par Node 24) et WordPress disparaîtra quand le web et l'application utiliseront la nouvelle API.
+
+| Élément | Rôle |
+|---|---|
+| Traefik 3.6 (`infra/traefik`) | Entrée unique sur le port 8080 et pour le tunnel : répartition de charge, limitation de débit, en-têtes de sécurité, adresses internes refusées |
+| Passerelle (`services/src/passerelle`) | Reçoit les événements de WAHA, vérifie leur signature, garde ce qui concerne BAYAM et l'écrit dans le bus |
+| NATS JetStream 2.12 (`infra/nats`) | Bus d'événements durable : rien ne se perd si un service redémarre |
+| Canal WhatsApp (`services/src/canal-whatsapp`) | Catalogue interactif (rayons, cartes, lien personnel de commande), confirmations aux clients ; transmet le reste à l'extension WordPress |
+| PostgreSQL 18 (`infra/postgres`) | Base des nouveaux services, un rôle et un schéma par service |
+| Redis 8.2 | Cache, verrous, plafonds d'envoi |
+
+Essais des services : `docker run --rm -v "$(pwd -W)/services:/app" -w /app node:24.22.2-alpine npm test` (et `npm run types` pour le typage). Tableau de bord de l'entrée : http://127.0.0.1:8081/dashboard/ (poste seulement).
+
 ## Démarrer et arrêter
 
 Prérequis : Docker Desktop lancé.
