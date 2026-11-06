@@ -29,6 +29,39 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
 
+  # Entrée unique (infra/traefik) : http://localhost:8080 et le tunnel public passent ici.
+  traefik:
+    image: traefik:v3.6.25
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+      - "127.0.0.1:8081:8081"
+    volumes:
+      - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./infra/traefik/dynamique.yml:/etc/traefik/dynamique.yml:ro
+    depends_on:
+      - proxy-docker
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 10s
+      retries: 6
+
+  # Accès de Traefik à Docker limité à la lecture de la liste des conteneurs (jamais le socket complet).
+  proxy-docker:
+    image: tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      EVENTS: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    security_opt: ["no-new-privileges:true"]
+
   wordpress:
     # Image officielle + extension PHP Redis (images/wordpress/Dockerfile).
     image: bayam/wordpress:7.0.4-redis
@@ -37,8 +70,40 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "8080:80"
+    # Deux copies derrière l'entrée : l'une peut redémarrer sans coupure. Sessions WooCommerce en base,
+    # fichiers sur le volume partagé : aucune affinité nécessaire.
+    deploy:
+      replicas: 2
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.boutique.loadbalancer.server.port: "80"
+      traefik.http.services.boutique.loadbalancer.healthcheck.path: /robots.txt
+      traefik.http.services.boutique.loadbalancer.healthcheck.interval: 10s
+      traefik.http.services.boutique.loadbalancer.healthcheck.timeout: 5s
+      # Le site ne répond qu'à son adresse (localhost:8080) et redirige le reste : le contrôle s'y présente,
+      # et ne suit jamais une redirection (sinon une copie saine paraît en panne).
+      traefik.http.services.boutique.loadbalancer.healthcheck.hostname: localhost:8080
+      traefik.http.services.boutique.loadbalancer.healthcheck.followredirects: "false"
+      traefik.http.routers.boutique.rule: PathPrefix(`/`)
+      traefik.http.routers.boutique.priority: "1"
+      traefik.http.routers.boutique.entrypoints: web
+      traefik.http.routers.boutique.service: boutique
+      traefik.http.routers.boutique.middlewares: securite@file,debit-general@file,corps-limite@file
+      traefik.http.routers.boutique-sensible.rule: (Path(`/wp-login.php`) || PathPrefix(`/my-account`) || PathPrefix(`/wp-json/wc/store/v1/checkout`)) && Method(`POST`)
+      traefik.http.routers.boutique-sensible.priority: "50"
+      traefik.http.routers.boutique-sensible.entrypoints: web
+      traefik.http.routers.boutique-sensible.service: boutique
+      traefik.http.routers.boutique-sensible.middlewares: securite@file,debit-sensible@file,corps-limite@file
+      traefik.http.routers.boutique-liens.rule: PathPrefix(`/commander/`)
+      traefik.http.routers.boutique-liens.priority: "50"
+      traefik.http.routers.boutique-liens.entrypoints: web
+      traefik.http.routers.boutique-liens.service: boutique
+      traefik.http.routers.boutique-liens.middlewares: securite@file,debit-liens@file
+      traefik.http.routers.boutique-interne.rule: PathPrefix(`/wp-json/bayam/v1/interne`) || PathPrefix(`/wp-json/bayam/v1/whatsapp`) || Path(`/xmlrpc.php`) || QueryRegexp(`rest_route`, `^/?bayam/`)
+      traefik.http.routers.boutique-interne.priority: "100"
+      traefik.http.routers.boutique-interne.entrypoints: web
+      traefik.http.routers.boutique-interne.service: boutique
+      traefik.http.routers.boutique-interne.middlewares: interne-seulement@file
     environment:
       WORDPRESS_DB_HOST: db
       WORDPRESS_DB_NAME: wordpress
@@ -107,9 +172,9 @@ services:
   tunnel:
     image: cloudflare/cloudflared:2026.10.7
     restart: unless-stopped
-    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://wordpress:80
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://traefik:80
     depends_on:
-      - wordpress
+      - traefik
 
   # Bus d'événements : chaque événement WhatsApp est écrit sur disque avant d'être acquitté à WAHA, puis relu
   # par les services à leur rythme, avec redistribution en cas d'échec. Jamais exposé hors du réseau interne.

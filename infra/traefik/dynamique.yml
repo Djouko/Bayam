@@ -1,0 +1,53 @@
+# Règles communes de l'entrée, utilisées par les routes des services (étiquettes « …@file »).
+# Débit compté par client : adresse réelle transmise par Cloudflare (Cf-Connecting-Ip). En production, l'origine
+# n'accepte que les adresses de Cloudflare, sinon cet en-tête pourrait être falsifié.
+
+http:
+  middlewares:
+    securite:
+      headers:
+        frameDeny: true
+        contentTypeNosniff: true
+        referrerPolicy: strict-origin-when-cross-origin
+        permissionsPolicy: "camera=(), microphone=(), geolocation=(self), payment=(self)"
+        customResponseHeaders:
+          X-Powered-By: ""
+          Server: ""
+
+    # Navigation ordinaire : une page charge des dizaines de fichiers d'un coup, d'où la rafale permise.
+    debit-general:
+      rateLimit:
+        average: 100
+        period: 1s
+        burst: 200
+        sourceCriterion:
+          requestHeaderName: Cf-Connecting-Ip
+
+    # Connexion, compte, validation de commande : contre les essais de mots de passe et les commandes en rafale.
+    debit-sensible:
+      rateLimit:
+        average: 10
+        period: 1m
+        burst: 10
+        sourceCriterion:
+          requestHeaderName: Cf-Connecting-Ip
+
+    # Liens personnels de commande : contre l'essai de jetons au hasard.
+    debit-liens:
+      rateLimit:
+        average: 20
+        period: 1m
+        burst: 10
+        sourceCriterion:
+          requestHeaderName: Cf-Connecting-Ip
+
+    # Envois de fichiers (photos d'articles) jusqu'à 32 Mo ; au-delà, refus avant d'atteindre WordPress.
+    corps-limite:
+      buffering:
+        maxRequestBodyBytes: 33554432
+        memRequestBodyBytes: 2097152
+
+    # Adresses réservées au réseau interne (API des services, webhook, xmlrpc) : refusées depuis l'entrée.
+    interne-seulement:
+      ipAllowList:
+        sourceRange: ["127.0.0.1/32"]

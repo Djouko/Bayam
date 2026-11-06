@@ -1,0 +1,54 @@
+# Entrée unique de BAYAM : tout le trafic public (navigateurs, application, tunnel) passe ici. Répartition de charge
+# entre les copies des services, limitation de débit, en-têtes de sécurité, adresses internes refusées.
+# Les routes viennent des étiquettes des conteneurs (fournisseur Docker, via un proxy en lecture seule) et des
+# règles communes de dynamique.yml.
+
+entryPoints:
+  web:
+    address: ":80"
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        writeTimeout: 120s
+        idleTimeout: 180s
+    # Le tunnel (réseau interne) transmet l'adresse réelle du client : on la garde pour la limitation de débit.
+    forwardedHeaders:
+      trustedIPs: ["172.16.0.0/12"]
+  # Administration : tableau de bord, santé, métriques. Publié sur 127.0.0.1 seulement.
+  traefik:
+    address: ":8081"
+
+api:
+  dashboard: true
+  insecure: true
+
+ping:
+  entryPoint: traefik
+
+metrics:
+  prometheus:
+    entryPoint: traefik
+
+providers:
+  docker:
+    endpoint: "tcp://proxy-docker:2375"
+    exposedByDefault: false
+    network: fluxstore-local_default
+  file:
+    filename: /etc/traefik/dynamique.yml
+    watch: true
+
+log:
+  level: INFO
+  format: json
+
+# Journal des accès en JSON, sans aucun en-tête (cookies, jetons) : seulement méthode, chemin, statut, durée.
+accessLog:
+  format: json
+  fields:
+    headers:
+      defaultMode: drop
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
