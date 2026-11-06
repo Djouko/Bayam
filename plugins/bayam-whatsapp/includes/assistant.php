@@ -287,10 +287,7 @@ TXT;
                 $p->get_id(), $p->get_name(), Bayam_WA_Outils::fcfa((float) $p->get_price()), Bayam_WA_Outils::fcfa(self::plancher($vendeur, $p)),
                 implode(' · ', Bayam_WA_Boutique::stock_lignes($p)), Bayam_WA_Liens::produit($vendeur, $p, 'assistant'));
         }
-        $paiements = [];
-        foreach (WC()->payment_gateways() ? WC()->payment_gateways()->get_available_payment_gateways() : [] as $passerelle) {
-            $paiements[] = $passerelle->get_title();
-        }
+        $paiements = Bayam_WA_Boutique::moyens_paiement();
         return "Boutique : " . Bayam_WA_Outils::nom_boutique($vendeur) . "\n"
             . "Livraison : " . self::livraison() . "\n"
             . "Paiement : " . ($paiements ? implode(', ', $paiements) : 'à la livraison') . "\n"
@@ -301,15 +298,7 @@ TXT;
     /** Modes de livraison réellement réglés dans la boutique (zones WooCommerce). */
     private static function livraison(): string
     {
-        $modes = [];
-        foreach (WC_Shipping_Zones::get_zones() as $zone) {
-            foreach ($zone['shipping_methods'] as $methode) {
-                if ($methode->is_enabled()) {
-                    $cout = (float) $methode->get_option('cost', 0);
-                    $modes[] = $methode->get_title() . ' (' . ($cout > 0 ? Bayam_WA_Outils::fcfa($cout) : 'gratuit') . ')';
-                }
-            }
-        }
+        $modes = Bayam_WA_Boutique::modes_livraison();
         return $modes ? implode(', ', $modes) : 'à convenir avec la boutique';
     }
 

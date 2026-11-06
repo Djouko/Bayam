@@ -57,7 +57,7 @@ final class Bayam_WA_Liens
     }
 
     /** Base des liens envoyés sur WhatsApp : l'adresse publique pendant les démonstrations, sinon celle du site. */
-    private static function base(): string
+    public static function base(): string
     {
         return function_exists('bayam_url_publique') && ($publique = bayam_url_publique()) ? $publique : home_url();
     }

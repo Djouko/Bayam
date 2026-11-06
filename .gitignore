@@ -7,3 +7,6 @@ installation.log
 captures/
 # Dépendances PHP installées dans un volume Docker (docker compose run --rm composer install)
 plugins/bayam-whatsapp/vendor/
+
+# Vidéos de référence déposées par la direction : jamais dans le dépôt.
+*.mp4

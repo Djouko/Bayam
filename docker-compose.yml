@@ -1,5 +1,8 @@
-# Plateforme locale FluxStore : WordPress + WooCommerce + WCFM (place de marché) + MStore API.
-# Démarrer : docker compose up -d   puis, la première fois : docker compose run --rm cli bash /scripts/installer.sh
+# Plateforme locale BAYAM, en migration progressive vers des microservices :
+# - boutique actuelle : WordPress + WooCommerce + WCFM (place de marché) + MStore API ;
+# - nouveaux services (services/, TypeScript) : passerelle des événements WhatsApp, canal WhatsApp ;
+# - socle : bus NATS JetStream, PostgreSQL (un schéma par service), Redis.
+# Démarrer : docker compose up -d --build   puis, la première fois : docker compose run --rm cli bash /scripts/installer.sh
 # Site et administration : http://localhost:8080  (identifiants dans le fichier .env)
 name: fluxstore-local
 
@@ -53,6 +56,9 @@ services:
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
       BAYAM_WA_WEBHOOK: http://passerelle:8090/whatsapp
       BAYAM_REDIS: redis
+      # Microservices : jeton partagé de l'API interne, adresse du canal WhatsApp (liens personnels, notifications).
+      BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
+      BAYAM_CANAL_URL: http://canal-whatsapp:8091
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
       CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
@@ -78,7 +84,8 @@ services:
 
   # WhatsApp en mode connecté (appareil lié par QR code), connecteur libre WAHA, moteur GOWS sans navigateur.
   waha:
-    image: devlikeapro/waha:latest
+    # Version épinglée (empreinte de l'image 2026.10.1 testée) : une mise à jour se décide, elle ne s'impose pas.
+    image: devlikeapro/waha:latest@sha256:2fc1787ddbd343ed2e7d59482846d1b22aa5ca134e29aa8d42d0e88c54e24779
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
@@ -104,20 +111,90 @@ services:
     depends_on:
       - wordpress
 
-  # Passerelle des événements WhatsApp (passerelle/serveur.js) : vérifie la signature de WAHA et ne transmet à
-  # WordPress que ce qui concerne BAYAM (privé, session, commentaires sous une publication BAYAM). Un commerçant
-  # actif est dans des centaines de groupes : WordPress ne traite plus que l'utile.
-  passerelle:
-    image: node:22.21.1-alpine
+  # Bus d'événements : chaque événement WhatsApp est écrit sur disque avant d'être acquitté à WAHA, puis relu
+  # par les services à leur rythme, avec redistribution en cas d'échec. Jamais exposé hors du réseau interne.
+  nats:
+    image: nats:2.12.15-alpine
     restart: unless-stopped
-    command: ["node", "/app/serveur.js"]
+    command: ["--config", "/etc/nats/nats.conf"]
+    volumes:
+      - nats:/data
+      - ./infra/nats/nats.conf:/etc/nats/nats.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8222/healthz?js-enabled-only=true"]
+      interval: 5s
+      retries: 30
+
+  # Base des nouveaux services : un rôle et un schéma par service (infra/postgres/initialisation.sh).
+  postgres:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bayam
+      POSTGRES_USER: bayam_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CANAL_WHATSAPP_DB_PASSWORD: ${CANAL_WHATSAPP_DB_PASSWORD}
+      TZ: Africa/Douala
+    volumes:
+      - postgres:/var/lib/postgresql
+      - ./infra/postgres/initialisation.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "bayam_admin", "-d", "bayam"]
+      interval: 5s
+      retries: 30
+
+  # Passerelle des événements WhatsApp (services/src/passerelle) : vérifie la signature de WAHA, ne garde que ce
+  # qui concerne BAYAM (privé, session, commentaires sous une publication BAYAM) et l'écrit dans le bus.
+  passerelle:
+    image: bayam/services:1
+    build: services
+    restart: unless-stopped
+    command: ["node", "src/passerelle/index.ts"]
     environment:
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
-      BAYAM_WP_WEBHOOK: http://wordpress/wp-json/bayam/v1/whatsapp/webhook
-    volumes:
-      - ./passerelle:/app:ro
+      NATS_URL: nats://nats:4222
     depends_on:
-      - wordpress
+      nats:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8090/sante"]
+      interval: 10s
+      retries: 6
+
+  # Canal WhatsApp (services/src/canal-whatsapp) : catalogue interactif (listes, cartes produit, lien personnel de
+  # commande), notifications aux clients ; transmet le reste à l'extension WordPress pendant la migration.
+  canal-whatsapp:
+    image: bayam/services:1
+    restart: unless-stopped
+    command: ["node", "src/canal-whatsapp/index.ts"]
+    environment:
+      CANAL_WHATSAPP_BASE: postgres://canal_whatsapp:${CANAL_WHATSAPP_DB_PASSWORD}@postgres:5432/bayam
+      NATS_URL: nats://nats:4222
+      REDIS_URL: redis://redis:6379
+      WAHA_URL: http://waha:3000
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
+      BAYAM_WP_INTERNE: http://wordpress
+      TZ: Africa/Douala
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      passerelle:
+        condition: service_started
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8091/sante"]
+      interval: 10s
+      retries: 6
 
   # Travailleur BAYAM : traite les messages WhatsApp en moins d'une seconde et les tâches programmées
   # (publications étalées, rapports), indépendamment des visites du site.
@@ -141,6 +218,9 @@ services:
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
       BAYAM_WA_WEBHOOK: http://passerelle:8090/whatsapp
       BAYAM_REDIS: redis
+      # Microservices : jeton partagé de l'API interne, adresse du canal WhatsApp (liens personnels, notifications).
+      BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
+      BAYAM_CANAL_URL: http://canal-whatsapp:8091
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
       CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
@@ -197,6 +277,9 @@ services:
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
       BAYAM_WA_WEBHOOK: http://passerelle:8090/whatsapp
       BAYAM_REDIS: redis
+      # Microservices : jeton partagé de l'API interne, adresse du canal WhatsApp (liens personnels, notifications).
+      BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
+      BAYAM_CANAL_URL: http://canal-whatsapp:8091
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
       CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
@@ -222,6 +305,8 @@ services:
 
 volumes:
   whatsapp-vendor:
+  nats:
+  postgres:
   db:
   wp:
   waha:

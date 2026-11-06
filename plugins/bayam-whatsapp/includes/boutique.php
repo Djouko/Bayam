@@ -101,6 +101,31 @@ final class Bayam_WA_Boutique
         return array_values(array_unique($valeurs));
     }
 
+    /** Modes de livraison réellement réglés (zones WooCommerce) : « Livraison en ville : 1 000 FCFA ». */
+    public static function modes_livraison(): array
+    {
+        $modes = [];
+        foreach (WC_Shipping_Zones::get_zones() as $zone) {
+            foreach ($zone['shipping_methods'] as $methode) {
+                if ($methode->is_enabled()) {
+                    $cout = (float) $methode->get_option('cost', 0);
+                    $modes[] = html_entity_decode($methode->get_title(), ENT_QUOTES, 'UTF-8') . ' : ' . ($cout > 0 ? Bayam_WA_Outils::fcfa($cout) : 'gratuit');
+                }
+            }
+        }
+        return $modes;
+    }
+
+    /** Moyens de paiement proposés aux clients (passerelles actives). */
+    public static function moyens_paiement(): array
+    {
+        $titres = [];
+        foreach (WC()->payment_gateways() ? WC()->payment_gateways()->get_available_payment_gateways() : [] as $passerelle) {
+            $titres[] = html_entity_decode(wp_strip_all_tags($passerelle->get_title()), ENT_QUOTES, 'UTF-8');
+        }
+        return $titres;
+    }
+
     /** @return WC_Product[] */
     public static function produits(int $vendeur): array
     {

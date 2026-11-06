@@ -76,6 +76,8 @@ final class Bayam_WA_Paiements
                 . ($adresse ? "\nLivraison : {$adresse}" : '')
                 . ($tel && ($n = Bayam_WA_Outils::numero($tel)) ? "\nÉcrire au client : https://wa.me/{$n}" : ''));
         }
+        // Commande passée depuis un lien personnel WhatsApp : la confirmation arrive aussi chez le client.
+        Bayam_WA_Interne::confirmer_au_client($commande);
     }
 
     /** L'argent est-il chez le vendeur ? À la livraison, il l'est quand la commande est terminée (colis remis et payé). */

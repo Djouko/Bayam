@@ -1,0 +1,103 @@
+// Accès au commerce (boutiques, rayons, articles, commandes) derrière une interface : aujourd'hui l'extension
+// WordPress/WooCommerce, demain le service catalogue. Le canal WhatsApp ne change pas quand la source change.
+
+import type { RedisClientType } from 'redis';
+import { texteErreur } from '../commun/journal.ts';
+
+export type Rayon = { id: number; nom: string; nombre: number };
+export type Produit = {
+  id: number;
+  nom: string;
+  prix: number;
+  prix_regulier: number;
+  en_stock: boolean;
+  variable: boolean;
+  /** Chemin de l'image (/wp-content/…), servi par l'origine interne du site. */
+  image: string | null;
+  /** Lien court public vers la fiche (clics comptés par canal). */
+  lien: string;
+  resume: string;
+};
+export type Boutique = {
+  id: number;
+  nom: string;
+  /** Réponses automatiques aux clients activées par le vendeur. */
+  actif: boolean;
+  /** Discussion du vendeur avec lui-même (alertes), et ses identifiants pour la reconnaître. */
+  chat_vendeur: string | null;
+  identifiants: string[];
+  base_publique: string;
+  rayons: Rayon[];
+  livraison: string[];
+  paiements: string[];
+};
+export type PageRayon = { total: number; produits: Produit[] };
+export type Commande = { numero: string; total: number; statut: string; date: string };
+
+export interface Commerce {
+  boutique(id: number): Promise<Boutique | null>;
+  rayon(id: number, rayon: number, page: number, parPage: number): Promise<PageRayon>;
+  produit(id: number, produit: number): Promise<Produit | null>;
+  commandes(id: number, numero: string): Promise<Commande[]>;
+}
+
+/** Source WooCommerce : API interne de l'extension BAYAM, mise en cache dans Redis jusqu'à la prochaine modification. */
+export class CommerceWordpress implements Commerce {
+  private readonly url: string;
+  private readonly jeton: string;
+  private readonly redis: RedisClientType;
+
+  constructor(url: string, jeton: string, redis: RedisClientType) {
+    this.url = url.replace(/\/$/, '');
+    this.jeton = jeton;
+    this.redis = redis;
+  }
+
+  boutique(id: number): Promise<Boutique | null> {
+    return this.enCache(id, 'boutique', `/boutiques/${id}`);
+  }
+
+  async rayon(id: number, rayon: number, page: number, parPage: number): Promise<PageRayon> {
+    return (await this.enCache<PageRayon>(id, `rayon:${rayon}:${page}:${parPage}`, `/boutiques/${id}/rayons/${rayon}?page=${page}&par=${parPage}`)) ?? { total: 0, produits: [] };
+  }
+
+  produit(id: number, produit: number): Promise<Produit | null> {
+    // Jamais en cache : le stock et le prix doivent être ceux du moment où le client commande.
+    return this.lire(`/boutiques/${id}/produits/${produit}`);
+  }
+
+  async commandes(id: number, numero: string): Promise<Commande[]> {
+    return (await this.lire<Commande[]>(`/boutiques/${id}/commandes?numero=${encodeURIComponent(numero)}`)) ?? [];
+  }
+
+  /** Clé de cache liée à la version du catalogue, que WordPress incrémente à chaque modification d'article. */
+  private async enCache<T>(id: number, nom: string, chemin: string): Promise<T | null> {
+    const version = (await this.redis.get(`canal:catalogue:version:${id}`)) ?? '0';
+    const cle = `canal:catalogue:${id}:${version}:${nom}`;
+    const brut = await this.redis.get(cle);
+    if (brut) {
+      return JSON.parse(brut) as T;
+    }
+    const valeur = await this.lire<T>(chemin);
+    if (valeur !== null) {
+      await this.redis.set(cle, JSON.stringify(valeur), { expiration: { type: 'EX', value: 300 } });
+    }
+    return valeur;
+  }
+
+  private async lire<T>(chemin: string): Promise<T | null> {
+    const reponse = await fetch(`${this.url}${chemin}`, {
+      headers: { 'x-bayam-service': this.jeton, accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    }).catch((e: unknown) => {
+      throw new Error(`commerce injoignable (${chemin}) : ${texteErreur(e)}`);
+    });
+    if (reponse.status === 404) {
+      return null;
+    }
+    if (!reponse.ok) {
+      throw new Error(`commerce : réponse ${reponse.status} pour ${chemin}`);
+    }
+    return (await reponse.json()) as T;
+  }
+}

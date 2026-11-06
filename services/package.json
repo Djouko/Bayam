@@ -1,0 +1,25 @@
+{
+  "name": "bayam-services",
+  "private": true,
+  "type": "module",
+  "description": "Microservices BAYAM : passerelle des événements WhatsApp, canal WhatsApp. TypeScript exécuté directement par Node 24.",
+  "engines": {
+    "node": ">=24.11"
+  },
+  "scripts": {
+    "test": "node --test \"src/**/*.test.ts\"",
+    "types": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nats-io/jetstream": "3.4.0",
+    "@nats-io/transport-node": "3.4.0",
+    "fastify": "5.12.8",
+    "pg": "8.23.1",
+    "redis": "6.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "@types/pg": "8.23.1",
+    "typescript": "7.0.2"
+  }
+}
