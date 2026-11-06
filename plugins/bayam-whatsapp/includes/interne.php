@@ -56,6 +56,7 @@ final class Bayam_WA_Interne
             'identifiants' => array_values(array_unique(array_filter([$chat, (string) get_user_meta($id, 'bayam_wa_moi', true), (string) get_user_meta($id, 'bayam_wa_lid', true)]))),
             'base_publique' => untrailingslashit(Bayam_WA_Liens::base()),
             'rayons' => self::rayons($id),
+            'promos' => count(self::promos($id)),
             'livraison' => Bayam_WA_Boutique::modes_livraison(),
             'paiements' => Bayam_WA_Boutique::moyens_paiement(),
         ];
@@ -67,11 +68,14 @@ final class Bayam_WA_Interne
         if (!$id) {
             return new WP_REST_Response(['erreur' => 'boutique inconnue'], 404);
         }
-        $q = new WP_Query([
+        // Rayon 0 : les articles en promotion de la boutique.
+        $filtre = (int) $r['rayon'] === 0
+            ? ['post__in' => self::promos($id) ?: [0]]
+            : ['tax_query' => [['taxonomy' => 'product_cat', 'field' => 'term_id', 'terms' => (int) $r['rayon'], 'include_children' => false]]];
+        $q = new WP_Query($filtre + [
             'post_type' => 'product', 'post_status' => 'publish', 'author' => $id, 'fields' => 'ids',
-            'posts_per_page' => min(10, max(1, (int) ($r['par'] ?? 3))), 'paged' => max(1, (int) ($r['page'] ?? 1)),
+            'posts_per_page' => min(10, max(1, (int) ($r['par'] ?? 4))), 'paged' => max(1, (int) ($r['page'] ?? 1)),
             'orderby' => 'date', 'order' => 'DESC',
-            'tax_query' => [['taxonomy' => 'product_cat', 'field' => 'term_id', 'terms' => (int) $r['rayon'], 'include_children' => false]],
             'meta_query' => [['key' => '_stock_status', 'value' => 'instock']],
         ]);
         $produits = array_filter(array_map('wc_get_product', $q->posts));
@@ -133,9 +137,66 @@ final class Bayam_WA_Interne
         return array_values($rayons);
     }
 
+    /** Articles en promotion de la boutique (en vente et en stock). */
+    private static function promos(int $vendeur): array
+    {
+        $ids = array_map('intval', wc_get_product_ids_on_sale());
+        if (!$ids) {
+            return [];
+        }
+        return get_posts(['post_type' => 'product', 'post_status' => 'publish', 'author' => $vendeur, 'fields' => 'ids', 'numberposts' => 100,
+            'post__in' => $ids, 'meta_query' => [['key' => '_stock_status', 'value' => 'instock']]]);
+    }
+
+    /** Déclinaisons encore en stock, par attribut : « Taille : S, M, XL · Couleur : Rouge ». */
+    private static function options(WC_Product $p): string
+    {
+        if (!$p->is_type('variable')) {
+            return '';
+        }
+        $valeurs = [];
+        foreach ($p->get_children() as $id) {
+            $v = wc_get_product($id);
+            if (!$v || !$v->is_in_stock() || !$v->is_purchasable()) {
+                continue;
+            }
+            foreach ($v->get_attributes() as $nom => $valeur) {
+                if ($valeur !== '') {
+                    $libelle = wc_attribute_label(str_replace('attribute_', '', $nom), $p);
+                    $terme = taxonomy_exists($nom) ? get_term_by('slug', $valeur, $nom) : null;
+                    $valeurs[$libelle][$terme ? $terme->name : $valeur] = true;
+                }
+            }
+        }
+        $morceaux = [];
+        foreach ($valeurs as $libelle => $liste) {
+            $morceaux[] = html_entity_decode($libelle, ENT_QUOTES, 'UTF-8') . ' : ' . implode(', ', array_keys($liste));
+        }
+        return implode(' · ', $morceaux);
+    }
+
+    /** Pièces en stock quand le stock est suivi (somme des déclinaisons suivies), sinon null. */
+    private static function stock(WC_Product $p): ?int
+    {
+        if (!$p->is_type('variable')) {
+            return $p->managing_stock() ? max(0, (int) $p->get_stock_quantity()) : null;
+        }
+        $total = null;
+        foreach ($p->get_children() as $id) {
+            $v = wc_get_product($id);
+            if ($v && $v->managing_stock()) {
+                $total = (int) $total + max(0, (int) $v->get_stock_quantity());
+            }
+        }
+        return $total;
+    }
+
     private static function fiche(int $vendeur, WC_Product $p): array
     {
-        $image = $p->get_image_id() ? (string) wp_get_attachment_image_url($p->get_image_id(), 'large') : '';
+        $chemin = static function (string $taille) use ($p): ?string {
+            $url = $p->get_image_id() ? (string) wp_get_attachment_image_url($p->get_image_id(), $taille) : '';
+            return $url !== '' ? (string) wp_parse_url($url, PHP_URL_PATH) : null;
+        };
         $variable = $p->is_type('variable');
         return [
             'id' => $p->get_id(),
@@ -144,8 +205,11 @@ final class Bayam_WA_Interne
             'prix_regulier' => (float) ($variable ? $p->get_variation_regular_price('min') : $p->get_regular_price()),
             'en_stock' => $p->is_in_stock(),
             'variable' => $variable,
+            'stock' => self::stock($p),
+            'options' => self::options($p),
             // Chemin seul : le service choisit l'origine (réseau interne aujourd'hui, stockage d'objets demain).
-            'image' => $image !== '' ? (string) wp_parse_url($image, PHP_URL_PATH) : null,
+            // Photo 768 px : assez nette pour la vitrine comme pour la fiche ; le service l'allège avant l'envoi.
+            'photo' => $chemin('medium_large'),
             'lien' => Bayam_WA_Liens::produit($vendeur, $p, 'catalogue'),
             'resume' => html_entity_decode(wp_trim_words(wp_strip_all_tags($p->get_short_description() ?: $p->get_description()), 24, '…'), ENT_QUOTES, 'UTF-8'),
         ];

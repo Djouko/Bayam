@@ -88,12 +88,17 @@ services:
       traefik.http.routers.boutique.priority: "1"
       traefik.http.routers.boutique.entrypoints: web
       traefik.http.routers.boutique.service: boutique
-      traefik.http.routers.boutique.middlewares: securite@file,debit-general@file,corps-limite@file
+      traefik.http.routers.boutique.middlewares: securite@file,debit-general@file,compression@file,corps-limite@file
+      traefik.http.routers.boutique-statique.rule: PathRegexp(`\.(css|js|jpe?g|png|webp|avif|gif|svg|woff2?|ico)$$`)
+      traefik.http.routers.boutique-statique.priority: "40"
+      traefik.http.routers.boutique-statique.entrypoints: web
+      traefik.http.routers.boutique-statique.service: boutique
+      traefik.http.routers.boutique-statique.middlewares: securite@file,debit-general@file,cache-statique@file,compression@file
       traefik.http.routers.boutique-sensible.rule: (Path(`/wp-login.php`) || PathPrefix(`/my-account`) || PathPrefix(`/wp-json/wc/store/v1/checkout`)) && Method(`POST`)
       traefik.http.routers.boutique-sensible.priority: "50"
       traefik.http.routers.boutique-sensible.entrypoints: web
       traefik.http.routers.boutique-sensible.service: boutique
-      traefik.http.routers.boutique-sensible.middlewares: securite@file,debit-sensible@file,corps-limite@file
+      traefik.http.routers.boutique-sensible.middlewares: securite@file,debit-sensible@file,compression@file,corps-limite@file
       traefik.http.routers.boutique-liens.rule: PathPrefix(`/commander/`)
       traefik.http.routers.boutique-liens.priority: "50"
       traefik.http.routers.boutique-liens.entrypoints: web

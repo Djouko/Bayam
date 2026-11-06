@@ -4,7 +4,7 @@
 import type pg from 'pg';
 import type { RedisClientType } from 'redis';
 import type { Journal } from '../commun/journal.ts';
-import type { Envoi } from './catalogue.ts';
+import type { EnvoiPret } from './catalogue.ts';
 import type { Waha } from './waha.ts';
 
 export type Plafonds = { parDiscussion10Min: number; parSessionJour: number };
@@ -29,7 +29,7 @@ export class Expediteur {
   }
 
   /** Envoie les messages dans l'ordre ; renvoie le nombre envoyé (0 si un plafond est atteint). */
-  envoyer(session: string, chat: string, chatVendeur: string | null, envois: Envoi[]): Promise<number> {
+  envoyer(session: string, chat: string, chatVendeur: string | null, envois: EnvoiPret[]): Promise<number> {
     const precedent = this.files.get(session) ?? Promise.resolve();
     const suivant = precedent.catch(() => undefined).then(() => this.envoyerMaintenant(session, chat, chatVendeur, envois));
     this.files.set(session, suivant);
@@ -37,7 +37,7 @@ export class Expediteur {
     return suivant;
   }
 
-  private async envoyerMaintenant(session: string, chat: string, chatVendeur: string | null, envois: Envoi[]): Promise<number> {
+  private async envoyerMaintenant(session: string, chat: string, chatVendeur: string | null, envois: EnvoiPret[]): Promise<number> {
     const auClient = envois.filter((e) => e.type !== 'au_vendeur').length;
     const jour = new Date().toISOString().slice(0, 10);
     const [discussion, quotidien] = await Promise.all([
@@ -56,7 +56,7 @@ export class Expediteur {
         if (!destinataire) {
           continue;
         }
-        // Le temps de « taper » : plus long avant une carte ou une liste qu'avant une courte phrase.
+        // Le temps de « taper » : plus long avant une image ou une liste qu'avant une courte phrase.
         await pause(e.type === 'texte' || e.type === 'au_vendeur' ? 500 : 900, e.type === 'texte' || e.type === 'au_vendeur' ? 1100 : 1600);
         const id = await this.waha.envoyer(session, destinataire, e);
         envoyes++;

@@ -15,13 +15,14 @@ final class Bayam_WA_Boutique
             $racines = array_map([self::class, 'racine'], explode(' ', $mots));
             // Mots retrouvés (nom ou catégorie) pour choisir les articles ; poids pour les classer : un mot du nom
             // compte plus qu'un mot de catégorie, et la couleur ou la taille demandée fait monter les articles qui l'ont.
-            $scores = $poids = [];
+            $scores = $poids = $dans_le_nom = [];
             foreach ($tous as $i => $p) {
                 $index = self::index_mots($p);
-                $scores[$i] = $poids[$i] = 0;
+                $scores[$i] = $poids[$i] = $dans_le_nom[$i] = 0;
                 foreach ($racines as $r) {
                     if (self::correspond($r, $index['nom'])) {
                         $scores[$i]++;
+                        $dans_le_nom[$i]++;
                         $poids[$i] += 4;
                     } elseif (self::correspond($r, $index['categorie'])) {
                         $scores[$i]++;
@@ -35,6 +36,12 @@ final class Bayam_WA_Boutique
             $meilleur = $scores ? max($scores) : 0;
             $seuil = $meilleur === count($racines) || $tous_les_mots ? count($racines) : max(1, $meilleur);
             $retenus = $meilleur ? array_keys(array_filter($scores, static fn ($s) => $s >= $seuil)) : [];
+            // Le vendeur ou le client qui écrit « polo » parle du Polo, pas de tout le rayon « T-shirts et polos » :
+            // des articles trouvés par leur nom écartent ceux trouvés seulement par leur rayon.
+            $nom_max = $retenus ? max(array_map(static fn ($i) => $dans_le_nom[$i], $retenus)) : 0;
+            if ($nom_max > 0) {
+                $retenus = array_values(array_filter($retenus, static fn ($i) => $dans_le_nom[$i] === $nom_max));
+            }
             usort($retenus, static fn ($a, $b) => [$poids[$b], $a] <=> [$poids[$a], $b]); // à poids égal, le plus récent
             $choix = array_map(static fn ($i) => $tous[$i], $retenus);
         }

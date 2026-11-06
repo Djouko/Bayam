@@ -65,6 +65,17 @@ foreach ($wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'shop_c
 foreach (['237677000001@c.us', '237677000002@c.us'] as $chat_essai) {
     delete_transient('bayam_wa_rafale_' . md5($vendeur . '|' . $chat_essai));
 }
+// Stocks réels des articles que les essais font varier : gardés en base le temps des essais (comme l'instantané
+// ci-dessus), restaurés à la fin, même après un passage interrompu.
+$stocks_reels = get_option('bayam_wa_essais_stocks');
+if (!is_array($stocks_reels)) {
+    $stocks_reels = [];
+    foreach (array_merge([17, 25], wc_get_product(15)->get_children()) as $id_stock) {
+        $p_stock = wc_get_product($id_stock);
+        $stocks_reels[$id_stock] = [$p_stock->managing_stock(), $p_stock->get_stock_quantity(), $p_stock->get_stock_status()];
+    }
+    update_option('bayam_wa_essais_stocks', $stocks_reels, false);
+}
 $tshirt_essai = wc_get_product(17);
 $tshirt_essai->set_manage_stock(false);
 $tshirt_essai->set_stock_status('instock');
@@ -273,7 +284,7 @@ $r = bayam_dire('BAYAM', '237677000001@c.us', false);
 bayam_verifier('client « BAYAM » seul : présentation de l’assistant', str_contains($joint($r), 'assistant BAYAM') && str_contains($joint($r), '#robe'), $r);
 $r = bayam_dire('Merci beaucoup, à demain', '237677000001@c.us', false);
 bayam_verifier('client sans demande d’article : pas de réponse automatique', $r === [], $r);
-$r = bayam_dire('bayam vous avez des chaussures ?', '237677000001@c.us', false);
+$r = bayam_dire('bayam vous avez des parapluies ?', '237677000001@c.us', false);
 bayam_verifier('article absent : réponse polie', str_contains($joint($r), "n'avons pas"), $r);
 $r = bayam_dire(Bayam_WA_Outils::MARQUE . 'menu');
 bayam_verifier('nos propres messages sont ignorés (pas de boucle)', $r === [], $r);
@@ -388,8 +399,8 @@ $r = bayam_dire('bayam do you have red hoodie please', $client_n(3), false);
 bayam_verifier('client anglophone : réponse en anglais, sweat proposé', str_contains($joint($r), 'Hello') && str_contains($joint($r), 'Sweat'), $r);
 $r = bayam_dire('Bayam una get cap?', $client_n(4), false);
 bayam_verifier('pidgin « una get cap » : casquettes, réponse en anglais', str_contains($joint($r), 'Hello') && str_contains($joint($r), 'Casquette'), $r);
-$r = bayam_dire('#shoes', $client_n(5), false);
-bayam_verifier('« #shoes » absent : réponse polie en anglais', str_contains($joint($r), "We don't have"), $r);
+$r = bayam_dire('#wig', $client_n(5), false);
+bayam_verifier('« #wig » absent : réponse polie en anglais', str_contains($joint($r), "We don't have"), $r);
 $lien_polo = Bayam_WA_Liens::produit($vendeur, wc_get_product(25), 'statut');
 $cite = static function (string $texte, string $quote, string $de) use ($faux, $joint) {
     $faux->envois = [];
@@ -510,18 +521,14 @@ foreach ($wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'shop_c
     wp_delete_post((int) $id_coupon, true);
 }
 bayam_supprimer_produits_essai($vendeur, $debut);
-$tshirt = wc_get_product(17);
-$tshirt->set_manage_stock(false);
-$tshirt->set_stock_status('instock');
-$tshirt->save();
-foreach ([31, 25] as $id) {
+foreach ($stocks_reels as $id => [$suivi, $quantite, $etat]) {
     $p = wc_get_product($id);
-    if ($p && $p->managing_stock()) {
-        $p->set_manage_stock(false);
-        $p->set_stock_status('instock');
-        $p->save();
-    }
+    $p->set_manage_stock($suivi);
+    $p->set_stock_quantity($quantite);
+    $p->set_stock_status($etat);
+    $p->save();
 }
+delete_option('bayam_wa_essais_stocks');
 foreach (['dettes', 'diffusions', 'wa_messages', 'liens'] as $table) {
     $wpdb->query("DELETE FROM " . Bayam_WA_Stockage::table($table) . " WHERE vendeur = 3 AND id > {$depart[$table]}");
 }

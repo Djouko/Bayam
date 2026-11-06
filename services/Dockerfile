@@ -5,6 +5,7 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
+COPY polices ./polices
 COPY src ./src
 USER node
 EXPOSE 8090 8091

@@ -57,7 +57,7 @@ test('liste qui ne vient pas de BAYAM : laissée au vendeur', () => {
 });
 
 test('ligne inconnue ou mal formée : laissée à WordPress', () => {
-  for (const id of ['option1', 'bayam:rayon:abc', 'bayam:commander:', 'bayam:inconnu', 'bayam:rayon:12:0']) {
+  for (const id of ['option1', 'bayam:rayon:abc', 'bayam:commander:', 'bayam:produit:0', 'bayam:inconnu', 'bayam:rayon:12:0']) {
     assert.equal(decider(lireMessage(reponseListe(id)), MAINTENANT).route, 'heritage', id);
   }
 });
@@ -86,8 +86,12 @@ test('écho de nos propres envois (marque en tête) : jamais retraité', () => {
 });
 
 test('identifiants de ligne : aller-retour sans perte', () => {
-  const actions: Action[] = [{ type: 'menu' }, { type: 'rayon', rayon: 49, page: 3 }, { type: 'commander', produit: 25 }, { type: 'commandes' }, { type: 'livraison' }, { type: 'vendeur' }];
+  const actions: Action[] = [{ type: 'menu' }, { type: 'rayon', rayon: 49, page: 3 }, { type: 'rayon', rayon: 0, page: 1 }, { type: 'produit', produit: 25 }, { type: 'commandes' }, { type: 'livraison' }, { type: 'vendeur' }];
   for (const a of actions) {
     assert.deepEqual(lireAction(idAction(a)), a);
   }
+});
+
+test('anciennes lignes « Commander » des listes déjà envoyées : toujours comprises', () => {
+  assert.deepEqual(lireAction('bayam:commander:25'), { type: 'produit', produit: 25 });
 });

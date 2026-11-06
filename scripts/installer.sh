@@ -393,6 +393,15 @@ wp eval '
   $options["default_geolocation"] = ["location" => "Douala, Cameroun", "address" => "Douala, Cameroun", "lat" => 4.0511, "lng" => 9.7679];
   update_option("wcfm_marketplace_options", $options);'
 
+echo "== 4 octies. Catalogue réaliste des trois boutiques (vraies photos libres, prix de Douala, stocks)"
+# Photos : python scripts/catalogue/photos.py telecharger (sur le poste, avant l'installation). Sans elles, le
+# catalogue d'exemple reste en place.
+if ls /scripts/catalogue/images/*.jpg >/dev/null 2>&1; then
+  wp eval-file /scripts/catalogue/catalogue_reel.php
+else
+  echo "Photos absentes : lancer « python scripts/catalogue/photos.py telecharger » puis relancer l'installation."
+fi
+
 echo "== 5. Clés de l'API WooCommerce pour l'application"
 CLES=/scripts/cles_api.txt
 if [ ! -s "$CLES" ]; then

@@ -1,0 +1,690 @@
+{
+ "rayons": {
+  "robes": "Robes",
+  "pagnes": "Pagnes et tissus",
+  "chemises": "Chemises",
+  "tshirts": "T-shirts et polos",
+  "hoodies": "Sweats à capuche",
+  "sacs": "Sacs",
+  "chaussures": "Chaussures",
+  "montres-bijoux": "Montres et bijoux",
+  "accessories": "Accessoires",
+  "audio": "Son et audio",
+  "telephonie": "Accessoires téléphone",
+  "instruments": "Instruments de musique"
+ },
+ "articles": [
+  {
+   "cle": "robe-sirene-wax",
+   "id": null,
+   "boutique": 3,
+   "rayon": "robes",
+   "nom": "Robe sirène en pagne wax",
+   "prix": 18500,
+   "promo": null,
+   "stock": 0,
+   "declinaisons": {
+    "Taille": {
+     "S": 2,
+     "M": 3,
+     "L": 0,
+     "XL": 1
+    }
+   },
+   "courte": "Robe longue ajustée en wax hollandais, coupe sirène, fermeture éclair au dos.",
+   "description": "Coupée et cousue à Douala dans un wax hollandais 100 % coton aux couleurs vives qui tiennent au lavage. Ajustée jusqu'aux genoux puis évasée, elle se porte pour les mariages, dots et cérémonies. Doublure légère, fermeture éclair invisible au dos. Lavage à la main à l'envers, repassage doux. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "african print dress",
+    "ankara dress",
+    "wax print dress"
+   ]
+  },
+  {
+   "cle": "kaba-ngondo",
+   "id": null,
+   "boutique": 3,
+   "rayon": "robes",
+   "nom": "Kaba ngondo brodé",
+   "prix": 15000,
+   "promo": null,
+   "stock": 6,
+   "declinaisons": null,
+   "courte": "Grande robe ample traditionnelle douala, broderies au col, taille unique.",
+   "description": "Le kaba ngondo des fêtes et des dimanches : ample, frais et confortable sous la chaleur de Douala. Tissu coton, broderies faites main autour du col et des manches. Taille unique, convient du 38 au 52. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "kaba dress",
+    "african kaftan dress",
+    "boubou dress"
+   ]
+  },
+  {
+   "cle": "robe-courte-wax",
+   "id": null,
+   "boutique": 3,
+   "rayon": "robes",
+   "nom": "Robe courte évasée en wax",
+   "prix": 14000,
+   "promo": 12500,
+   "stock": 0,
+   "declinaisons": {
+    "Taille": {
+     "S": 1,
+     "M": 4,
+     "L": 2
+    }
+   },
+   "courte": "Robe courte trapèze en wax, col rond, poches cachées.",
+   "description": "Robe de tous les jours en wax coton, coupe trapèze qui tombe juste au-dessus du genou, deux poches cachées dans les coutures. Idéale pour le bureau ou les sorties. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "african print short dress",
+    "ankara short dress",
+    "colorful print dress"
+   ]
+  },
+  {
+   "cle": "ensemble-pagne",
+   "id": null,
+   "boutique": 3,
+   "rayon": "robes",
+   "nom": "Ensemble jupe et haut en pagne",
+   "prix": 22000,
+   "promo": null,
+   "stock": 0,
+   "declinaisons": null,
+   "courte": "Jupe longue et haut assorti en wax, fait sur mesure en 72 h.",
+   "description": "Ensemble deux pièces : jupe longue fendue et haut ajusté à manches bouffantes, dans le même wax. Actuellement épuisé : écrivez-nous sur WhatsApp pour une confection sur mesure en 72 h. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "african print skirt set",
+    "ankara two piece",
+    "african fashion woman"
+   ]
+  },
+  {
+   "cle": "pagne-wax-6y",
+   "id": 520,
+   "boutique": 3,
+   "rayon": "pagnes",
+   "nom": "Pagne wax hollandais 6 yards",
+   "prix": 18000,
+   "promo": null,
+   "stock": 3,
+   "declinaisons": null,
+   "courte": "Pagne wax hollandais, 6 yards (5,48 m), 100 % coton.",
+   "description": "Pagne wax hollandais véritable, 6 yards (5,48 m sur 1,20 m), 100 % coton, impression des deux côtés. De quoi coudre une robe longue ou un ensemble. Les motifs changent selon les arrivages : demandez les photos du jour sur WhatsApp. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "wax print fabric",
+    "african fabric",
+    "ankara fabric"
+   ]
+  },
+  {
+   "cle": "super-wax-6y",
+   "id": null,
+   "boutique": 3,
+   "rayon": "pagnes",
+   "nom": "Super wax 6 yards",
+   "prix": 27500,
+   "promo": null,
+   "stock": 2,
+   "declinaisons": null,
+   "courte": "Super wax haut de gamme, couleurs intenses, 6 yards.",
+   "description": "Super wax de qualité supérieure, toucher plus doux et couleurs plus profondes que le wax classique. 6 yards (5,48 m), 100 % coton. Idéal pour les grandes cérémonies. Plus que deux pièces en boutique. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "african wax fabric colorful",
+    "kente fabric",
+    "printed cotton fabric africa"
+   ]
+  },
+  {
+   "cle": "chemise-pagne-homme",
+   "id": null,
+   "boutique": 3,
+   "rayon": "chemises",
+   "nom": "Chemise homme en pagne",
+   "prix": 11000,
+   "promo": null,
+   "stock": 0,
+   "declinaisons": {
+    "Taille": {
+     "M": 2,
+     "L": 3,
+     "XL": 2,
+     "XXL": 0
+    }
+   },
+   "courte": "Chemise manches courtes en wax, coupe droite, boutons nacrés.",
+   "description": "Chemise homme en wax coton, manches courtes, coupe droite qui se porte dans ou hors du pantalon. Parfaite pour les vendredis pagne au bureau et les cérémonies. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "african print shirt man",
+    "ankara shirt",
+    "man wearing african shirt"
+   ]
+  },
+  {
+   "cle": "chemise-wax-longue",
+   "id": null,
+   "boutique": 3,
+   "rayon": "chemises",
+   "nom": "Chemise longue en wax bleu",
+   "prix": 12000,
+   "promo": null,
+   "stock": 0,
+   "declinaisons": {
+    "Taille": {
+     "M": 3,
+     "L": 2,
+     "XL": 1
+    }
+   },
+   "courte": "Chemise homme manches longues en wax, motifs bleus.",
+   "description": "Chemise homme à manches longues dans un wax aux motifs bleus et blancs, coupe droite, col classique. Pour les cérémonies, le culte du dimanche ou le bureau. Lavage à la main à l'envers. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "african print long sleeve shirt",
+    "blue wax shirt"
+   ]
+  },
+  {
+   "cle": "polo",
+   "id": 25,
+   "boutique": 3,
+   "rayon": "tshirts",
+   "nom": "Polo",
+   "prix": 12000,
+   "promo": null,
+   "stock": 8,
+   "declinaisons": null,
+   "courte": "Polo homme en piqué de coton, col boutonné, coupe ajustée.",
+   "description": "Polo en piqué de coton épais qui ne se déforme pas au lavage, col trois boutons, coupe ajustée. Coloris bleu ciel. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "polo shirt",
+    "blue polo shirt",
+    "man polo shirt"
+   ]
+  },
+  {
+   "cle": "t-shirt",
+   "id": 17,
+   "boutique": 3,
+   "rayon": "tshirts",
+   "nom": "T-shirt",
+   "prix": 5000,
+   "promo": null,
+   "stock": 12,
+   "declinaisons": null,
+   "courte": "T-shirt col rond 100 % coton, coupe unisexe.",
+   "description": "T-shirt basique col rond en coton peigné 180 g, coupe unisexe. Le bon basique sous une chemise ou seul. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "white t-shirt",
+    "plain t-shirt",
+    "cotton t-shirt"
+   ]
+  },
+  {
+   "cle": "t-shirt-col-v",
+   "id": 14,
+   "boutique": 3,
+   "rayon": "tshirts",
+   "nom": "T-shirt col V",
+   "prix": 4500,
+   "promo": null,
+   "stock": 0,
+   "declinaisons": null,
+   "courte": "T-shirt col V en coton, plusieurs tailles.",
+   "description": "T-shirt col V en coton léger, idéal par temps chaud. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "v-neck t-shirt",
+    "v neck shirt",
+    "grey t-shirt"
+   ]
+  },
+  {
+   "cle": "sweat-capuche",
+   "id": 15,
+   "boutique": 3,
+   "rayon": "hoodies",
+   "nom": "Sweat à capuche",
+   "prix": 15000,
+   "promo": null,
+   "stock": 0,
+   "declinaisons": null,
+   "courte": "Sweat à capuche molletonné, poche kangourou, plusieurs couleurs.",
+   "description": "Sweat à capuche en molleton coton et polyester, poche kangourou et cordon de serrage. Pour les soirées fraîches de saison des pluies et les voyages à l'Ouest. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "hoodie",
+    "red hoodie",
+    "sweatshirt hood"
+   ]
+  },
+  {
+   "cle": "casquette-brodee",
+   "id": 237,
+   "boutique": 3,
+   "rayon": "accessories",
+   "nom": "Casquette brodée",
+   "prix": 6500,
+   "promo": null,
+   "stock": 4,
+   "declinaisons": null,
+   "courte": "Casquette en coton, broderie sur le devant, réglable.",
+   "description": "Casquette six panneaux en coton, broderie sur le devant, fermeture réglable à l'arrière. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "embroidered cap",
+    "baseball cap",
+    "cap embroidery"
+   ]
+  },
+  {
+   "cle": "sac-main-cuir",
+   "id": null,
+   "boutique": 4,
+   "rayon": "sacs",
+   "nom": "Sac à main en cuir",
+   "prix": 25000,
+   "promo": null,
+   "stock": 4,
+   "declinaisons": null,
+   "courte": "Sac à main en cuir véritable, deux anses, bandoulière amovible.",
+   "description": "Sac à main en cuir de vachette, deux grandes poches intérieures dont une zippée, bandoulière amovible. Assez grand pour un téléphone, un portefeuille et des documents A5. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "leather handbag",
+    "brown leather bag",
+    "women handbag"
+   ]
+  },
+  {
+   "cle": "sac-dos-cuir",
+   "id": null,
+   "boutique": 4,
+   "rayon": "sacs",
+   "nom": "Sac à dos en cuir",
+   "prix": 18500,
+   "promo": null,
+   "stock": 0,
+   "declinaisons": null,
+   "courte": "Sac à dos en cuir, compartiment ordinateur 14 pouces.",
+   "description": "Sac à dos en cuir synthétique résistant, compartiment rembourré pour ordinateur 14 pouces, poche anti-vol au dos. Victime de son succès : nouvel arrivage annoncé. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "leather backpack",
+    "backpack",
+    "brown backpack"
+   ]
+  },
+  {
+   "cle": "pochette-soiree",
+   "id": null,
+   "boutique": 4,
+   "rayon": "sacs",
+   "nom": "Pochette de soirée argentée",
+   "prix": 9000,
+   "promo": null,
+   "stock": 5,
+   "declinaisons": null,
+   "courte": "Pochette argentée à fermoir métal, chaîne fine.",
+   "description": "Pochette de soirée argentée, fermoir en métal et chaîne fine pour la porter à l'épaule. Pour les mariages et les soirées. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "clutch bag",
+    "evening clutch",
+    "gold clutch"
+   ]
+  },
+  {
+   "cle": "baskets-blanches",
+   "id": null,
+   "boutique": 4,
+   "rayon": "chaussures",
+   "nom": "Baskets blanches",
+   "prix": 22000,
+   "promo": null,
+   "stock": 0,
+   "declinaisons": {
+    "Pointure": {
+     "40": 2,
+     "41": 3,
+     "42": 0,
+     "43": 2,
+     "44": 1
+    }
+   },
+   "courte": "Baskets en cuir blanc, semelle confortable.",
+   "description": "Baskets basses en cuir blanc, semelle en caoutchouc souple, se nettoient d'un coup d'éponge. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "white sneakers",
+    "white shoes",
+    "sneakers"
+   ]
+  },
+  {
+   "cle": "sandales-cuir",
+   "id": null,
+   "boutique": 4,
+   "rayon": "chaussures",
+   "nom": "Sandales en cuir faites main",
+   "prix": 8500,
+   "promo": 7500,
+   "stock": 0,
+   "declinaisons": {
+    "Pointure": {
+     "39": 2,
+     "40": 3,
+     "41": 3,
+     "42": 2,
+     "43": 0
+    }
+   },
+   "courte": "Sandales en cuir, fabriquées à la main au Cameroun.",
+   "description": "Sandales en cuir tanné, cousues à la main par un artisan de Douala. Semelle solide qui tient la route en saison des pluies. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "leather sandals",
+    "handmade sandals",
+    "brown sandals"
+   ]
+  },
+  {
+   "cle": "escarpins-noirs",
+   "id": null,
+   "boutique": 4,
+   "rayon": "chaussures",
+   "nom": "Escarpins noirs",
+   "prix": 15000,
+   "promo": null,
+   "stock": 0,
+   "declinaisons": {
+    "Pointure": {
+     "37": 1,
+     "38": 2,
+     "39": 2,
+     "40": 0
+    }
+   },
+   "courte": "Escarpins noirs, talon 7 cm, bout pointu.",
+   "description": "Escarpins noirs vernis, talon de 7 cm stable, bout pointu. Le classique du bureau et des cérémonies. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "black high heels",
+    "black pumps",
+    "high heel shoes"
+   ]
+  },
+  {
+   "cle": "montre-homme",
+   "id": null,
+   "boutique": 4,
+   "rayon": "montres-bijoux",
+   "nom": "Montre homme en acier",
+   "prix": 35000,
+   "promo": null,
+   "stock": 2,
+   "declinaisons": null,
+   "courte": "Montre à quartz, bracelet acier, étanche 30 m.",
+   "description": "Montre homme à quartz, boîtier et bracelet en acier inoxydable, verre minéral, étanche 30 m. Garantie 6 mois. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "men wrist watch",
+    "steel watch",
+    "wristwatch"
+   ]
+  },
+  {
+   "cle": "montre-femme",
+   "id": null,
+   "boutique": 4,
+   "rayon": "montres-bijoux",
+   "nom": "Montre femme argentée",
+   "prix": 28000,
+   "promo": 24000,
+   "stock": 3,
+   "declinaisons": null,
+   "courte": "Montre fine argentée, bracelet métal ajouré.",
+   "description": "Montre femme à quartz, boîtier ovale argenté, bracelet en métal ajouré. Élégante au bureau comme en soirée. Garantie 6 mois. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "gold watch women",
+    "women watch",
+    "golden wristwatch"
+   ]
+  },
+  {
+   "cle": "collier-perles",
+   "id": null,
+   "boutique": 4,
+   "rayon": "montres-bijoux",
+   "nom": "Collier de perles africaines",
+   "prix": 6000,
+   "promo": null,
+   "stock": 10,
+   "declinaisons": null,
+   "courte": "Collier en perles de verre faites main, longueur 45 cm.",
+   "description": "Collier en perles de verre colorées, monté à la main, fermoir réglable. Va avec le pagne comme avec le jean. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "african beads necklace",
+    "bead necklace",
+    "colorful necklace"
+   ]
+  },
+  {
+   "cle": "bracelet-jonc",
+   "id": null,
+   "boutique": 4,
+   "rayon": "montres-bijoux",
+   "nom": "Bracelet jonc doré",
+   "prix": 4500,
+   "promo": null,
+   "stock": 7,
+   "declinaisons": null,
+   "courte": "Jonc ouvert en acier doré, s'ajuste au poignet.",
+   "description": "Bracelet jonc ouvert en acier inoxydable doré, fin et léger, s'ajuste à tous les poignets. Ne noircit pas au contact de l'eau. Se porte seul ou par trois. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "gold bangle",
+    "gold bracelet"
+   ]
+  },
+  {
+   "cle": "ceinture-cuir",
+   "id": 19,
+   "boutique": 4,
+   "rayon": "accessories",
+   "nom": "Ceinture en cuir",
+   "prix": 7500,
+   "promo": null,
+   "stock": 6,
+   "declinaisons": null,
+   "courte": "Ceinture en cuir pleine fleur, boucle métal, recoupable.",
+   "description": "Ceinture en cuir pleine fleur, boucle en métal brossé, longueur recoupable à votre taille en boutique. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "leather belt",
+    "brown belt",
+    "belt buckle"
+   ]
+  },
+  {
+   "cle": "casquette",
+   "id": 20,
+   "boutique": 4,
+   "rayon": "accessories",
+   "nom": "Casquette",
+   "prix": 4000,
+   "promo": null,
+   "stock": 9,
+   "declinaisons": null,
+   "courte": "Casquette unie en coton, réglable.",
+   "description": "Casquette unie en coton, visière courbée, fermeture réglable. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "cap",
+    "baseball cap plain",
+    "hat cap"
+   ]
+  },
+  {
+   "cle": "lunettes-soleil",
+   "id": 21,
+   "boutique": 4,
+   "rayon": "accessories",
+   "nom": "Lunettes de soleil",
+   "prix": 6500,
+   "promo": null,
+   "stock": 5,
+   "declinaisons": null,
+   "courte": "Lunettes de soleil polarisées, protection UV400.",
+   "description": "Lunettes de soleil à verres polarisés, protection UV400, monture légère. Étui fourni. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "sunglasses",
+    "black sunglasses",
+    "sun glasses"
+   ]
+  },
+  {
+   "cle": "enceinte-bluetooth",
+   "id": null,
+   "boutique": 5,
+   "rayon": "audio",
+   "nom": "Enceinte Bluetooth portable",
+   "prix": 18000,
+   "promo": null,
+   "stock": 6,
+   "declinaisons": null,
+   "courte": "Enceinte sans fil, 12 h d’autonomie, résiste aux éclaboussures.",
+   "description": "Enceinte Bluetooth 5.3, 20 W, 12 heures d'autonomie, résiste aux éclaboussures. Entrée carte mémoire et clé USB pour écouter sans téléphone. Garantie 3 mois. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "bluetooth speaker",
+    "portable speaker",
+    "wireless speaker"
+   ]
+  },
+  {
+   "cle": "ecouteurs-sans-fil",
+   "id": null,
+   "boutique": 5,
+   "rayon": "audio",
+   "nom": "Écouteurs sans fil",
+   "prix": 15000,
+   "promo": 12500,
+   "stock": 8,
+   "declinaisons": null,
+   "courte": "Écouteurs Bluetooth avec boîtier de charge, 24 h au total.",
+   "description": "Écouteurs sans fil Bluetooth, 6 heures d'écoute et 24 heures avec le boîtier de charge, micro pour les appels. Garantie 3 mois. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "wireless earbuds",
+    "earbuds case",
+    "bluetooth earphones"
+   ]
+  },
+  {
+   "cle": "casque-audio",
+   "id": null,
+   "boutique": 5,
+   "rayon": "audio",
+   "nom": "Casque audio",
+   "prix": 15000,
+   "promo": null,
+   "stock": 3,
+   "declinaisons": null,
+   "courte": "Casque fermé pliable, câble et Bluetooth.",
+   "description": "Casque audio fermé, pliable, coussinets confortables, fonctionne en Bluetooth ou avec câble. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "headphones",
+    "over ear headphones",
+    "black headphones"
+   ]
+  },
+  {
+   "cle": "micro-cravate",
+   "id": null,
+   "boutique": 5,
+   "rayon": "audio",
+   "nom": "Micro-cravate pour téléphone",
+   "prix": 6500,
+   "promo": null,
+   "stock": 10,
+   "declinaisons": null,
+   "courte": "Micro-cravate filaire, pour vidéos et lives TikTok.",
+   "description": "Micro-cravate filaire de 1,5 m pour téléphone, son net pour vos vidéos, lives et présentations de produits. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "lavalier microphone",
+    "clip microphone",
+    "microphone"
+   ]
+  },
+  {
+   "cle": "chargeur-rapide",
+   "id": null,
+   "boutique": 5,
+   "rayon": "telephonie",
+   "nom": "Chargeur rapide hoco 20 W et câble",
+   "prix": 5500,
+   "promo": null,
+   "stock": 15,
+   "declinaisons": null,
+   "courte": "Chargeur hoco 20 W USB-C avec câble 1 m.",
+   "description": "Chargeur secteur 20 W à charge rapide, prise USB-C, câble de 1 m fourni. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "phone charger",
+    "usb charger",
+    "charger cable"
+   ]
+  },
+  {
+   "cle": "power-bank",
+   "id": null,
+   "boutique": 5,
+   "rayon": "telephonie",
+   "nom": "Batterie externe 20 000 mAh",
+   "prix": 14000,
+   "promo": null,
+   "stock": 0,
+   "declinaisons": null,
+   "courte": "Batterie externe 20 000 mAh, deux ports USB.",
+   "description": "Batterie externe de 20 000 mAh, de quoi recharger un téléphone quatre fois pendant les coupures de courant. Deux ports USB et un port USB-C. Épuisée : arrivage attendu. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "power bank",
+    "portable battery",
+    "powerbank"
+   ]
+  },
+  {
+   "cle": "guitare-acoustique",
+   "id": null,
+   "boutique": 5,
+   "rayon": "instruments",
+   "nom": "Guitare acoustique",
+   "prix": 65000,
+   "promo": null,
+   "stock": 1,
+   "declinaisons": null,
+   "courte": "Guitare folk, table épicéa, housse offerte.",
+   "description": "Guitare folk taille adulte, table en épicéa, livrée accordée avec housse et médiators. Dernière pièce. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "acoustic guitar",
+    "guitar",
+    "folk guitar"
+   ]
+  },
+  {
+   "cle": "djembe",
+   "id": null,
+   "boutique": 5,
+   "rayon": "instruments",
+   "nom": "Djembé",
+   "prix": 30000,
+   "promo": null,
+   "stock": 2,
+   "declinaisons": null,
+   "courte": "Djembé en bois sculpté, peau de chèvre, hauteur 60 cm.",
+   "description": "Djembé en bois massif sculpté à la main, peau de chèvre tendue, hauteur 60 cm. Son profond, idéal pour les chorales et animations. Livraison à Douala sous 24 h, retrait possible en boutique.",
+   "recherche": [
+    "djembe",
+    "african drum",
+    "djembe drum"
+   ]
+  }
+ ],
+ "a_retirer": [
+  16,
+  18,
+  22,
+  23,
+  24,
+  26,
+  27,
+  34,
+  35,
+  36,
+  37
+ ]
+}

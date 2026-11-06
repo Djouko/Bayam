@@ -1,0 +1,45 @@
+{
+ "robe-sirene-wax": 2,
+ "kaba-ngondo": 0,
+ "robe-courte-wax": 3,
+ "ensemble-pagne": 8,
+ "pagne-wax-6y": 4,
+ "super-wax-6y": 0,
+ "chemise-pagne-homme": 6,
+ "chemise-wax-longue": [
+  "chemise-pagne-homme",
+  5
+ ],
+ "polo": 4,
+ "t-shirt": 7,
+ "t-shirt-col-v": 4,
+ "sweat-capuche": 0,
+ "casquette-brodee": 6,
+ "sac-main-cuir": 7,
+ "sac-dos-cuir": 4,
+ "pochette-soiree": 4,
+ "baskets-blanches": 2,
+ "sandales-cuir": 8,
+ "escarpins-noirs": 1,
+ "montre-homme": 9,
+ "montre-femme": 1,
+ "collier-perles": 6,
+ "bracelet-jonc": [
+  "boucles-dorees",
+  5
+ ],
+ "ceinture-cuir": 2,
+ "casquette": 0,
+ "lunettes-soleil": 1,
+ "enceinte-bluetooth": 0,
+ "ecouteurs-sans-fil": 3,
+ "casque-audio": 4,
+ "micro-cravate": 0,
+ "chargeur-rapide": 2,
+ "power-bank": [
+  "power-bank-bis",
+  9
+ ],
+ "guitare-acoustique": 4,
+ "djembe": 0
+}

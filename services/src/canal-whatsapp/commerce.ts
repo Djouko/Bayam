@@ -12,8 +12,12 @@ export type Produit = {
   prix_regulier: number;
   en_stock: boolean;
   variable: boolean;
-  /** Chemin de l'image (/wp-content/…), servi par l'origine interne du site. */
-  image: string | null;
+  /** Pièces en stock quand le stock est suivi, sinon null. */
+  stock: number | null;
+  /** Déclinaisons encore disponibles (« Taille : S, M, XL »), vide pour un article simple. */
+  options: string;
+  /** Chemin de la photo (/wp-content/…, 768 px) servie par l'origine interne, pour la vitrine et la fiche. */
+  photo: string | null;
   /** Lien court public vers la fiche (clics comptés par canal). */
   lien: string;
   resume: string;
@@ -28,6 +32,8 @@ export type Boutique = {
   identifiants: string[];
   base_publique: string;
   rayons: Rayon[];
+  /** Nombre d'articles en promotion (rayon « Promos du moment », numéro 0). */
+  promos: number;
   livraison: string[];
   paiements: string[];
 };

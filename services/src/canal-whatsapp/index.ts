@@ -2,7 +2,7 @@
 // interactif) et transmet le reste à l'extension WordPress, inchangé. Sans état en mémoire (bases et Redis) :
 // autant d'instances que nécessaire, les événements d'une même discussion restent traités dans l'ordre.
 
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { AckPolicy, DeliverPolicy, jetstream, jetstreamManager, type JsMsg } from '@nats-io/jetstream';
 import { nanos } from '@nats-io/transport-node';
@@ -19,6 +19,7 @@ import { creerJeton, nettoyer, ouvrirJeton } from './jetons.ts';
 import { lireMessage, type Evenement } from './message.ts';
 import { deposer, envoyerDues, valide, type Notification } from './notifications.ts';
 import { decider, type Decision } from './routeur.ts';
+import { COTE_PHOTO, dessinerVitrine, photoLegere } from './vitrine.ts';
 import { Waha } from './waha.ts';
 
 const log = journal('canal-whatsapp');
@@ -36,7 +37,7 @@ redis.on('error', (e: unknown) => log.erreur('Redis', { erreur: texteErreur(e) }
 await redis.connect();
 
 const commerce = new CommerceWordpress(`${urlWordpress}/wp-json/bayam/v1/interne`, jetonService, redis);
-const waha = new Waha(lire('WAHA_URL', 'http://waha:3000'), exiger('WAHA_API_KEY'), urlWordpress);
+const waha = new Waha(lire('WAHA_URL', 'http://waha:3000'), exiger('WAHA_API_KEY'));
 const expediteur = new Expediteur(waha, redis, pool, log, {
   parDiscussion10Min: nombre('PLAFOND_DISCUSSION_10MIN', 40),
   parSessionJour: nombre('PLAFOND_SESSION_JOUR', 1500),
@@ -57,14 +58,16 @@ async function repondre(d: Extract<Decision, { route: 'catalogue' }>): Promise<'
       envois = catalogue.menu(b);
       break;
     case 'rayon': {
-      const rayon = b.rayons.find((r) => r.id === a.rayon) ?? { id: a.rayon, nom: 'Ce rayon', nombre: 0 };
+      const rayon = a.rayon === 0
+        ? { id: 0, nom: catalogue.PROMOS, nombre: b.promos }
+        : (b.rayons.find((r) => r.id === a.rayon) ?? { id: a.rayon, nom: 'Ce rayon', nombre: 0 });
       envois = catalogue.pageRayon(b, rayon, await commerce.rayon(b.id, a.rayon, a.page, catalogue.PAR_PAGE), a.page);
       break;
     }
-    case 'commander': {
+    case 'produit': {
       const p = await commerce.produit(b.id, a.produit);
       const jeton = p?.en_stock ? await creerJeton(pool, { vendeur: b.id, produit: p.id, numero: m.numero ?? '', chat: m.chat }) : null;
-      envois = catalogue.commander(b, p, jeton ? `${b.base_publique}/commander/${jeton}` : null);
+      envois = catalogue.produit(b, p, jeton ? `${b.base_publique}/commander/${jeton}` : null);
       break;
     }
     case 'commandes':
@@ -77,8 +80,63 @@ async function repondre(d: Extract<Decision, { route: 'catalogue' }>): Promise<'
       envois = catalogue.vendeur(b, m.nom, m.numero);
       break;
   }
-  await expediteur.envoyer(m.session, m.chat, b.chat_vendeur, envois);
+  const prets = await Promise.all(envois.map((e) => (e.type === 'vitrine' ? vitrine(e) : e.type === 'photo' ? photoArticle(e) : e)));
+  await expediteur.envoyer(m.session, m.chat, b.chat_vendeur, prets);
   return 'fait';
+}
+
+/** Image servie par le site (réseau interne), ou null si indisponible. */
+async function imageDuSite(chemin: string | null): Promise<Buffer | null> {
+  if (!chemin) {
+    return null;
+  }
+  const r = await fetch(urlWordpress + chemin, { signal: AbortSignal.timeout(5000) }).catch(() => null);
+  return r?.ok ? Buffer.from(await r.arrayBuffer()) : null;
+}
+
+/**
+ * Vitrine d'un rayon dessinée une fois puis gardée 24 h : même contenu, même image, servie depuis Redis sans
+ * redessiner. Tout changement de prix, de stock ou de photo change l'empreinte, donc l'image.
+ */
+async function vitrine(e: catalogue.EnvoiVitrine): Promise<catalogue.EnvoiPret> {
+  const cases = e.produits.slice(0, catalogue.PAR_PAGE);
+  const empreinte = createHash('sha1')
+    .update(JSON.stringify([e.titre, e.sousTitre, e.premier, e.infos, cases.map((p) => [p.id, p.nom, p.prix, p.prix_regulier, p.stock, p.options, p.photo])]))
+    .digest('hex');
+  const cle = `canal:vitrine:${empreinte}`;
+  let donnees = await redis.get(cle);
+  if (!donnees) {
+    const images = await Promise.all(cases.map((p) => imageDuSite(p.photo)));
+    const jpeg = await dessinerVitrine(e.titre, e.sousTitre, cases.map((p, i) => ({
+      numero: e.premier + i,
+      nom: p.nom,
+      prix: p.variable ? `dès ${catalogue.fcfa(p.prix)}` : catalogue.fcfa(p.prix),
+      ancienPrix: catalogue.enPromo(p) ? catalogue.fcfa(p.prix_regulier) : null,
+      remise: catalogue.enPromo(p) ? Math.round((1 - p.prix / p.prix_regulier) * 100) : null,
+      peuDeStock: catalogue.peuDeStock(p),
+      options: p.options,
+      image: images[i],
+    })), e.infos);
+    donnees = jpeg.toString('base64');
+    await redis.set(cle, donnees, { expiration: { type: 'EX', value: 86_400 } });
+  }
+  return { type: 'image', legende: e.legende, donnees };
+}
+
+/** Photo d'un article recompressée une fois puis gardée 7 jours ; texte seul si elle manque. */
+async function photoArticle(e: catalogue.EnvoiPhoto): Promise<catalogue.EnvoiPret> {
+  // Taille dans la clé : un changement de réglage ne ressert jamais l'ancienne version.
+  const cle = `canal:photo:${COTE_PHOTO}:${createHash('sha1').update(e.chemin).digest('hex')}`;
+  let donnees = await redis.get(cle);
+  if (!donnees) {
+    const brute = await imageDuSite(e.chemin);
+    if (!brute) {
+      return { type: 'texte', texte: e.legende };
+    }
+    donnees = (await photoLegere(brute)).toString('base64');
+    await redis.set(cle, donnees, { expiration: { type: 'EX', value: 7 * 86_400 } });
+  }
+  return { type: 'image', legende: e.legende, donnees };
 }
 
 /** Transmission à l'extension WordPress : même corps, même signature HMAC que WAHA (elle la vérifie toujours). */

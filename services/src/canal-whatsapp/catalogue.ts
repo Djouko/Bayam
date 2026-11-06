@@ -1,6 +1,6 @@
-// Messages du catalogue interactif, comme dans une boutique en ligne mais dans WhatsApp : rayons en liste,
-// articles en cartes avec photo, commande par lien personnel, suivi des commandes, livraison et paiement, vendeur.
-// Fonctions pures (aucun envoi ici) : faciles à tester et identiques quel que soit le connecteur WhatsApp.
+// Messages du catalogue interactif, comme une boutique en ligne mais dans WhatsApp et économe en données :
+// rayons en liste, chaque page de rayon en une seule image vitrine (quatre articles), puis l'article choisi en une
+// photo avec ses détails et son lien personnel de commande. Fonctions pures (aucun envoi ici).
 
 import { MARQUE } from '../passerelle/filtre.ts';
 import type { Boutique, Commande, PageRayon, Produit, Rayon } from './commerce.ts';
@@ -8,15 +8,22 @@ import { idAction } from './routeur.ts';
 
 export type Ligne = { id: string; titre: string; description?: string };
 export type Section = { titre: string; lignes: Ligne[] };
-export type Envoi =
+export type EnvoiPret =
   | { type: 'liste'; titre: string; texte: string; bouton: string; pied: string; sections: Section[] }
-  | { type: 'carte'; texte: string; url: string; titre: string; description: string; image: string | null }
+  /** JPEG léger en base64, préparé par le service (vitrine dessinée, photo recompressée). */
+  | { type: 'image'; legende: string; donnees: string }
   | { type: 'texte'; texte: string }
   | { type: 'au_vendeur'; texte: string };
+/** Vitrine d'un rayon, dessinée juste avant l'envoi (vitrine.ts). */
+export type EnvoiVitrine = { type: 'vitrine'; titre: string; sousTitre: string; legende: string; premier: number; produits: Produit[]; infos: string[] };
+/** Photo d'un article (chemin sur le site), recompressée juste avant l'envoi. */
+export type EnvoiPhoto = { type: 'photo'; legende: string; chemin: string };
+export type Envoi = EnvoiPret | EnvoiVitrine | EnvoiPhoto;
 
 /** Limites des listes WhatsApp (API officielle) : respectées aussi en connexion non officielle. */
 export const LIMITES = { lignes: 10, titreLigne: 24, descriptionLigne: 72, bouton: 20, titreSection: 24, entete: 60, pied: 60 };
-export const PAR_PAGE = 3;
+export const PAR_PAGE = 4;
+export const PROMOS = 'Promos du moment';
 
 export function couper(texte: string, max: number): string {
   const lettres = [...texte];
@@ -37,14 +44,21 @@ function articles(nombre: number): string {
   return nombre === 1 ? '1 article' : `${nombre} articles`;
 }
 
-export function prixTexte(p: Produit): string {
-  if (p.variable) {
-    return `dès ${fcfa(p.prix)}`;
-  }
-  return p.prix_regulier > p.prix ? `${fcfa(p.prix)} au lieu de ${fcfa(p.prix_regulier)}` : fcfa(p.prix);
+export function enPromo(p: Produit): boolean {
+  return p.prix_regulier > p.prix;
 }
 
-function liste(titre: string, texte: string, bouton: string, pied: string, sections: Section[]): Envoi {
+export function prixTexte(p: Produit): string {
+  const prix = p.variable ? `dès ${fcfa(p.prix)}` : fcfa(p.prix);
+  return enPromo(p) ? `${prix} au lieu de ${fcfa(p.prix_regulier)}` : prix;
+}
+
+/** Reste peu de pièces : on le dit (« Plus que 2 »), c'est une information utile au client. */
+export function peuDeStock(p: Produit): number | null {
+  return p.stock !== null && p.stock > 0 && p.stock <= 3 ? p.stock : null;
+}
+
+function liste(titre: string, texte: string, bouton: string, pied: string, sections: Section[]): EnvoiPret {
   return {
     type: 'liste',
     // La marque en tête du titre : l'écho de la liste (premier mot du message) est reconnu comme venant de BAYAM.
@@ -67,26 +81,19 @@ export function menu(b: Boutique): Envoi[] {
     { id: idAction({ type: 'commandes' }), titre: '📦 Mes commandes', description: 'Suivre une commande' },
     { id: idAction({ type: 'livraison' }), titre: '🚚 Livraison et paiement', description: 'Zones, frais, moyens de paiement' },
   ];
-  const rayons = b.rayons.slice(0, LIMITES.lignes - boutique.length).map((r) => ({
+  const promos: Ligne[] = b.promos > 0
+    ? [{ id: idAction({ type: 'rayon', rayon: 0, page: 1 }), titre: `🔥 ${PROMOS}`, description: `${articles(b.promos)} en promotion` }]
+    : [];
+  const rayons = b.rayons.slice(0, LIMITES.lignes - boutique.length - promos.length).map((r) => ({
     id: idAction({ type: 'rayon', rayon: r.id, page: 1 }),
     titre: r.nom,
     description: articles(r.nombre),
   }));
   return [liste(b.nom, 'Bonjour 👋 Voici nos rayons 🛍️ Choisissez celui qui vous intéresse 👇', 'Voir les rayons', b.nom,
-    [{ titre: 'Rayons', lignes: rayons }, { titre: 'Boutique', lignes: boutique }])];
+    [{ titre: 'Rayons', lignes: [...promos, ...rayons] }, { titre: 'Boutique', lignes: boutique }])];
 }
 
-function carte(p: Produit): Envoi {
-  return {
-    type: 'carte',
-    texte: `${MARQUE}*${p.nom}* · ${prixTexte(p)}\n${p.en_stock ? '✅ En stock' : '❌ Épuisé pour le moment'}\n${p.lien}`,
-    url: p.lien,
-    titre: couper(`${p.nom} · ${p.variable ? `dès ${fcfa(p.prix)}` : fcfa(p.prix)}`, 80),
-    description: couper(p.resume || 'Touchez pour voir les photos et commander.', 140),
-    image: p.image,
-  };
-}
-
+/** Page d'un rayon : la vitrine (une image, quatre articles numérotés), puis la liste pour choisir. */
 export function pageRayon(b: Boutique, rayon: Rayon, page: PageRayon, numero: number): Envoi[] {
   if (!page.produits.length) {
     return [{ type: 'texte', texte: `${MARQUE}Plus rien de disponible dans *${rayon.nom}* pour le moment. Tapez *bayam* pour revoir nos rayons.` }];
@@ -94,6 +101,7 @@ export function pageRayon(b: Boutique, rayon: Rayon, page: PageRayon, numero: nu
   const debut = (numero - 1) * PAR_PAGE + 1;
   const fin = debut + page.produits.length - 1;
   const reste = Math.max(0, page.total - fin);
+  const position = debut === fin ? `article ${debut} sur ${page.total}` : `articles ${debut} à ${fin} sur ${page.total}`;
   const continuer: Ligne[] = [];
   if (reste > 0) {
     continuer.push({ id: idAction({ type: 'rayon', rayon: rayon.id, page: numero + 1 }), titre: 'Voir la suite', description: `${articles(reste)} de plus dans ${rayon.nom}` });
@@ -102,29 +110,31 @@ export function pageRayon(b: Boutique, rayon: Rayon, page: PageRayon, numero: nu
     { id: idAction({ type: 'menu' }), titre: 'Autres rayons', description: 'Revoir tous les rayons' },
     { id: idAction({ type: 'vendeur' }), titre: 'Parler au vendeur', description: 'Une question, un prix, une taille' },
   );
-  const position = debut === fin ? `article ${debut}` : `articles ${debut} à ${fin}`;
   return [
-    ...page.produits.map(carte),
-    liste(rayon.nom, `${rayon.nom} · ${position} sur ${page.total}. Que souhaitez-vous ? 👇`, 'Choisir', b.nom, [
-      { titre: 'Commander', lignes: page.produits.map((p) => ({ id: idAction({ type: 'commander', produit: p.id }), titre: `Commander ${p.nom}`, description: prixTexte(p) })) },
+    { type: 'vitrine', titre: rayon.nom, sousTitre: `${b.nom} · ${position}`, legende: `${MARQUE}*${rayon.nom}* · ${position}`, premier: debut, produits: page.produits, infos: [...b.livraison, ...b.paiements] },
+    liste(rayon.nom, `Quel article vous intéresse ? Touchez *Choisir* : photo, détails et commande en un message 👇`, 'Choisir', b.nom, [
+      { titre: 'Articles', lignes: page.produits.map((p, i) => ({ id: idAction({ type: 'produit', produit: p.id }), titre: `${debut + i}. ${p.nom}`, description: [prixTexte(p), p.options].filter(Boolean).join(' · ') })) },
       { titre: 'Continuer', lignes: continuer },
     ]),
   ];
 }
 
-export function commander(b: Boutique, p: Produit | null, lien: string | null): Envoi[] {
+/** Article choisi : sa photo, ses détails et le lien personnel de commande, en un seul message. */
+export function produit(b: Boutique, p: Produit | null, lien: string | null): Envoi[] {
   if (!p || !p.en_stock || !lien) {
     return [{ type: 'texte', texte: `${MARQUE}Désolé, ${p ? `*${p.nom}* vient d'être épuisé` : 'cet article n\'est plus disponible'} chez *${b.nom}*. Tapez *bayam* pour voir les autres articles, ou écrivez-nous : la boutique vous répond ici.` }];
   }
-  const choix = p.variable ? 'choisissez la taille ou la couleur, ' : '';
-  return [{
-    type: 'carte',
-    texte: `${MARQUE}Pour commander *${p.nom}* (${prixTexte(p)}) : touchez le lien, ${choix}indiquez la quantité et la livraison, puis confirmez. La suite de votre commande arrive ici.\n\n🔒 Lien personnel, valable 24 h :\n${lien}`,
-    url: lien,
-    titre: couper(`Commander ${p.nom}`, 80),
-    description: `${prixTexte(p)} · ${b.nom}`,
-    image: p.image,
-  }];
+  const reste = peuDeStock(p);
+  const dispo = ['✅ En stock', reste ? (reste === 1 ? 'dernière pièce' : `plus que ${reste}`) : '', p.options].filter(Boolean).join(' · ');
+  const legende = [
+    `${MARQUE}*${p.nom}*`,
+    `💰 *${prixTexte(p)}*`,
+    dispo,
+    p.resume ? `\n${p.resume}` : '',
+    `\n🛒 *Commander* : touchez le lien, ${p.variable ? 'choisissez la taille, ' : ''}indiquez la quantité et la livraison. La suite arrive ici.`,
+    `🔒 Lien personnel, valable 24 h :\n${lien}`,
+  ].filter(Boolean).join('\n');
+  return [p.photo ? { type: 'photo', legende, chemin: p.photo } : { type: 'texte', texte: legende }];
 }
 
 export function commandes(b: Boutique, liste: Commande[] | null): Envoi[] {

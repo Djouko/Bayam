@@ -41,6 +41,26 @@ http:
         sourceCriterion:
           requestHeaderName: Cf-Connecting-Ip
 
+    # Réponses compressées selon ce que le téléphone accepte (zstd, brotli, gzip) : pages, CSS et JavaScript 3 à 5
+    # fois plus légers. Les images et polices, déjà compressées, passent telles quelles.
+    compression:
+      compress:
+        excludedContentTypes:
+          - image/jpeg
+          - image/png
+          - image/webp
+          - image/gif
+          - image/avif
+          - font/woff2
+          - video/mp4
+
+    # Fichiers statiques (images, styles, scripts, polices) gardés 7 jours par le téléphone : d'une page à l'autre,
+    # rien n'est téléchargé une seconde fois.
+    cache-statique:
+      headers:
+        customResponseHeaders:
+          Cache-Control: "public, max-age=604800, stale-while-revalidate=86400"
+
     # Envois de fichiers (photos d'articles) jusqu'à 32 Mo ; au-delà, refus avant d'atteindre WordPress.
     corps-limite:
       buffering:

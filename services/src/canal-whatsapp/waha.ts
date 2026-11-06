@@ -2,23 +2,20 @@
 // exposeront les mêmes méthodes : le reste du service ne dépend que de cette forme.
 
 import { texteErreur } from '../commun/journal.ts';
-import type { Envoi } from './catalogue.ts';
+import type { EnvoiPret } from './catalogue.ts';
 
 type Reponse = { id?: string | { _serialized?: string } } | null;
 
 export class Waha {
   private readonly url: string;
   private readonly cle: string;
-  /** Origine depuis laquelle WAHA télécharge les images (réseau interne). */
-  private readonly origineImages: string;
 
-  constructor(url: string, cle: string, origineImages: string) {
+  constructor(url: string, cle: string) {
     this.url = url.replace(/\/$/, '');
     this.cle = cle;
-    this.origineImages = origineImages.replace(/\/$/, '');
   }
 
-  async envoyer(session: string, chatId: string, e: Envoi): Promise<string | null> {
+  async envoyer(session: string, chatId: string, e: EnvoiPret): Promise<string | null> {
     switch (e.type) {
       case 'liste':
         return this.id(await this.appel('/api/sendList', {
@@ -28,14 +25,15 @@ export class Waha {
             sections: e.sections.map((s) => ({ title: s.titre, rows: s.lignes.map((l) => ({ title: l.titre, rowId: l.id, description: l.description ?? null })) })),
           },
         }));
-      case 'carte':
-        return this.id(await this.appel('/api/send/link-custom-preview', {
-          session, chatId, text: e.texte, linkPreviewHighQuality: true,
-          preview: { url: e.url, title: e.titre, description: e.description, ...(e.image ? { image: { url: this.origineImages + e.image } } : {}) },
+      case 'image':
+        // Légende sans aperçu de lien : aucune miniature de plus à télécharger pour le client.
+        return this.id(await this.appel('/api/sendImage', {
+          session, chatId, caption: e.legende, file: { mimetype: 'image/jpeg', filename: 'bayam.jpg', data: e.donnees },
         }));
       case 'texte':
       case 'au_vendeur':
-        return this.id(await this.appel('/api/sendText', { session, chatId, text: e.texte }));
+        // Pas d'aperçu de lien automatique (actif par défaut chez WAHA) : une miniature de moins à télécharger.
+        return this.id(await this.appel('/api/sendText', { session, chatId, text: e.texte, linkPreview: false }));
     }
   }
 
