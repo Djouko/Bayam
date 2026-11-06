@@ -47,6 +47,17 @@ function numeroDe(adresse: string | undefined): string | null {
   return m ? m[1] : null;
 }
 
+/** Partie identifiante d'une adresse WhatsApp, sans suffixe ni appareil : « 237654770063@s.whatsapp.net » donne « 237654770063 ». */
+export function compte(adresse: string): string {
+  return adresse.replace(/[:@].*$/, '');
+}
+
+/** La discussion est-elle celle du vendeur avec lui-même ? (« Message à moi-même », sous n'importe quelle forme d'adresse) */
+export function discussionDuVendeur(chat: string, identifiants: string[]): boolean {
+  const lui = compte(chat);
+  return lui !== '' && identifiants.some((id) => compte(id) === lui);
+}
+
 export function lireMessage(evt: Evenement): MessageWhatsapp | null {
   const p = evt.payload;
   if ((evt.event !== 'message' && evt.event !== 'message.any') || !p) {

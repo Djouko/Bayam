@@ -139,6 +139,9 @@ services:
       STRIPE_MODE: ${STRIPE_MODE:-test}
       # Assistant du vendeur (API Anthropic) : sans clé, il reste inactif.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Sans clé Anthropic : Google Gemini (offre gratuite) pour l'assistant et le Copilote ; modèles essayés dans l'ordre.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      BAYAM_GEMINI_MODELES: ${BAYAM_GEMINI_MODELES:-gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite}
       BAYAM_ASSISTANT_MODELE: ${BAYAM_ASSISTANT_MODELE:-claude-opus-5-5}
       WAHA_API_KEY: ${WAHA_API_KEY}
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
@@ -213,6 +216,32 @@ services:
       interval: 5s
       retries: 30
 
+  # Veilleur du tunnel de démonstration (services/src/veilleur) : le relance quand Cloudflare supprime l'adresse
+  # gratuite. Sa porte vers Docker ne permet que de lister et de redémarrer des conteneurs.
+  veilleur:
+    image: bayam/services:1
+    restart: unless-stopped
+    command: ["node", "src/veilleur/index.ts"]
+    environment:
+      TUNNEL_CONTENEUR: fluxstore-local-tunnel-1
+    depends_on:
+      - proxy-docker-veilleur
+      - tunnel
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  proxy-docker-veilleur:
+    image: tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      POST: 1
+      ALLOW_RESTARTS: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    security_opt: ["no-new-privileges:true"]
+
   # Passerelle des événements WhatsApp (services/src/passerelle) : vérifie la signature de WAHA, ne garde que ce
   # qui concerne BAYAM (privé, session, commentaires sous une publication BAYAM) et l'écrit dans le bus.
   passerelle:
@@ -248,6 +277,9 @@ services:
       WAHA_API_KEY: ${WAHA_API_KEY}
       BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
       BAYAM_WP_INTERNE: http://wordpress
+      # Adresse publique fixe (domaine) quand elle existe ; sinon celle du tunnel de démonstration, lue en direct.
+      BAYAM_URL_PUBLIQUE: ${BAYAM_URL_PUBLIQUE:-}
+      BAYAM_TUNNEL_METRICS: http://tunnel:2000
       TZ: Africa/Douala
     depends_on:
       nats:
@@ -301,6 +333,9 @@ services:
       STRIPE_MODE: ${STRIPE_MODE:-test}
       # Assistant du vendeur (API Anthropic) : sans clé, il reste inactif.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Sans clé Anthropic : Google Gemini (offre gratuite) pour l'assistant et le Copilote ; modèles essayés dans l'ordre.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      BAYAM_GEMINI_MODELES: ${BAYAM_GEMINI_MODELES:-gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite}
       BAYAM_ASSISTANT_MODELE: ${BAYAM_ASSISTANT_MODELE:-claude-opus-5-5}
       WAHA_API_KEY: ${WAHA_API_KEY}
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
@@ -360,6 +395,9 @@ services:
       STRIPE_MODE: ${STRIPE_MODE:-test}
       # Assistant du vendeur (API Anthropic) : sans clé, il reste inactif.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Sans clé Anthropic : Google Gemini (offre gratuite) pour l'assistant et le Copilote ; modèles essayés dans l'ordre.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      BAYAM_GEMINI_MODELES: ${BAYAM_GEMINI_MODELES:-gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite}
       BAYAM_ASSISTANT_MODELE: ${BAYAM_ASSISTANT_MODELE:-claude-opus-5-5}
       WAHA_API_KEY: ${WAHA_API_KEY}
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}

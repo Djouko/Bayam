@@ -20,7 +20,7 @@ if (is_readable(BAYAM_WA_DIR . 'vendor/autoload.php')) {
 }
 
 foreach ([
-    'outils', 'stockage', 'waha', 'regles', 'boutique', 'cartes', 'liens',
+    'outils', 'stockage', 'waha', 'regles', 'boutique', 'cartes', 'liens', 'ia', 'aide',
     'copilote', 'clients', 'assistant', 'webhook', 'diffusion', 'rapports', 'paiements', 'page-vendeur', 'travailleur', 'interne',
 ] as $fichier) {
     require_once BAYAM_WA_DIR . "includes/{$fichier}.php";

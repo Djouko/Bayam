@@ -116,7 +116,13 @@ Trois services s'ajoutent à WordPress (démarrés avec les autres par `docker c
 | `travailleur` | Traite chaque message WhatsApp en moins d'une seconde et fait tourner les tâches programmées (publications étalées, rapports quotidiens). |
 | extension `bayam-whatsapp` | Code dans `plugins/bayam-whatsapp/` : Copilote du vendeur, réponses aux mots-clés des clients, cartes produits, publication dans les groupes et le statut, liens courts suivis, liens de paiement, dettes, promos, bilans, alertes de commande et de paiement. |
 
-Connexion d'un vendeur : espace vendeur, rubrique **WhatsApp**, accepter les règles, « Afficher le QR code », puis dans WhatsApp sur le téléphone de la boutique : Appareils connectés, Connecter un appareil. Le vendeur écrit ensuite **menu** dans sa discussion « Message à moi-même ».
+Connexion d'un vendeur : espace vendeur, rubrique **WhatsApp**, accepter les règles, « Afficher le QR code », puis dans WhatsApp sur le téléphone de la boutique : Appareils connectés, Connecter un appareil. Le vendeur écrit ensuite **bayam menu** dans sa discussion « Message à moi-même », puis **bayam aide** pour la liste de toutes les actions et **bayam aide publier** (par exemple) pour le détail d'une action. Il peut aussi écrire comme il parle : une demande non reconnue est traduite en commande par le modèle de langage ; une consultation part tout de suite, une modification attend « bayam oui ».
+
+Modèle de langage (assistant du vendeur, demandes écrites librement) : Claude si `ANTHROPIC_API_KEY` est réglée dans `.env`, sinon Google Gemini avec `GEMINI_API_KEY` (offre gratuite ; modèles réglables par `BAYAM_GEMINI_MODELES`, essayés dans l'ordre quand l'un est saturé). Attention : avec l'offre gratuite de Gemini, Google peut se servir des messages envoyés pour améliorer ses produits ; passer à l'offre payante (ou à Claude) avant d'ouvrir à de vrais clients.
+
+Paiement par carte : extension Stripe, clés `STRIPE_PUBLISHABLE_KEY` et `STRIPE_SECRET_KEY` dans `.env` (mode test tant que `STRIPE_MODE` ne vaut pas `live`), carte bancaire seulement. Carte d'essai : 4242 4242 4242 4242, date future, code 123.
+
+Adresse publique : pendant les démonstrations, un tunnel Cloudflare gratuit donne une adresse en `trycloudflare.com` qui expire sans prévenir ; le service `veilleur` le relance tout seul, mais l'adresse change et les liens déjà envoyés ne marchent plus. Pour de vrais clients : un nom de domaine et un tunnel nommé (ou un serveur public), puis `BAYAM_URL_PUBLIQUE=https://…` dans `.env`.
 
 Essais automatiques (sans téléphone, données de démonstration remises en état à la fin) :
 

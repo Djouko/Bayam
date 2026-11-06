@@ -24,7 +24,8 @@ function bayam_url_publique() {
 		$en_cours = false;
 		$hote     = is_wp_error( $reponse ) ? '' : (string) ( json_decode( wp_remote_retrieve_body( $reponse ), true )['hostname'] ?? '' );
 		$url      = preg_match( '/^[a-z0-9-]+\.trycloudflare\.com$/', $hote ) ? 'https://' . $hote : '';
-		set_transient( 'bayam_url_publique', $url, $url ? 5 * MINUTE_IN_SECONDS : MINUTE_IN_SECONDS );
+		// Une minute : l'adresse change à chaque relance du tunnel, un lien envoyé ne doit pas pointer vers l'ancienne.
+		set_transient( 'bayam_url_publique', $url, MINUTE_IN_SECONDS );
 	}
 	return $url ? $url : null;
 }

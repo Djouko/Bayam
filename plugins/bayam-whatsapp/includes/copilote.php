@@ -10,7 +10,9 @@ final class Bayam_WA_Copilote
 {
     /** Mots-clés reconnus (et leurs variantes courantes) pour chaque intention. */
     private const INTENTIONS = [
-        'menu' => ['menu', 'aide', 'help', 'bonjour', 'salut', '?'],
+        'menu' => ['menu', 'bonjour', 'salut', '?'],
+        'aide' => ['aide', 'help', 'actions', 'liste'],
+        'oui' => ['oui'],
         'catalogue' => ['catalogue', 'catalog', 'produits', 'articles'],
         'cartes' => ['cartes', 'carte'],
         'statut' => ['statut', 'status'],
@@ -64,7 +66,8 @@ final class Bayam_WA_Copilote
         }
     }
 
-    private function repondre(string $message, ?array $photo): array
+    /** $ia : faux quand la demande vient déjà du modèle de langage (pas de seconde interprétation). */
+    private function repondre(string $message, ?array $photo, bool $ia = true): array
     {
         if ($photo) {
             return $this->ajout_produit($message, $photo);
@@ -96,7 +99,11 @@ final class Bayam_WA_Copilote
             // Des noms d'articles seuls (« robes », « sweat zippé ») valent une recherche dans le catalogue ; tous les
             // mots doivent y être, pour qu'une phrase inconnue ne renvoie pas d'articles au hasard.
             $trouves = Bayam_WA_Boutique::chercher($this->vendeur, $t, true, 8, true);
-            return $trouves ? $this->catalogue($t) : [['texte' => "Je n'ai pas compris « {$message} ». Écrivez *bayam menu* pour voir ce que je sais faire."]];
+            if ($trouves) {
+                return $this->catalogue($t);
+            }
+            return $ia && Bayam_WA_IA::disponible() ? $this->interpreter($message)
+                : [['texte' => "Je n'ai pas compris « {$message} ». Écrivez *bayam aide* pour voir tout ce que je sais faire."]];
         }
         if (in_array($intention, self::SENSIBLES, true) && ($refus = $this->controle_pin($intention, $t))) {
             return $refus;
@@ -106,13 +113,15 @@ final class Bayam_WA_Copilote
         $avec_accents = $naturel ? $reste : $this->sans_pin(array_pad(explode(' ', mb_strtolower(preg_replace('/\s+/u', ' ', trim($message)), 'UTF-8'), 2), 2, '')[1]);
         return match ($intention) {
             'menu' => [['texte' => $this->menu()]],
+            'aide' => [['texte' => Bayam_WA_Aide::reponse($reste)]],
+            'oui' => $this->valider_proposition(),
             'catalogue' => $this->catalogue($reste),
             'cartes' => $this->cartes($reste, false),
             'statut' => $this->cartes($reste, true),
             'publier' => $this->publier($reste),
             'envoie' => $this->envoyer_collection($reste),
             'stock' => $this->stock($reste),
-            'vendu' => $this->vendu($reste),
+            'vendu' => $this->vendu($reste, $avec_accents),
             'lien' => $this->lien($avec_accents),
             'commandes' => $this->commandes(),
             'bilan' => $this->bilan($reste),
@@ -143,6 +152,10 @@ final class Bayam_WA_Copilote
     {
         $t = trim(preg_replace('/[?!.]+/', ' ', str_replace('’', "'", $t)));
         $brut = trim(preg_replace('/[?!.]+/', ' ', str_replace('’', "'", $brut)));
+        if (preg_match("/^(?:comment|a quoi (?:ca )?sert|c'?est quoi|c est quoi|explique(?:[- ]moi)?|que fait|kesako)\b/u", $t)
+            && Bayam_WA_Aide::action_de($t) !== null) {
+            return ['aide', $t];
+        }
         if (preg_match('/^je suis (?:occupee?|prise?|en route|au marche|en reunion|en voyage)\b(.*)$/u', $t, $m) || preg_match('/^remplace[- ]?moi\b(.*)$/u', $t, $m)) {
             return ['assistant', trim($m[1])];
         }
@@ -173,7 +186,7 @@ final class Bayam_WA_Copilote
         return null;
     }
 
-    private function intention(string $mot): ?string
+    public static function intention(string $mot): ?string
     {
         foreach (self::INTENTIONS as $intention => $mots) {
             if (in_array($mot, $mots, true)) {
@@ -189,6 +202,91 @@ final class Bayam_WA_Copilote
             }
         }
         return null;
+    }
+
+    // --- Demandes écrites librement -------------------------------------------------------------------------------
+
+    /** Actions qui ne font que montrer (rien n'est modifié, rien n'est envoyé aux clients) : exécutées sans confirmation. */
+    private const CONSULTATIONS = ['menu', 'aide', 'catalogue', 'cartes', 'statut', 'stock', 'commandes', 'client', 'groupes', 'boutique', 'support'];
+
+    private const SCHEMA_IA = [
+        'type' => 'object',
+        'additionalProperties' => false,
+        'properties' => [
+            'comprise' => ['type' => 'boolean'],
+            'commande' => ['type' => 'string', 'description' => 'Commande BAYAM complète, commençant par « bayam », ou vide.'],
+            'explication' => ['type' => 'string', 'description' => 'Une phrase pour le vendeur : ce que fera la commande, ou ce qui manque.'],
+        ],
+        'required' => ['comprise', 'commande', 'explication'],
+    ];
+
+    /**
+     * Demande que le Copilote ne reconnaît pas (« j'ai écoulé 2 robes wax à 30 mille par momo ») : le modèle de langage
+     * la traduit en commande BAYAM. Une consultation part tout de suite ; ce qui modifie la boutique ou écrit aux
+     * clients attend « bayam oui », pour qu'une erreur de compréhension ne coûte jamais rien au vendeur.
+     */
+    private function interpreter(string $message): array
+    {
+        $noms = array_map(static fn (WC_Product $p) => $p->get_name(), array_slice(Bayam_WA_Boutique::produits($this->vendeur), 0, 80));
+        $r = Bayam_WA_IA::json(self::consignes_ia(), "Articles de la boutique : " . implode(', ', $noms), [['role' => 'user', 'content' => $message]], self::SCHEMA_IA);
+        $commande = trim(preg_replace('/\s+/u', ' ', (string) ($r['commande'] ?? '')));
+        if (!$r || empty($r['comprise']) || !preg_match('/^bayam\s+(.+)$/iu', $commande, $m)) {
+            $raison = trim((string) ($r['explication'] ?? ''));
+            return [['texte' => ($raison !== '' ? "🤖 {$raison}\n\n" : "Je n'ai pas compris « {$message} ». ") . "Écrivez *bayam aide* pour voir tout ce que je sais faire."]];
+        }
+        $demande = trim($m[1]);
+        if ($this->consultation($demande)) {
+            $reponses = $this->repondre($demande, null, false);
+            if (isset($reponses[0]['texte'])) {
+                $reponses[0]['texte'] = "🤖 J'ai compris : *{$commande}*\n\n" . $reponses[0]['texte'];
+            }
+            return $reponses;
+        }
+        set_transient($this->cle_proposition(), $demande, 10 * MINUTE_IN_SECONDS);
+        return [['texte' => "🤖 Je propose : *{$commande}*\n" . trim((string) ($r['explication'] ?? ''))
+            . "\n\nRépondez *bayam oui* pour valider, ou écrivez la commande corrigée."]];
+    }
+
+    private function consultation(string $demande): bool
+    {
+        $t = Bayam_WA_Outils::normaliser($demande);
+        [$premier, $reste] = array_pad(explode(' ', $t, 2), 2, '');
+        $intention = self::intention($premier);
+        if ($intention === 'bilan') {
+            return !preg_match('/^(\d|on\b|off\b|arret|stop|marche)/', $reste); // « rapport 21h » change un réglage
+        }
+        if ($intention === 'dettes') {
+            return $reste === '';
+        }
+        return in_array($intention, self::CONSULTATIONS, true) && !preg_match('/^[+-]/', $t);
+    }
+
+    private function valider_proposition(): array
+    {
+        $demande = get_transient($this->cle_proposition());
+        if (!is_string($demande) || $demande === '') {
+            return [['texte' => 'Aucune proposition en attente. Écrivez votre demande, ou *bayam aide*.']];
+        }
+        delete_transient($this->cle_proposition());
+        return $this->repondre($demande, null, false);
+    }
+
+    private function cle_proposition(): string
+    {
+        return 'bayam_wa_proposition_' . $this->vendeur . ($this->equipe ? '_equipe' : '');
+    }
+
+    private static function consignes_ia(): string
+    {
+        return "Tu aides des commerçants camerounais qui gèrent leur boutique sur WhatsApp avec BAYAM. On te donne le message "
+            . "d'un vendeur, écrit comme il parle (français, anglais, pidgin, fautes possibles). Traduis-le en UNE commande BAYAM, "
+            . "écrite exactement comme dans les exemples ci-dessous et commençant par « bayam ».\n"
+            . "Règles : montants en chiffres, sans espace ni devise (30 mille, 30k, 30 000 F donnent 30000) ; quantité avec x (x2) ; "
+            . "moyens de paiement : cash, momo, om, credit ; reprends le nom exact d'un article de la boutique quand il correspond ; "
+            . "une question sur le fonctionnement (« comment… », « à quoi sert… ») donne « bayam aide » suivi de l'action. "
+            . "Si le message n'est pas une demande pour BAYAM, ou s'il manque une information indispensable (montant, numéro, "
+            . "article), mets comprise à false et dis en une phrase simple ce qui manque. N'invente jamais un montant, un numéro "
+            . "ni un nom.\n\nActions disponibles :\n" . Bayam_WA_Aide::pour_ia();
     }
 
     // --- Sécurité ----------------------------------------------------------------------------------------------
@@ -234,7 +332,9 @@ final class Bayam_WA_Copilote
         $boutique = Bayam_WA_Outils::nom_boutique($this->vendeur);
         return "*Copilote BAYAM, {$boutique}*\n"
             . "Commencez chaque message par *bayam* : vos notes personnelles ici restent tranquilles. "
-            . "Majuscules, accents et petites fautes sont acceptés (*Bayam*, *BAYAM*, *bayan*).\n\n"
+            . "Majuscules, accents et petites fautes sont acceptés (*Bayam*, *BAYAM*, *bayan*). "
+            . "Écrivez aussi comme vous parlez : je comprends.\n"
+            . "📚 *bayam aide* : toutes les actions · *bayam aide publier* : le détail d'une action\n\n"
             . "🛍️ *bayam robes* : vos robes en stock\n"
             . "🖼️ *bayam cartes robes* : cartes à transférer\n"
             . "📣 *bayam publier robes* : dans vos groupes, envoi étalé\n"
@@ -472,7 +572,8 @@ final class Bayam_WA_Copilote
             . (count($autres) > 25 ? "\n… et " . (count($autres) - 25) . " autres. *bayam stock nom de l'article* pour le détail." : '');
     }
 
-    private function vendu(string $reste): array
+    /** $brut : même demande avec ses accents, pour le nom du client d'une vente à crédit (« credit Nadège »). */
+    private function vendu(string $reste, string $brut = ''): array
     {
         $modes = ['cash' => 'cash', 'especes' => 'cash', 'espece' => 'cash', 'momo' => 'momo', 'mtn' => 'momo', 'om' => 'om', 'orange' => 'om', 'credit' => 'credit'];
         $nombres = ['un' => 1, 'une' => 1, 'deux' => 2, 'trois' => 3, 'quatre' => 4, 'cinq' => 5, 'six' => 6, 'sept' => 7, 'huit' => 8, 'neuf' => 9, 'dix' => 10,
@@ -481,9 +582,13 @@ final class Bayam_WA_Copilote
         $quantite = 1;
         $montant = null;
         $mots = [];
-        foreach (explode(' ', $reste) as $mot) {
+        $client = [];
+        $originaux = explode(' ', $brut !== '' ? $brut : $reste);
+        foreach (explode(' ', $reste) as $rang => $mot) {
             if (isset($modes[$mot])) {
                 $mode = $modes[$mot];
+            } elseif ($mode === 'credit' && !preg_match('/\d/', $mot)) {
+                $client[] = $originaux[$rang] ?? $mot; // après « credit » : le nom du client qui doit
             } elseif (preg_match('/^(?:x(\d+)|(\d+)x)$/', $mot, $m)) {
                 $quantite = max(1, (int) ($m[1] ?: $m[2]));
             } elseif (!$mots && (isset($nombres[$mot]) || (ctype_digit($mot) && (int) $mot > 0 && (int) $mot < 100))) {
@@ -508,8 +613,13 @@ final class Bayam_WA_Copilote
         $commande = Bayam_WA_Boutique::vendre($this->vendeur, $p, $v, $quantite, $montant, $mode);
         $restant = $article->managing_stock() ? (int) wc_get_product($article->get_id())->get_stock_quantity() : null;
         $recu = Bayam_WA_Liens::creer($this->vendeur, $commande->get_view_order_url(), 'recu');
+        $nom = mb_convert_case(trim(implode(' ', $client)), MB_CASE_TITLE, 'UTF-8');
+        if ($mode === 'credit' && $nom !== '') {
+            Bayam_WA_Rapports::ajouter_dette($this->vendeur, $nom, (int) round((float) $commande->get_total()), null);
+        }
+        $credit = $nom !== '' ? " (à crédit : dette de {$nom} notée)" : " (à crédit : pensez à *bayam dette nom montant*)";
         return [['texte' => "✅ Vente n° {$commande->get_order_number()} enregistrée : {$quantite} × " . $article->get_name() . ' = *' . Bayam_WA_Outils::fcfa((float) $commande->get_total()) . "*"
-            . ($mode === 'credit' ? " (à crédit : pensez à *bayam dette nom montant*)" : '')
+            . ($mode === 'credit' ? $credit : '')
             . ($restant !== null ? "\nStock restant : {$restant}." : '')
             . "\nReçu à envoyer au client : {$recu}"]];
     }

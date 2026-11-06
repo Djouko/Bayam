@@ -70,7 +70,7 @@ foreach (['237677000001@c.us', '237677000002@c.us'] as $chat_essai) {
 $stocks_reels = get_option('bayam_wa_essais_stocks');
 if (!is_array($stocks_reels)) {
     $stocks_reels = [];
-    foreach (array_merge([17, 25], wc_get_product(15)->get_children()) as $id_stock) {
+    foreach (array_merge([17, 25, 237], wc_get_product(15)->get_children()) as $id_stock) {
         $p_stock = wc_get_product($id_stock);
         $stocks_reels[$id_stock] = [$p_stock->managing_stock(), $p_stock->get_stock_quantity(), $p_stock->get_stock_status()];
     }
@@ -89,6 +89,9 @@ if (get_option('bayam_wa_essais_debut')) {
     bayam_supprimer_produits_essai($vendeur, get_option('bayam_wa_essais_debut'));
 }
 Bayam_WA_Waha::remplacer($faux);
+// Modèle de langage simulé : aucun appel réel pendant les essais ; par défaut il ne comprend rien.
+$ia_ne_comprend_pas = static fn () => ['comprise' => false, 'commande' => '', 'explication' => ''];
+Bayam_WA_IA::remplacer($ia_ne_comprend_pas);
 update_user_meta($vendeur, 'bayam_wa_moi', '237690000003@c.us');
 update_user_meta($vendeur, 'bayam_wa_statut', 'WORKING');
 delete_user_meta($vendeur, 'bayam_wa');
@@ -222,9 +225,47 @@ Bayam_WA_Stockage::enregistrer($vendeur, ['groupes' => ['120363000000000001@g.us
 $r = bayam_dire('bayam publier polo');
 bayam_verifier('publier dans 2 groupes : 2 envois programmés', str_contains($joint($r), '2 publication(s)'), $r);
 $r = bayam_dire('bayam comment tu vas');
-bayam_verifier('message incompris : renvoie au menu', str_contains($joint($r), "Je n'ai pas compris") && str_contains($joint($r), 'menu'), $r);
+bayam_verifier('message incompris : renvoie à l’aide', str_contains($joint($r), "Je n'ai pas compris") && str_contains($joint($r), 'bayam aide'), $r);
 $r = bayam_dire('bayam');
-bayam_verifier('« bayam » seul : menu', str_contains($joint($r), 'Copilote BAYAM'), $r);
+bayam_verifier('« bayam » seul : menu', str_contains($joint($r), 'Copilote BAYAM') && str_contains($joint($r), 'bayam aide'), $r);
+
+echo "\nAide et demandes libres\n";
+$r = bayam_dire('bayam aide');
+bayam_verifier('« bayam aide » : toutes les actions par thème', str_contains($joint($r), 'Tout ce que BAYAM fait pour vous') && str_contains($joint($r), 'Publier et faire connaître') && str_contains($joint($r), '*publier*'), $r);
+$r = bayam_dire('bayam aide publier');
+bayam_verifier('« bayam aide publier » : détail et exemples', str_contains($joint($r), 'Publier des articles') && str_contains($joint($r), 'Exemples') && str_contains($joint($r), 'bayam publier nouveautés partout'), $r);
+$r = bayam_dire('Bayam aide plancher');
+bayam_verifier('aide sur le prix minimum', str_contains($joint($r), 'prix minimum'), $r);
+$r = bayam_dire("bayam c'est quoi le plancher ?");
+bayam_verifier('« c’est quoi le plancher ? » : explication', str_contains($joint($r), 'prix minimum'), $r);
+$r = bayam_dire('bayam comment créer une promo ?');
+bayam_verifier('« comment créer une promo ? » : l’aide de la promo, pas de la photo', str_contains($joint($r), 'Créer un code promo'), $r);
+$r = bayam_dire('bayam aide vendre');
+bayam_verifier('aide par synonyme (« vendre »)', str_contains($joint($r), 'Enregistrer une vente'), $r);
+$r = bayam_dire('bayam aide xyz');
+bayam_verifier('aide sur une action inconnue : liste complète', str_contains($joint($r), "Je ne connais pas l'action") && str_contains($joint($r), 'Tout ce que BAYAM'), $r);
+$appels_ia = [];
+Bayam_WA_IA::remplacer(static function ($consignes, $contexte, $messages) use (&$appels_ia) {
+    $appels_ia[] = [$contexte, $messages[0]['content']];
+    return str_contains($messages[0]['content'], 'niveau')
+        ? ['comprise' => true, 'commande' => 'bayam stock polo', 'explication' => 'Stock du polo.']
+        : ['comprise' => true, 'commande' => 'bayam vendu polo 12000 cash', 'explication' => 'Vente d’un polo à 12 000 F en espèces.'];
+});
+$r = bayam_dire('bayam check moi le niveau des polos');
+bayam_verifier('demande libre de consultation : comprise et faite tout de suite', str_contains($joint($r), "J'ai compris") && str_contains($joint($r), 'Stock : Polo'), $r);
+bayam_verifier('le modèle reçoit les noms des articles de la boutique', str_contains($appels_ia[0][0] ?? '', 'Polo'));
+$r = bayam_dire("bayam j'ai écoulé un polo à 12 mille en espèces");
+bayam_verifier('demande libre qui modifie : proposée, pas faite', str_contains($joint($r), 'Je propose') && str_contains($joint($r), 'bayam oui') && !str_contains($joint($r), 'enregistrée'), $r);
+$r = bayam_dire('bayam oui');
+bayam_verifier('« bayam oui » : la vente proposée est enregistrée', str_contains($joint($r), 'enregistrée'), $r);
+$r = bayam_dire('bayam oui');
+bayam_verifier('« bayam oui » sans proposition : rien ne se passe', str_contains($joint($r), 'Aucune proposition'), $r);
+Bayam_WA_IA::remplacer(static fn () => ['comprise' => false, 'commande' => '', 'explication' => 'Il manque le montant du lien de paiement.']);
+$r = bayam_dire('bayam fais un lien pour Marie');
+bayam_verifier('demande incomplète : le modèle dit ce qui manque', str_contains($joint($r), 'Il manque le montant'), $r);
+Bayam_WA_IA::remplacer($ia_ne_comprend_pas);
+$r = bayam_dire('bayam vendu casquette brodée 6000 credit Nadège');
+bayam_verifier('vente à crédit : dette notée au nom du client, accents gardés', str_contains($joint($r), 'dette de Nadège notée'), $r);
 $r = bayam_dire('Acheter du pain et payer le loyer demain');
 bayam_verifier('note personnelle sans « bayam » : silence', $r === [], $r);
 $r = bayam_dire('stock polo');
@@ -538,6 +579,7 @@ foreach ($sauvegarde as $cle => $valeur) {
 delete_option('bayam_wa_essais_sauvegarde');
 delete_option('bayam_wa_essais_debut');
 Bayam_WA_Waha::remplacer(null);
+Bayam_WA_IA::remplacer(null);
 delete_option('bayam_wa_essais_jusqua');
 echo "  données de démonstration restaurées\n";
 

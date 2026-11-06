@@ -13,10 +13,10 @@ import { assurerFluxWhatsapp, connecterBus, FLUX_WHATSAPP, SUJET_WHATSAPP } from
 import { exiger, lire, nombre } from '../commun/config.ts';
 import { journal, texteErreur } from '../commun/journal.ts';
 import * as catalogue from './catalogue.ts';
-import { CommerceWordpress } from './commerce.ts';
+import { CommerceWordpress, type Boutique } from './commerce.ts';
 import { Expediteur } from './expediteur.ts';
 import { creerJeton, nettoyer, ouvrirJeton } from './jetons.ts';
-import { lireMessage, type Evenement } from './message.ts';
+import { discussionDuVendeur, lireMessage, type Evenement } from './message.ts';
 import { deposer, envoyerDues, valide, type Notification } from './notifications.ts';
 import { decider, type Decision } from './routeur.ts';
 import { COTE_PHOTO, dessinerVitrine, photoLegere } from './vitrine.ts';
@@ -43,12 +43,32 @@ const expediteur = new Expediteur(waha, redis, pool, log, {
   parSessionJour: nombre('PLAFOND_SESSION_JOUR', 1500),
 });
 
+/**
+ * Adresse publique du site pour les liens envoyés : celle du domaine (BAYAM_URL_PUBLIQUE) en production ; pendant les
+ * démonstrations, celle du tunnel, lue en direct (gardée 30 s), car elle change à chaque relance du tunnel.
+ */
+let adresse = { valeur: '', lue: 0 };
+async function basePublique(b: Boutique): Promise<string> {
+  const fixe = lire('BAYAM_URL_PUBLIQUE', '');
+  if (fixe) {
+    return fixe.replace(/\/$/, '');
+  }
+  if (Date.now() - adresse.lue > 30_000) {
+    const hote = await fetch(`${lire('BAYAM_TUNNEL_METRICS', 'http://tunnel:2000')}/quicktunnel`, { signal: AbortSignal.timeout(3000) })
+      .then((r): Promise<{ hostname?: string }> | { hostname?: string } => (r.ok ? r.json() : {}))
+      .then((d) => (typeof d.hostname === 'string' && d.hostname ? `https://${d.hostname}` : ''))
+      .catch(() => '');
+    adresse = { valeur: hote, lue: Date.now() };
+  }
+  return adresse.valeur || b.base_publique;
+}
+
 /** Réponse du catalogue ; 'heritage' quand finalement c'est à WordPress de traiter (son propre chat, boutique inconnue…). */
 async function repondre(d: Extract<Decision, { route: 'catalogue' }>): Promise<'fait' | 'heritage'> {
   const m = d.message;
   const vendeur = Number(/^boutique-(\d+)$/.exec(m.session)?.[1] ?? 0);
   const b = vendeur ? await commerce.boutique(vendeur) : null;
-  if (!b || (m.deMoi && b.identifiants.includes(m.chat)) || (!m.deMoi && d.action.type === 'menu' && !b.actif)) {
+  if (!b || (m.deMoi && discussionDuVendeur(m.chat, b.identifiants)) || (!m.deMoi && d.action.type === 'menu' && !b.actif)) {
     return 'heritage';
   }
   const a = d.action;
@@ -67,7 +87,7 @@ async function repondre(d: Extract<Decision, { route: 'catalogue' }>): Promise<'
     case 'produit': {
       const p = await commerce.produit(b.id, a.produit);
       const jeton = p?.en_stock ? await creerJeton(pool, { vendeur: b.id, produit: p.id, numero: m.numero ?? '', chat: m.chat }) : null;
-      envois = catalogue.produit(b, p, jeton ? `${b.base_publique}/commander/${jeton}` : null);
+      envois = catalogue.produit(b, p, jeton ? `${await basePublique(b)}/commander/${jeton}` : null);
       break;
     }
     case 'commandes':

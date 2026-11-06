@@ -62,5 +62,10 @@ add_filter( 'option_woocommerce_stripe_settings', function ( $reglages ) {
 		$prefixe . 'publishable_key' => $publique,
 		$prefixe . 'secret_key'      => $secrete,
 		$prefixe . 'webhook_secret'  => (string) getenv( 'STRIPE_WEBHOOK_SECRET' ),
+		// Carte bancaire seulement : les moyens étrangers (Amazon Pay, Klarna, BLIK…) n'existent pas au Cameroun et
+		// embrouillent l'acheteur ; pas de boutons de paiement express sur les fiches (la page reste légère).
+		'pmc_enabled'                               => 'no',
+		'upe_checkout_experience_accepted_payments' => array( 'card' ),
+		'express_checkout'                          => 'no',
 	) );
 } );

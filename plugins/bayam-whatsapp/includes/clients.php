@@ -229,7 +229,7 @@ final class Bayam_WA_Clients
         $message = "Bonjour 👋 Voici la sélection de {$boutique} pour vous :\n\n" . implode("\n", $lignes);
         if (self::a_deja_ecrit($vendeur, $chat)) {
             return Bayam_WA_Regles::repondre($vendeur, $chat, $message, null, 'collection')
-                ? '📤 Collection envoyée au ' . Bayam_WA_Outils::numero_lisible($numero) . ' (' . count($produits) . ' articles).'
+                ? '📤 Collection envoyée au ' . Bayam_WA_Outils::numero_lisible($numero) . ' (' . count($produits) . (count($produits) > 1 ? ' articles).' : ' article).')
                 : "⏳ Plafond d'envois du jour atteint, ou WhatsApp limite temporairement votre numéro : réessayez demain.";
         }
         $lien = 'https://wa.me/' . $numero . '?text=' . rawurlencode($message);

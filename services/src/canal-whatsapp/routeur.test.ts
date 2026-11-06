@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MARQUE } from '../passerelle/filtre.ts';
-import { lireMessage, type Evenement } from './message.ts';
+import { discussionDuVendeur, lireMessage, type Evenement } from './message.ts';
 import { decider, idAction, lireAction, type Action } from './routeur.ts';
 
 const MAINTENANT = 1_793_949_820;
@@ -83,6 +83,16 @@ test('le vendeur tape « bayam menu » chez un client : menu envoyé à ce clien
 
 test('écho de nos propres envois (marque en tête) : jamais retraité', () => {
   assert.equal(decider(lireMessage(texte(`${MARQUE}Mode Aïcha\nbayam`, { fromMe: true })), MAINTENANT).route, 'heritage');
+});
+
+test('« Message à moi-même » reconnu quelle que soit la forme de l\u2019adresse', () => {
+  const ids = ['237654770063@c.us', '199780554817731@lid'];
+  for (const chat of ['237654770063@c.us', '237654770063@s.whatsapp.net', '237654770063:12@s.whatsapp.net', '199780554817731@lid']) {
+    assert.ok(discussionDuVendeur(chat, ids), chat);
+  }
+  for (const chat of ['32779945431068@lid', '237681010044@c.us', '']) {
+    assert.ok(!discussionDuVendeur(chat, ids), chat);
+  }
 });
 
 test('identifiants de ligne : aller-retour sans perte', () => {

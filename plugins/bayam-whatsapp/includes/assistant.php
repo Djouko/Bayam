@@ -28,10 +28,10 @@ final class Bayam_WA_Assistant
         self::$decideur = $decideur;
     }
 
-    /** L'assistant peut-il travailler ? (clé de l'API et SDK présents, ou modèle simulé pendant les essais) */
+    /** L'assistant peut-il travailler ? (un modèle de langage joignable, ou simulé pendant les essais) */
     public static function disponible(): bool
     {
-        return self::$decideur !== null || ((string) getenv('ANTHROPIC_API_KEY') !== '' && class_exists('Anthropic\\Client'));
+        return self::$decideur !== null || Bayam_WA_IA::disponible();
     }
 
     // --- État ------------------------------------------------------------------------------------------------
@@ -154,36 +154,11 @@ final class Bayam_WA_Assistant
         if (self::$decideur) {
             return (self::$decideur)($systeme, $boutique, $messages);
         }
-        if (!self::disponible()) {
-            return null;
-        }
-        try {
-            $client = new Anthropic\Client();
-            $reponse = $client->messages->create(
-                model: getenv('BAYAM_ASSISTANT_MODELE') ?: 'claude-opus-5-5',
-                maxTokens: 4000,
-                system: [
-                    // Consignes identiques pour toutes les boutiques : mises en cache, seul le contexte change.
-                    ['type' => 'text', 'text' => $systeme, 'cacheControl' => ['type' => 'ephemeral']],
-                    ['type' => 'text', 'text' => $boutique],
-                ],
-                messages: $messages,
-                outputConfig: ['effort' => 'low', 'format' => ['type' => 'json_schema', 'schema' => self::schema()]],
-            );
-        } catch (Throwable $e) {
-            Bayam_WA_Outils::journal('Assistant injoignable', ['erreur' => $e->getMessage()]);
-            return null;
-        }
-        if ($reponse->stopReason === 'refusal') {
+        $donnees = Bayam_WA_IA::json($systeme, $boutique, $messages, self::schema());
+        if (isset($donnees['refus'])) {
             return ['action' => 'transmettre', 'message' => '', 'resume_vendeur' => "Je n'ai pas pu traiter ce message : à vous de répondre."];
         }
-        foreach ($reponse->content as $bloc) {
-            if ($bloc->type === 'text') {
-                $donnees = json_decode($bloc->text, true);
-                return is_array($donnees) ? $donnees : null;
-            }
-        }
-        return null;
+        return $donnees;
     }
 
     /** Fil de la discussion : messages enregistrés, du plus ancien au plus récent, rôles alternés. */
@@ -191,8 +166,10 @@ final class Bayam_WA_Assistant
     {
         global $wpdb;
         $lignes = array_reverse($wpdb->get_results($wpdb->prepare(
-            'SELECT sens, texte FROM ' . Bayam_WA_Stockage::table('wa_messages') . " WHERE vendeur = %d AND (chat = %s OR numero = %s) AND texte <> '' ORDER BY id DESC LIMIT %d",
-            $vendeur, $chat, Bayam_WA_Outils::numero_de($chat), self::HISTORIQUE
+            // Dernières 24 h seulement : un client qui revient le lendemain repart d'une conversation neuve, sans que
+            // l'assistant ressorte une vieille négociation.
+            'SELECT sens, texte FROM ' . Bayam_WA_Stockage::table('wa_messages') . " WHERE vendeur = %d AND (chat = %s OR numero = %s) AND texte <> '' AND cree >= %s ORDER BY id DESC LIMIT %d",
+            $vendeur, $chat, Bayam_WA_Outils::numero_de($chat), wp_date('Y-m-d H:i:s', time() - DAY_IN_SECONDS), self::HISTORIQUE
         )));
         $messages = [];
         foreach ($lignes as $l) {
@@ -220,7 +197,7 @@ final class Bayam_WA_Assistant
     private static function consignes(): string
     {
         return <<<'TXT'
-Tu réponds sur WhatsApp à la place d'un commerçant camerounais occupé, comme le ferait un bon vendeur de sa boutique. Tu parles au nom de la boutique (« nous »), avec chaleur et naturel, en messages courts comme sur WhatsApp, dans la langue du client : français, anglais, pidgin ou camfranglais, avec ses expressions s'il en utilise. Pas de longues listes, pas de formules de robot.
+Tu réponds sur WhatsApp à la place d'un commerçant camerounais occupé, comme le ferait un bon vendeur de sa boutique. Tu parles au nom de la boutique (« nous »), avec chaleur et naturel, en messages courts comme sur WhatsApp, dans la langue du client : français, anglais, pidgin ou camfranglais, avec ses expressions s'il en utilise. Vouvoie le client ; tutoie-le seulement s'il te tutoie, et garde le même registre jusqu'au bout de la conversation. Pas de longues listes, pas de formules de robot.
 
 Ce que tu sais : uniquement le catalogue, les prix, le stock, la livraison et les paiements donnés dans le contexte de la boutique. N'invente jamais un article, un prix, une taille, une couleur, un délai ou une promesse. Si on te demande quelque chose que tu ne sais pas, dis que tu vérifies avec la boutique et transmets.
 
@@ -260,7 +237,7 @@ TXT;
                     'required' => ['produit_id', 'quantite', 'prix_unitaire', 'precision', 'livraison', 'nom_client'],
                     'additionalProperties' => false,
                 ],
-                'resume_vendeur' => ['type' => 'string', 'description' => 'Résumé pour le vendeur (commande ou demande transmise), sinon vide.'],
+                'resume_vendeur' => ['type' => 'string', 'description' => 'Résumé pour le vendeur en une ou deux phrases simples (commande ou demande transmise), sans identifiant technique, sinon vide.'],
             ],
             'required' => ['action', 'message', 'commande', 'resume_vendeur'],
             'additionalProperties' => false,
