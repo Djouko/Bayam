@@ -63,16 +63,18 @@ function lignes(ctx: SKRSContext2D, texte: string, largeur: number, max: number)
   return resultat;
 }
 
-function pastille(ctx: SKRSContext2D, x: number, y: number, texte: string, fond: string, encre: string, police: string): number {
+/** Pastille arrondie autour d'un texte ; sa hauteur suit la taille du texte (36 px pour la vitrine). */
+function pastille(ctx: SKRSContext2D, x: number, y: number, texte: string, fond: string, encre: string, police: string, hauteur = 36): number {
   ctx.font = police;
-  const largeur = ctx.measureText(texte).width + 24;
+  const marge = Math.round(hauteur / 3);
+  const largeur = ctx.measureText(texte).width + 2 * marge;
   ctx.fillStyle = fond;
   ctx.beginPath();
-  ctx.roundRect(x, y, largeur, 36, 18);
+  ctx.roundRect(x, y, largeur, hauteur, hauteur / 2);
   ctx.fill();
   ctx.fillStyle = encre;
   ctx.textBaseline = 'middle';
-  ctx.fillText(texte, x + 12, y + 19);
+  ctx.fillText(texte, x + marge, y + hauteur / 2 + 1);
   ctx.textBaseline = 'alphabetic';
   return largeur;
 }
@@ -241,4 +243,90 @@ export async function dessinerVitrine(titre: string, sousTitre: string, cases: C
   ctx.fillText('Touchez « Choisir » sous l’image pour voir un article et le commander', L / 2, hauteur - 28);
   // Qualité 70 : sur un écran de téléphone, aucune différence visible avec 80, pour un tiers de poids en moins.
   return canvas.encode('jpeg', 70);
+}
+
+export type FicheStory = { boutique: string; nom: string; prix: string; ancienPrix: string | null; remise: number | null; peuDeStock: number | null; options: string; appel: string; image: Buffer | null };
+
+/**
+ * Visuel vertical d'un article pour les stories (Facebook, statut WhatsApp) : 1080 × 1920, la photo en grand, le nom,
+ * le prix lisible d'un coup d'œil, puis comment commander. JPEG qualité 80 : affiché en plein écran.
+ */
+export async function dessinerStory(f: FicheStory): Promise<Buffer> {
+  const l = 1080;
+  const h = 1920;
+  const canvas = createCanvas(l, h);
+  const ctx = canvas.getContext('2d');
+  const fond = ctx.createLinearGradient(0, 0, 0, h);
+  fond.addColorStop(0, C.nuit);
+  fond.addColorStop(1, C.emD);
+  ctx.fillStyle = fond;
+  ctx.fillRect(0, 0, l, h);
+
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '700 52px Poppins';
+  ctx.fillText(lignes(ctx, f.boutique, l - 330, 1)[0], 60, 140);
+  ctx.font = '700 30px Poppins';
+  pastille(ctx, l - 60 - ctx.measureText('bayam').width - 30, 86, 'bayam', C.em, '#FFFFFF', '700 30px Poppins', 46);
+
+  // Photo carrée arrondie, pastilles promo et stock par-dessus.
+  const cote = l - 120;
+  const haut = 220;
+  ctx.save();
+  ctx.beginPath();
+  ctx.roundRect(60, haut, cote, cote, 40);
+  ctx.clip();
+  ctx.fillStyle = C.menthe;
+  ctx.fillRect(60, haut, cote, cote);
+  if (f.image) {
+    photo(ctx, await loadImage(f.image), 60, haut, cote, cote);
+  }
+  ctx.restore();
+  if (f.remise) {
+    ctx.font = '700 40px Inter';
+    const texte = `-${f.remise} %`;
+    pastille(ctx, 60 + cote - ctx.measureText(texte).width - 70, haut + 32, texte, C.corail, '#FFFFFF', '700 40px Inter', 60);
+  }
+  if (f.peuDeStock) {
+    pastille(ctx, 92, haut + cote - 84, f.peuDeStock === 1 ? 'Dernière pièce' : `Plus que ${f.peuDeStock}`, C.soleil, C.nuit, '600 34px Inter', 54);
+  }
+
+  // Nom, prix et tailles centrés entre la photo et le bandeau du bas, quelle que soit leur hauteur.
+  ctx.fillStyle = '#FFFFFF';
+  ctx.font = '700 60px Poppins';
+  const nom = lignes(ctx, f.nom, l - 120, 2);
+  const bloc = nom.length * 74 + 30 + 84 + (f.options ? 70 : 0);
+  let y = haut + cote + Math.max(60, (h - 250 - haut - cote - bloc) / 2) + 56;
+  for (const ligne of nom) {
+    ctx.fillText(ligne, 60, y);
+    y += 74;
+  }
+  y += 30;
+  ctx.font = '700 84px Poppins';
+  ctx.fillStyle = C.soleil;
+  ctx.fillText(f.prix, 60, y);
+  if (f.ancienPrix) {
+    const decalage = ctx.measureText(f.prix).width + 24;
+    ctx.font = '500 40px Inter';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+    ctx.fillText(f.ancienPrix, 60 + decalage, y - 6);
+    ctx.fillRect(60 + decalage, y - 20, ctx.measureText(f.ancienPrix).width, 3);
+  }
+  if (f.options) {
+    y += 70;
+    ctx.font = '500 38px Inter';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(lignes(ctx, f.options, l - 120, 1)[0], 60, y);
+  }
+
+  // Comment commander, en bas, dans un bandeau clair.
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath();
+  ctx.roundRect(60, h - 250, l - 120, 150, 75);
+  ctx.fill();
+  ctx.fillStyle = C.nuit;
+  ctx.font = '600 40px Inter';
+  ctx.textAlign = 'center';
+  lignes(ctx, f.appel, l - 220, 2).forEach((ligne, i, tout) => ctx.fillText(ligne, l / 2, h - 175 + (i - (tout.length - 1) / 2) * 50 + 14));
+  ctx.textAlign = 'left';
+  return canvas.encode('jpeg', 80);
 }

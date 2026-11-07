@@ -10,7 +10,7 @@ defined('ABSPATH') || exit;
 final class Bayam_WA_Regles
 {
     /** Plafonds par jour et par boutique (prudents pour un numéro personnel ou WhatsApp Business). */
-    public const PLAFONDS = ['reponse' => 300, 'assistant' => 300, 'diffusion' => 40, 'statut' => 10, 'collection' => 30];
+    public const PLAFONDS = ['reponse' => 300, 'assistant' => 300, 'diffusion' => 40, 'statut' => 10, 'chaine' => 10, 'collection' => 30];
 
     /** Messages au vendeur lui-même (Copilote) : aucune restriction, pas de délai. */
     public static function au_vendeur(int $vendeur, string $texte): void

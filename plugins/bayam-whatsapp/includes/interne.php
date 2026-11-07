@@ -2,8 +2,9 @@
 /**
  * Lien avec les microservices BAYAM (canal WhatsApp) pendant la migration hors de WordPress :
  * - API interne de lecture du catalogue et des commandes d'une boutique ;
- * - liens personnels de commande envoyés sur WhatsApp (/commander/<jeton>) : panier prêt, numéro du client rempli ;
- * - confirmation de la commande au client, dans sa discussion WhatsApp, déposée auprès du canal.
+ * - liens personnels de commande envoyés sur WhatsApp ou Messenger (/commander/<jeton>) : panier prêt, numéro du
+ *   client rempli quand on le connaît ;
+ * - confirmation de la commande au client, dans sa discussion WhatsApp ou Messenger, déposée auprès du canal.
  * Réservé au réseau interne : jeton de service exigé (BAYAM_SERVICE_JETON) ; le répartiteur d'entrée refuse
  * ces adresses depuis l'extérieur.
  */
@@ -223,7 +224,7 @@ final class Bayam_WA_Interne
         $p = $j ? wc_get_product((int) $j['produit']) : null;
         nocache_headers();
         if (!$p || (int) get_post_field('post_author', $p->get_id()) !== (int) $j['vendeur'] || !$p->is_purchasable() || !$p->is_in_stock()) {
-            wc_add_notice(__('Ce lien de commande a expiré ou l\'article n\'est plus disponible. Demandez un nouveau lien à la boutique sur WhatsApp.', 'bayam-whatsapp'), 'notice');
+            wc_add_notice(__('Ce lien de commande a expiré ou l\'article n\'est plus disponible. Demandez un nouveau lien à la boutique, sur WhatsApp ou Messenger.', 'bayam-whatsapp'), 'notice');
             wp_safe_redirect($p ? get_permalink($p->get_id()) : wc_get_page_permalink('shop'));
             exit;
         }
@@ -234,7 +235,7 @@ final class Bayam_WA_Interne
             WC()->customer->set_billing_phone('+' . $j['numero']);
             WC()->customer->save();
         }
-        WC()->session->set('bayam_jeton', ['jeton' => $m[1], 'vendeur' => (int) $j['vendeur'], 'chat' => (string) $j['chat']]);
+        WC()->session->set('bayam_jeton', ['jeton' => $m[1], 'vendeur' => (int) $j['vendeur'], 'chat' => (string) $j['chat'], 'canal' => (string) ($j['canal'] ?? 'whatsapp'), 'page' => (string) ($j['page'] ?? '')]);
         if (!$p->is_type('simple')) {
             wp_safe_redirect(get_permalink($p->get_id())); // taille ou couleur à choisir sur la fiche
             exit;
@@ -254,13 +255,13 @@ final class Bayam_WA_Interne
     {
         $r = wp_remote_get(self::canal() . '/interne/jetons/' . rawurlencode($jeton), ['timeout' => 5, 'headers' => ['x-bayam-service' => (string) getenv('BAYAM_SERVICE_JETON')]]);
         if (is_wp_error($r) || wp_remote_retrieve_response_code($r) !== 200) {
-            return null;
+            return Bayam_WA_Facebook::jeton($jeton); // lien envoyé dans Messenger
         }
         $d = json_decode(wp_remote_retrieve_body($r), true);
         return is_array($d) && isset($d['produit'], $d['vendeur'], $d['chat'], $d['numero']) ? $d : null;
     }
 
-    /** Commande passée depuis un lien personnel : on garde la discussion WhatsApp du client pour lui confirmer. */
+    /** Commande passée depuis un lien personnel : on garde la discussion du client (WhatsApp ou Messenger) pour lui confirmer. */
     public static function commande_depuis_lien($commande): void
     {
         if (!$commande instanceof WC_Order || !function_exists('WC') || !WC()->session) {
@@ -273,6 +274,10 @@ final class Bayam_WA_Interne
         $commande->update_meta_data('_bayam_jeton', $j['jeton']);
         $commande->update_meta_data('_bayam_chat_client', $j['chat']);
         $commande->update_meta_data('_bayam_vendeur_lien', (int) $j['vendeur']);
+        $commande->update_meta_data('_bayam_canal', ($j['canal'] ?? 'whatsapp') === 'facebook' ? 'facebook' : 'whatsapp');
+        if (!empty($j['page'])) {
+            $commande->update_meta_data('_bayam_page', (string) $j['page']);
+        }
         if ($commande->get_id()) {
             $commande->save_meta_data();
         }
@@ -280,14 +285,15 @@ final class Bayam_WA_Interne
     }
 
     /**
-     * Confirmation au client dans sa discussion WhatsApp, déposée auprès du canal (envoi durable, au rythme humain).
+     * Confirmation au client dans sa discussion WhatsApp ou Messenger, déposée auprès du canal (envoi durable).
      * Ne ralentit jamais la validation de la commande : dépôt seulement, l'envoi se fait à côté.
      */
     public static function confirmer_au_client(WC_Order $commande): void
     {
         $chat = (string) $commande->get_meta('_bayam_chat_client');
         $vendeur = (int) $commande->get_meta('_bayam_vendeur_lien');
-        if ($chat === '' || !$vendeur || $commande->get_meta('_bayam_confirmation_client') || get_user_meta($vendeur, 'bayam_wa_statut', true) !== 'WORKING') {
+        $messenger = $commande->get_meta('_bayam_canal') === 'facebook';
+        if ($chat === '' || !$vendeur || $commande->get_meta('_bayam_confirmation_client') || (!$messenger && get_user_meta($vendeur, 'bayam_wa_statut', true) !== 'WORKING')) {
             return;
         }
         $articles = [];
@@ -302,6 +308,13 @@ final class Bayam_WA_Interne
             // Payée en ligne : rien à envoyer ; sinon les conditions de la boutique (acompte, avance, à la livraison).
             . "\n\n" . ($commande->is_paid() ? 'Paiement reçu, merci.' : Bayam_WA_Boutique::conditions_paiement($vendeur, (float) $commande->get_total()))
             . "\nLa boutique vous écrit ici pour la livraison. Merci pour votre confiance 🙏";
+        if ($messenger) {
+            if (Bayam_WA_Facebook::confirmer('commande-' . $commande->get_id(), (string) $commande->get_meta('_bayam_page'), $chat, $texte)) {
+                $commande->update_meta_data('_bayam_confirmation_client', 1);
+                $commande->save_meta_data();
+            }
+            return;
+        }
         $r = wp_remote_post(self::canal() . '/interne/notifications', [
             'timeout' => 3,
             'headers' => ['x-bayam-service' => (string) getenv('BAYAM_SERVICE_JETON'), 'content-type' => 'application/json'],

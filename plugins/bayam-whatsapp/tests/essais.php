@@ -22,6 +22,10 @@ final class Bayam_Faux_Waha extends Bayam_WA_Waha
         if (str_ends_with($chemin, '/chats')) {
             return [['id' => '237677000001@c.us']];
         }
+        if (str_ends_with($chemin, '/channels')) {
+            // Une chaîne du vendeur, une autre qu'il suit seulement.
+            return [['id' => '120363000000000777@newsletter', 'name' => 'Nouveautés Mode Aïcha', 'role' => 'OWNER'], ['id' => '120363000000000888@newsletter', 'name' => 'Actus foot', 'role' => 'SUBSCRIBER']];
+        }
         if (in_array($chemin, ['/api/sendText', '/api/sendImage'], true) || str_contains($chemin, '/status/')) {
             return ['id' => 'true_' . count($this->envois) . '_BAYAMESSAI'];
         }
@@ -81,7 +85,8 @@ $tshirt_essai->set_manage_stock(false);
 $tshirt_essai->set_stock_status('instock');
 $tshirt_essai->save();
 $wpdb->query($wpdb->prepare('DELETE FROM ' . Bayam_WA_Stockage::table('dettes') . " WHERE vendeur = %d AND client = 'Ndzana'", $vendeur));
-$groupes_essai = "('120363000000000001@g.us', '120363000000000002@g.us')";
+$groupes_essai = "('120363000000000001@g.us', '120363000000000002@g.us', '120363000000000777@newsletter')";
+delete_transient("bayam_wa_chaines_{$vendeur}"); // chaînes du faux WAHA : jamais gardées pour les vrais envois
 $wpdb->query('DELETE c FROM ' . Bayam_WA_Stockage::table('clics') . ' c JOIN ' . Bayam_WA_Stockage::table('liens') . " l ON l.id = c.lien WHERE l.groupe IN $groupes_essai");
 $wpdb->query('DELETE FROM ' . Bayam_WA_Stockage::table('liens') . " WHERE groupe IN $groupes_essai");
 $wpdb->query('DELETE FROM ' . Bayam_WA_Stockage::table('diffusions') . " WHERE chat IN $groupes_essai");
@@ -548,7 +553,7 @@ bayam_verifier('bilan de série envoyé au vendeur', (bool) array_filter($faux->
 
 echo "\nPublication en quelques secondes\n";
 $r = bayam_dire('bayam publier nouveautés partout');
-bayam_verifier('« publier nouveautés partout » : 15 publications en 3 min au plus (25 min avant)', str_contains($joint($r), 'dans 2 groupes') && str_contains($joint($r), 'en statut') && preg_match('/environ (\d+) (s|min)/', $joint($r), $duree) && ($duree[2] === 's' || (int) $duree[1] <= 3), $r);
+bayam_verifier('« publier nouveautés partout » : groupes, chaîne et statut, 20 publications en 4 min au plus', str_contains($joint($r), 'dans 2 groupes') && str_contains($joint($r), 'dans votre chaîne') && str_contains($joint($r), 'en statut') && preg_match('/environ (\d+) (s|min)/', $joint($r), $duree) && ($duree[2] === 's' || (int) $duree[1] <= 4), $r);
 $prevus = $wpdb->get_col($wpdb->prepare("SELECT UNIX_TIMESTAMP(prevu) FROM $t WHERE vendeur = 3 AND statut = 'attente' AND type = 'groupe' AND id > %d ORDER BY prevu", $depart['diffusions']));
 $ecarts = array_map(static fn ($a, $b) => $b - $a, array_slice($prevus, 0, -1), array_slice($prevus, 1));
 bayam_verifier('rythme humain : quelques secondes entre deux photos, jamais deux envois collés', $ecarts && min($ecarts) >= 3 && max($ecarts) <= 25, $ecarts);
@@ -556,6 +561,20 @@ $r = bayam_dire('bayam publier polo dans clientes mode aicha');
 bayam_verifier('« publier polo dans Clientes Mode Aïcha » : un seul groupe', str_contains($joint($r), '1 publication(s) : 1 dans 1 groupe'), $r);
 $r = bayam_dire('bayam publier polo dans les tontines du quartier');
 bayam_verifier('groupe inconnu : expliqué, rien n’est publié', str_contains($joint($r), 'Je ne trouve pas le groupe'), $r);
+$r = bayam_dire('bayam publier polo chaîne');
+bayam_verifier('« publier polo chaîne » : la chaîne dont le vendeur est propriétaire, pas celle qu’il suit', str_contains($joint($r), '1 publication(s) : 1 dans votre chaîne « Nouveautés Mode Aïcha »')
+    && (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $t WHERE vendeur = 3 AND type = 'chaine' AND chat = '120363000000000777@newsletter' AND id > %d", $depart['diffusions'])) >= 1
+    && !(int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM $t WHERE chat = '120363000000000888@newsletter' AND id > %d", $depart['diffusions'])), $r);
+$r = bayam_dire('bayam publier polo facebook');
+bayam_verifier('« publier polo facebook » sans Page reliée : explique comment la relier, rien sur WhatsApp', str_contains($joint($r), 'Aucune Page Facebook reliée') && !str_contains($joint($r), 'publication(s) :'), $r);
+$r = bayam_dire('bayam publier polo statut story');
+bayam_verifier('« … statut story » : statut WhatsApp et story Facebook demandés ensemble', str_contains($joint($r), 'en statut') && str_contains($joint($r), 'Facebook'), $r);
+$r = bayam_dire('bayam facebook');
+preg_match('#/facebook/connexion\?v=(\d+)&e=(\d+)&s=([0-9a-f]{64})#', $joint($r), $lien_fb);
+bayam_verifier('« bayam facebook » : lien de connexion signé, valable 30 min', $lien_fb && (int) $lien_fb[1] === 3 && abs((int) $lien_fb[2] - time() - 1800) < 60
+    && hash_equals(hash_hmac('sha256', "facebook:3.{$lien_fb[2]}", (string) getenv('BAYAM_SERVICE_JETON')), $lien_fb[3]), $r);
+$r = bayam_dire('bayam aide facebook');
+bayam_verifier('« bayam aide facebook » : ce que fait la Page reliée', str_contains($joint($r), 'Relier votre Page Facebook') && str_contains($joint($r), 'Messenger'), $r);
 $r = bayam_dire('bayam Robe wax 15000 M:2 publier partout', photo: true);
 bayam_verifier('photo + « publier partout » : article créé et publié en une fois', str_contains($joint($r), 'Produit créé') && str_contains($joint($r), 'publication(s)') && str_contains($joint($r), 'en statut'), $r);
 $wpdb->query($wpdb->prepare("UPDATE $t SET statut = 'annule' WHERE vendeur = 3 AND statut = 'attente' AND id > %d", $depart['diffusions']));
@@ -636,6 +655,7 @@ delete_option('bayam_wa_essais_sauvegarde');
 delete_option('bayam_wa_essais_debut');
 Bayam_WA_Waha::remplacer(null);
 Bayam_WA_IA::remplacer(null);
+delete_transient("bayam_wa_chaines_{$vendeur}");
 delete_option('bayam_wa_essais_jusqua');
 echo "  données de démonstration restaurées\n";
 

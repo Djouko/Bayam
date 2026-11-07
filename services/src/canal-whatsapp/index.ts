@@ -4,16 +4,17 @@
 
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { AckPolicy, DeliverPolicy, jetstream, jetstreamManager, type JsMsg } from '@nats-io/jetstream';
-import { nanos } from '@nats-io/transport-node';
+import type { JsMsg } from '@nats-io/jetstream';
 import Fastify from 'fastify';
 import { createClient, type RedisClientType } from 'redis';
+import { adressePublique } from '../commun/adresse.ts';
 import { creerPool, migrer } from '../commun/base.ts';
-import { assurerFluxWhatsapp, connecterBus, FLUX_WHATSAPP, SUJET_WHATSAPP } from '../commun/bus.ts';
+import { assurerFluxWhatsapp, connecterBus, consommer, FLUX_WHATSAPP, SUJET_WHATSAPP } from '../commun/bus.ts';
 import { exiger, lire, nombre } from '../commun/config.ts';
 import { journal, texteErreur } from '../commun/journal.ts';
+import { ordonnanceur } from '../commun/ordre.ts';
 import * as catalogue from './catalogue.ts';
-import { CommerceWordpress, type Boutique } from './commerce.ts';
+import { CommerceWordpress, type Boutique } from '../commun/commerce.ts';
 import { Expediteur } from './expediteur.ts';
 import { creerJeton, nettoyer, ouvrirJeton } from './jetons.ts';
 import { LotWordpress } from './lot.ts';
@@ -43,24 +44,9 @@ const expediteur = new Expediteur(waha, redis, pool, log, {
   parSessionJour: nombre('PLAFOND_SESSION_JOUR', 1500),
 });
 
-/**
- * Adresse publique du site pour les liens envoyés : celle du domaine (BAYAM_URL_PUBLIQUE) en production ; pendant les
- * démonstrations, celle du tunnel, lue en direct (gardée 30 s), car elle change à chaque relance du tunnel.
- */
-let adresse = { valeur: '', lue: 0 };
+/** Adresse publique des liens envoyés : domaine ou tunnel (commun/adresse.ts), sinon celle connue de WordPress. */
 async function basePublique(b: Boutique): Promise<string> {
-  const fixe = lire('BAYAM_URL_PUBLIQUE', '');
-  if (fixe) {
-    return fixe.replace(/\/$/, '');
-  }
-  if (Date.now() - adresse.lue > 30_000) {
-    const hote = await fetch(`${lire('BAYAM_TUNNEL_METRICS', 'http://tunnel:2000')}/quicktunnel`, { signal: AbortSignal.timeout(3000) })
-      .then((r): Promise<{ hostname?: string }> | { hostname?: string } => (r.ok ? r.json() : {}))
-      .then((d) => (typeof d.hostname === 'string' && d.hostname ? `https://${d.hostname}` : ''))
-      .catch(() => '');
-    adresse = { valeur: hote, lue: Date.now() };
-  }
-  return adresse.valeur || b.base_publique;
+  return (await adressePublique()) || b.base_publique;
 }
 
 /** Réponse du catalogue ; 'heritage' quand finalement c'est à WordPress de traiter (son propre chat, boutique inconnue…). */
@@ -105,15 +91,6 @@ async function repondre(d: Extract<Decision, { route: 'catalogue' }>): Promise<'
   return 'fait';
 }
 
-/** Image servie par le site (réseau interne), ou null si indisponible. */
-async function imageDuSite(chemin: string | null): Promise<Buffer | null> {
-  if (!chemin) {
-    return null;
-  }
-  const r = await fetch(urlWordpress + chemin, { signal: AbortSignal.timeout(5000) }).catch(() => null);
-  return r?.ok ? Buffer.from(await r.arrayBuffer()) : null;
-}
-
 /**
  * Vitrine d'un rayon dessinée une fois puis gardée 24 h : même contenu, même image, servie depuis Redis sans
  * redessiner. Tout changement de prix, de stock ou de photo change l'empreinte, donc l'image.
@@ -126,7 +103,7 @@ async function vitrine(e: catalogue.EnvoiVitrine): Promise<catalogue.EnvoiPret> 
   const cle = `canal:vitrine:${empreinte}`;
   let donnees = await redis.get(cle);
   if (!donnees) {
-    const images = await Promise.all(cases.map((p) => imageDuSite(p.photo)));
+    const images = await Promise.all(cases.map((p) => commerce.image(p.photo)));
     const jpeg = await dessinerVitrine(e.titre, e.sousTitre, cases.map((p, i) => ({
       numero: e.premier + i,
       nom: p.nom,
@@ -149,7 +126,7 @@ async function photoArticle(e: catalogue.EnvoiPhoto): Promise<catalogue.EnvoiPre
   const cle = `canal:photo:${COTE_PHOTO}:${createHash('sha1').update(e.chemin).digest('hex')}`;
   let donnees = await redis.get(cle);
   if (!donnees) {
-    const brute = await imageDuSite(e.chemin);
+    const brute = await commerce.image(e.chemin);
     if (!brute) {
       return { type: 'texte', texte: e.legende };
     }
@@ -198,8 +175,8 @@ async function traiter(msg: JsMsg): Promise<void> {
   msg.ack();
 }
 
-// Ordre garanti par discussion : chaîne de traitements en mémoire, verrou Redis entre instances.
-const chaines = new Map<string, Promise<void>>();
+// Ordre garanti par discussion (verrou Redis entre instances).
+const dansLOrdre = ordonnanceur(redis, log, 'canal');
 let enCours = 0;
 const MAX_EN_COURS = nombre('CANAL_PARALLELISME', 32);
 
@@ -212,51 +189,9 @@ function cleDiscussion(msg: JsMsg): string {
   }
 }
 
-async function traiterDansLOrdre(msg: JsMsg): Promise<void> {
-  const cle = cleDiscussion(msg);
-  const verrou = `canal:verrou:${cle}`;
-  const precedent = chaines.get(cle) ?? Promise.resolve();
-  const courant = precedent.then(async () => {
-    const pris = await redis.set(verrou, '1', { condition: 'NX', expiration: { type: 'PX', value: 60_000 } });
-    if (!pris) {
-      msg.nak(500); // une autre instance traite cette discussion : on repasse juste après
-      return;
-    }
-    try {
-      await traiter(msg);
-    } catch (e) {
-      const essai = msg.info.deliveryCount;
-      log.erreur('traitement en échec, nouvelle tentative', { sujet: msg.subject, essai, erreur: texteErreur(e) });
-      msg.nak(Math.min(60_000, 1000 * 2 ** essai));
-    } finally {
-      await redis.del(verrou);
-    }
-  });
-  chaines.set(cle, courant);
-  await courant;
-  if (chaines.get(cle) === courant) {
-    chaines.delete(cle);
-  }
-}
-
 const nc = await connecterBus(lire('NATS_URL', 'nats://nats:4222'), 'canal-whatsapp');
 await assurerFluxWhatsapp(nc, nombre('NATS_REPLIQUES', 1));
-const jsm = await jetstreamManager(nc);
-const CONSOMMATEUR = 'canal-whatsapp';
-const configConsommateur = {
-  ack_policy: AckPolicy.Explicit,
-  filter_subject: `${SUJET_WHATSAPP}.>`,
-  ack_wait: nanos(90_000),
-  max_deliver: 20,
-  max_ack_pending: 1000,
-};
-try {
-  await jsm.consumers.info(FLUX_WHATSAPP, CONSOMMATEUR);
-  await jsm.consumers.update(FLUX_WHATSAPP, CONSOMMATEUR, configConsommateur);
-} catch {
-  await jsm.consumers.add(FLUX_WHATSAPP, { durable_name: CONSOMMATEUR, deliver_policy: DeliverPolicy.All, ...configConsommateur });
-}
-const flot = await (await jetstream(nc).consumers.get(FLUX_WHATSAPP, CONSOMMATEUR)).consume({ max_messages: 64 });
+const flot = await consommer(nc, FLUX_WHATSAPP, 'canal-whatsapp', SUJET_WHATSAPP);
 
 // Petit serveur HTTP interne : santé, et résolution des liens personnels de commande pour le site.
 const app = Fastify({ bodyLimit: 10_000 });
@@ -330,5 +265,5 @@ for await (const msg of flot) {
     await new Promise((ok) => setTimeout(ok, 20));
   }
   enCours++;
-  void traiterDansLOrdre(msg).finally(() => enCours--);
+  void dansLOrdre(cleDiscussion(msg), msg, traiter).finally(() => enCours--);
 }

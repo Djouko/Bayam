@@ -1,22 +1,28 @@
-// Passerelle des événements WhatsApp : WAHA -> vérification de la signature -> filtre -> bus NATS JetStream.
-// WAHA n'est acquitté qu'une fois l'événement écrit dans le bus ; en cas de panne du bus il reçoit 503 et réessaie
-// lui-même. Sans état : autant d'instances que nécessaire derrière le répartiteur de charge.
+// Passerelle des événements WhatsApp et Facebook : WAHA ou Meta -> vérification de la signature -> filtre -> bus NATS
+// JetStream. L'expéditeur n'est acquitté qu'une fois l'événement écrit dans le bus ; en cas de panne du bus il reçoit
+// 503 et réessaie lui-même. Sans état : autant d'instances que nécessaire derrière le répartiteur de charge.
 
 import { createHash } from 'node:crypto';
-import { createServer, type IncomingMessage } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { headers } from '@nats-io/transport-node';
 import { jetstream } from '@nats-io/jetstream';
-import { assurerFluxWhatsapp, connecterBus, SUJET_WHATSAPP } from '../commun/bus.ts';
+import { assurerFluxFacebook, assurerFluxWhatsapp, connecterBus, SUJET_FACEBOOK, SUJET_WHATSAPP } from '../commun/bus.ts';
 import { exiger, lire, nombre } from '../commun/config.ts';
 import { journal, texteErreur } from '../commun/journal.ts';
+import { evenementsFacebook, signatureMetaValide, type EvenementFacebook } from './facebook.ts';
 import { signatureValide, utile } from './filtre.ts';
 
 const log = journal('passerelle');
 const secret = exiger('WAHA_WEBHOOK_SECRET');
+// Facebook facultatif : sans application Meta configurée, l'adresse /facebook répond 503.
+const secretFacebook = lire('FACEBOOK_APP_SECRET', '');
+const jetonVerification = lire('FACEBOOK_JETON_VERIFICATION', '');
 const nc = await connecterBus(lire('NATS_URL', 'nats://nats:4222'), 'passerelle');
 await assurerFluxWhatsapp(nc, nombre('NATS_REPLIQUES', 1));
+await assurerFluxFacebook(nc, nombre('NATS_REPLIQUES', 1));
 const js = jetstream(nc);
 const compteurs = { depuis: new Date().toISOString(), recus: 0, publies: 0, doublons: 0, ecartes: 0, refuses: 0, echecs: 0 };
+const compteursFacebook = { recus: 0, publies: 0, doublons: 0, refuses: 0, echecs: 0 };
 
 /** Corps brut de la requête, plafonné : aucun événement légitime n'approche 5 Mo (les médias passent par lien). */
 function lireCorps(req: IncomingMessage): Promise<Buffer | null> {
@@ -43,7 +49,12 @@ const serveur = createServer(async (req, res) => {
     res.end(JSON.stringify(corps));
   };
   if (req.method === 'GET' && req.url === '/sante') {
-    repondre(nc.isClosed() ? 503 : 200, { ...compteurs, bus: nc.isClosed() ? 'fermé' : 'connecté' });
+    repondre(nc.isClosed() ? 503 : 200, { ...compteurs, facebook: compteursFacebook, bus: nc.isClosed() ? 'fermé' : 'connecté' });
+    return;
+  }
+  const adresse = new URL(req.url ?? '/', 'http://passerelle');
+  if (adresse.pathname === '/facebook') {
+    await facebook(req, res, adresse, repondre);
     return;
   }
   if (req.method !== 'POST' || req.url !== '/whatsapp') {
@@ -89,6 +100,63 @@ const serveur = createServer(async (req, res) => {
     repondre(503);
   }
 });
+
+/**
+ * Facebook : GET = vérification de l'adresse par Meta lors de l'abonnement (jeton choisi par nous, défi renvoyé tel
+ * quel) ; POST = événements signés, découpés, publiés un par un sur facebook.evenements.<Page>.
+ */
+async function facebook(req: IncomingMessage, res: ServerResponse, adresse: URL, repondre: (statut: number, corps?: unknown) => void): Promise<void> {
+  if (!secretFacebook || !jetonVerification) {
+    repondre(503, { erreur: 'Facebook non configuré' });
+    return;
+  }
+  if (req.method === 'GET') {
+    const p = adresse.searchParams;
+    const defi = p.get('hub.challenge') ?? '';
+    if (p.get('hub.mode') !== 'subscribe' || p.get('hub.verify_token') !== jetonVerification || !/^[\w-]{1,128}$/.test(defi)) {
+      repondre(403);
+      return;
+    }
+    // Meta attend le défi seul, en texte brut.
+    res.writeHead(200, { 'content-type': 'text/plain' });
+    res.end(defi);
+    return;
+  }
+  if (req.method !== 'POST') {
+    repondre(405);
+    return;
+  }
+  const corps = await lireCorps(req).catch(() => null);
+  compteursFacebook.recus++;
+  if (!corps) {
+    repondre(413);
+    return;
+  }
+  if (!signatureMetaValide(corps, req.headers['x-hub-signature-256'] as string | undefined, secretFacebook)) {
+    compteursFacebook.refuses++;
+    repondre(401);
+    return;
+  }
+  let evenements: EvenementFacebook[];
+  try {
+    evenements = evenementsFacebook(JSON.parse(corps.toString('utf8')));
+  } catch {
+    repondre(400);
+    return;
+  }
+  try {
+    for (const e of evenements) {
+      const ack = await js.publish(`${SUJET_FACEBOOK}.${e.page}`, JSON.stringify(e), { msgID: e.id, timeout: 5000 });
+      compteursFacebook[ack.duplicate ? 'doublons' : 'publies']++;
+    }
+    repondre(200);
+  } catch (e) {
+    // Meta renvoie tout l'appel plus tard : ce qui est déjà publié est reconnu comme doublon.
+    compteursFacebook.echecs++;
+    log.erreur('écriture dans le bus impossible (Facebook)', { erreur: texteErreur(e) });
+    repondre(503);
+  }
+}
 
 const port = nombre('PORT', 8090);
 serveur.listen(port, () => log.info('à l\'écoute', { port }));

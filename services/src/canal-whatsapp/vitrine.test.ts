@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createCanvas } from '@napi-rs/canvas';
-import { dessinerVitrine, photoLegere, type CaseVitrine } from './vitrine.ts';
+import { dessinerStory, dessinerVitrine, photoLegere, type CaseVitrine } from './vitrine.ts';
 
 /** Photo d'essai : dégradé de couleur, comme une vraie photo pour le poids du JPEG. */
 async function photo(teinte: number): Promise<Buffer> {
@@ -75,4 +75,13 @@ test('photo d’article allégée : carré de 640 px, bien moins lourde que l’
   const legere = await photoLegere(originale);
   assert.equal(hauteurJpeg(legere), 640);
   assert.ok(legere.length < originale.length / 2, `${legere.length} contre ${originale.length}`);
+});
+
+test('visuel de story : 1080 × 1920, plein écran mais léger (moins de 400 Ko), avec ou sans photo', async () => {
+  const fiche = { boutique: 'Mode Aïcha', nom: 'Robe sirène en pagne wax', prix: '18 500 FCFA', ancienPrix: '21 000 FCFA', remise: 12, peuDeStock: 2, options: 'Taille : M, L', appel: 'Écrivez « prix » à la Page sur Messenger : réponse immédiate' };
+  for (const image of [await photo(30), null]) {
+    const jpeg = await dessinerStory({ ...fiche, image });
+    assert.equal(hauteurJpeg(jpeg), 1920);
+    assert.ok(jpeg.length < 400_000, `${jpeg.length} octets`);
+  }
 });

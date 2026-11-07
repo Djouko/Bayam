@@ -2,8 +2,8 @@
 defined('ABSPATH') || exit;
 
 /**
- * Publication dans les groupes administrés et le statut (mode connecté), avec envoi étalé, choix des groupes et
- * suivi des clics par groupe (cahier des charges, exigence DIF). Les envois partent d'une file traitée chaque minute.
+ * Publication dans les groupes administrés, le statut et les chaînes WhatsApp du vendeur (mode connecté), avec envoi
+ * étalé, choix des groupes et suivi des clics par groupe (cahier des charges, exigence DIF). Les envois partent d'une file traitée chaque minute.
  */
 final class Bayam_WA_Diffusion
 {
@@ -17,23 +17,13 @@ final class Bayam_WA_Diffusion
         });
     }
 
-    /** Programme la publication des produits dans les groupes choisis (ou le statut) ; rend le message au vendeur. */
     /**
-     * Programme la publication d'articles dans les groupes choisis, dans le statut, ou les deux (« partout »).
-     * Rythme d'un vendeur qui transfère lui-même : les photos d'un même groupe s'enchaînent (3 à 8 s), le groupe
-     * suivant vient 10 à 25 s plus tard, les statuts toutes les 4 à 10 s. Assez rapide pour le vendeur, assez
-     * humain pour WhatsApp.
+     * Programme la publication d'articles dans les groupes choisis, le statut, les chaînes WhatsApp du vendeur, ou
+     * tout cela (« partout »). Rythme d'un vendeur qui transfère lui-même : les photos d'un même groupe s'enchaînent
+     * (3 à 8 s), le groupe suivant vient 10 à 25 s plus tard, les statuts et les chaînes toutes les 4 à 10 s. Assez
+     * rapide pour le vendeur, assez humain pour WhatsApp.
      *
-     * @param string $ou « groupes », « statut » ou « partout »
-     * @param array|null $groupes groupes visés [id => nom], sinon ceux choisis dans l'espace vendeur
-     */
-    /**
-     * Programme la publication d'articles dans les groupes choisis, dans le statut, ou les deux (« partout »).
-     * Rythme d'un vendeur qui transfère lui-même : les photos d'un même groupe s'enchaînent (3 à 8 s), le groupe
-     * suivant vient 10 à 25 s plus tard, les statuts toutes les 4 à 10 s. Assez rapide pour le vendeur, assez
-     * humain pour WhatsApp.
-     *
-     * @param string $ou « groupes », « statut » ou « partout »
+     * @param string $ou « groupes », « statut », « chaine », plusieurs reliés par « + » (« statut+chaine »), ou « partout »
      * @param array|null $groupes groupes visés [id => nom], sinon ceux choisis dans l'espace vendeur
      */
     public static function programmer(int $vendeur, array $produits, string $ou = 'groupes', ?array $groupes = null): string
@@ -42,30 +32,38 @@ final class Bayam_WA_Diffusion
         if (get_user_meta($vendeur, 'bayam_wa_statut', true) !== 'WORKING') {
             return "Votre WhatsApp n'est pas connecté à BAYAM : je ne peux pas publier pour vous. Écrivez *bayam cartes …* pour recevoir les cartes à transférer vous-même.";
         }
-        $groupes = $groupes ?? Bayam_WA_Stockage::reglages($vendeur)['groupes'];
-        if ($ou !== 'statut' && !$groupes) {
+        $cibles = $ou === 'partout' ? ['groupes', 'statut', 'chaine'] : explode('+', $ou);
+        $groupes = in_array('groupes', $cibles, true) ? ($groupes ?? Bayam_WA_Stockage::reglages($vendeur)['groupes']) : [];
+        $chaines = in_array('chaine', $cibles, true) ? self::chaines($vendeur) : [];
+        if ($cibles === ['groupes'] && !$groupes) {
             return "Choisissez d'abord vos groupes de publication dans votre espace vendeur BAYAM, rubrique WhatsApp. En attendant : *bayam publier … statut*, ou *bayam cartes …* pour les transférer vous-même.";
         }
+        if ($cibles === ['chaine'] && !$chaines) {
+            return "Je ne trouve aucune chaîne WhatsApp dont vous êtes propriétaire ou administrateur. Créez-la dans WhatsApp (onglet *Actus*, puis *Chaînes*), puis réessayez.";
+        }
         $plan = [];
-        if ($ou !== 'statut') {
-            foreach ($groupes as $chat => $nom) {
-                foreach ($produits as $p) {
-                    $plan[] = ['groupe', $chat, $p];
-                }
+        foreach ($groupes as $chat => $nom) {
+            foreach ($produits as $p) {
+                $plan[] = ['groupe', $chat, $p];
             }
         }
-        if ($ou !== 'groupes') {
+        foreach ($chaines as $chat => $nom) {
+            foreach ($produits as $p) {
+                $plan[] = ['chaine', $chat, $p];
+            }
+        }
+        if (in_array('statut', $cibles, true)) {
             foreach ($produits as $p) {
                 $plan[] = ['statut', null, $p];
             }
         }
         $minuit = wp_date('Y-m-d 00:00:00');
-        $restant = [
-            'groupe' => Bayam_WA_Regles::PLAFONDS['diffusion'] - Bayam_WA_Stockage::envois_depuis($vendeur, $minuit, 'diffusion') - self::en_attente($vendeur, 'groupe'),
-            'statut' => Bayam_WA_Regles::PLAFONDS['statut'] - Bayam_WA_Stockage::envois_depuis($vendeur, $minuit, 'statut') - self::en_attente($vendeur, 'statut'),
-        ];
+        $restant = [];
+        foreach (['groupe' => 'diffusion', 'statut' => 'statut', 'chaine' => 'chaine'] as $type => $plafond) {
+            $restant[$type] = Bayam_WA_Regles::PLAFONDS[$plafond] - Bayam_WA_Stockage::envois_depuis($vendeur, $minuit, $plafond) - self::en_attente($vendeur, $type);
+        }
         $quand = time();
-        $faits = ['groupe' => 0, 'statut' => 0];
+        $faits = ['groupe' => 0, 'statut' => 0, 'chaine' => 0];
         foreach ($plan as $i => [$type, $chat, $p]) {
             if ($restant[$type] <= 0) {
                 continue;
@@ -76,7 +74,7 @@ final class Bayam_WA_Diffusion
             $restant[$type]--;
             $faits[$type]++;
             $suivant = $plan[$i + 1] ?? null;
-            $quand += $type === 'statut' ? mt_rand(4, 10) : ($suivant && $suivant[1] === $chat ? mt_rand(3, 8) : mt_rand(10, 25));
+            $quand += $type === 'groupe' ? ($suivant && $suivant[1] === $chat ? mt_rand(3, 8) : mt_rand(10, 25)) : mt_rand(4, 10);
         }
         if (!array_sum($faits)) {
             return "Le nombre de publications du jour est atteint, pour protéger votre numéro. La suite demain, ou transférez les cartes vous-même (*bayam cartes …*).";
@@ -84,6 +82,9 @@ final class Bayam_WA_Diffusion
         $parties = [];
         if ($faits['groupe']) {
             $parties[] = $faits['groupe'] . ' dans ' . count($groupes) . ' groupe' . (count($groupes) > 1 ? 's' : '');
+        }
+        if ($faits['chaine']) {
+            $parties[] = $faits['chaine'] . ' dans ' . (count($chaines) > 1 ? 'vos ' . count($chaines) . ' chaînes' : 'votre chaîne « ' . reset($chaines) . ' »');
         }
         if ($faits['statut']) {
             $parties[] = $faits['statut'] . ' en statut';
@@ -93,6 +94,31 @@ final class Bayam_WA_Diffusion
         $manque = count($plan) - array_sum($faits);
         return '📣 ' . array_sum($faits) . ' publication(s) : ' . implode(', ', $parties) . ", envoyées en {$delai}"
             . ($manque > 0 ? " (plafond du jour atteint pour {$manque} autre(s))" : '') . '. Je vous fais le bilan à la fin.';
+    }
+
+    /**
+     * Chaînes WhatsApp où le vendeur peut publier (propriétaire ou administrateur) [id => nom], gardées 10 minutes.
+     * Celles qu'il suit seulement sont ignorées.
+     */
+    public static function chaines(int $vendeur): array
+    {
+        $cle = "bayam_wa_chaines_{$vendeur}";
+        $connues = get_transient($cle);
+        if (is_array($connues)) {
+            return $connues;
+        }
+        $r = Bayam_WA_Waha::client()->chaines(Bayam_WA_Stockage::reglages($vendeur)['session']);
+        if (is_wp_error($r) || !is_array($r)) {
+            return [];
+        }
+        $chaines = [];
+        foreach ($r as $c) {
+            if (in_array($c['role'] ?? '', ['OWNER', 'ADMIN'], true) && str_ends_with((string) ($c['id'] ?? ''), '@newsletter')) {
+                $chaines[$c['id']] = (string) ($c['name'] ?? 'Chaîne');
+            }
+        }
+        set_transient($cle, $chaines, 10 * MINUTE_IN_SECONDS);
+        return $chaines;
     }
 
     private static function en_attente(int $vendeur, string $type): int
@@ -123,9 +149,9 @@ final class Bayam_WA_Diffusion
             } else {
                 $session = Bayam_WA_Stockage::reglages($vendeur)['session'];
                 $boutique = Bayam_WA_Outils::nom_boutique($vendeur);
-                $lien = Bayam_WA_Liens::produit($vendeur, $p, $d->type === 'statut' ? 'statut' : 'groupe', $d->chat);
-                // Statut : affiche visuelle (nom et prix sur l'image), la légende ne garde que le lien. Groupes : la vraie
-                // photo de l'article, détails et lien dans la légende ; rien n'est dit deux fois.
+                $lien = Bayam_WA_Liens::produit($vendeur, $p, $d->type, $d->chat);
+                // Statut : affiche visuelle (nom et prix sur l'image), la légende ne garde que le lien. Groupes et chaînes :
+                // la vraie photo de l'article, détails et lien dans la légende ; rien n'est dit deux fois.
                 $statut = $d->type === 'statut';
                 $photo = $statut ? null : Bayam_WA_Cartes::photo_whatsapp($p);
                 $carte = $photo ?? Bayam_WA_Cartes::carte($p, $lien, $boutique, $statut);
@@ -136,14 +162,14 @@ final class Bayam_WA_Diffusion
                 if (is_wp_error($r)) {
                     $erreur = mb_substr($r->get_error_message(), 0, 250);
                 } else {
-                    Bayam_WA_Stockage::noter_message($vendeur, $d->chat ?? 'status@broadcast', 'out', $legende, Bayam_WA_Regles::id_de($r), $d->type === 'statut' ? 'statut' : 'diffusion');
+                    Bayam_WA_Stockage::noter_message($vendeur, $d->chat ?? 'status@broadcast', 'out', $legende, Bayam_WA_Regles::id_de($r), ['statut' => 'statut', 'chaine' => 'chaine'][$d->type] ?? 'diffusion');
                 }
             }
             $wpdb->update($table, ['statut' => $erreur ? 'echec' : 'envoye', 'envoye' => current_time('mysql'), 'erreur' => $erreur], ['id' => $d->id]);
             $vendeurs[$vendeur] = true;
         }
         foreach (array_keys($vendeurs) as $vendeur) {
-            if (self::en_attente($vendeur, 'groupe') + self::en_attente($vendeur, 'statut') === 0) {
+            if (self::en_attente($vendeur, 'groupe') + self::en_attente($vendeur, 'statut') + self::en_attente($vendeur, 'chaine') === 0) {
                 self::bilan_serie($vendeur);
             }
         }

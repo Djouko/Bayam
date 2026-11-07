@@ -1,0 +1,11 @@
+# Essai local du canal Facebook avec un faux Graph : identifiants d'essai, jamais ceux d'une vraie application Meta.
+services:
+  passerelle:
+    environment:
+      FACEBOOK_APP_SECRET: ${ESSAI_FB_SECRET}
+      FACEBOOK_JETON_VERIFICATION: ${ESSAI_FB_VERIFICATION}
+  canal-facebook:
+    environment:
+      FACEBOOK_APP_ID: "1000000000000001"
+      FACEBOOK_APP_SECRET: ${ESSAI_FB_SECRET}
+      FACEBOOK_GRAPH_URL: http://faux-graph:9000/v27.0

@@ -20,6 +20,7 @@ final class Bayam_WA_Copilote
         'cartes' => ['cartes', 'carte'],
         'statut' => ['statut', 'status'],
         'publier' => ['publier', 'publie', 'poster', 'diffuser'],
+        'facebook' => ['facebook', 'fb', 'messenger'],
         'envoie' => ['envoie', 'envoyer', 'envoi'],
         'stock' => ['stock', 'stocks', 'reste'],
         'vendu' => ['vendu', 'vendue', 'vente', 'vendus'],
@@ -142,6 +143,7 @@ final class Bayam_WA_Copilote
             'cartes' => $this->cartes($reste, false),
             'statut' => $this->cartes($reste, true),
             'publier' => $this->publier($reste),
+            'facebook' => $this->facebook(),
             'envoie' => $this->envoyer_collection($reste),
             'stock' => $this->stock($reste),
             'vendu' => $this->vendu($reste, $avec_accents),
@@ -546,15 +548,16 @@ final class Bayam_WA_Copilote
     }
 
     /**
-     * « bayam publier robes », « … statut », « … partout », « … dans Clientes Akwa », « bayam publier nouveautés »,
-     * « bayam publier promos » : la sélection part en quelques secondes, au rythme d'un vendeur.
+     * « bayam publier robes », « … statut », « … chaîne », « … facebook », « … story », « … partout », « … dans Clientes
+     * Akwa », « bayam publier nouveautés », « bayam publier promos » : la sélection part en quelques secondes, au rythme
+     * d'un vendeur sur WhatsApp, et par le canal Facebook sur la Page.
      */
     private function publier(string $reste): array
     {
-        $ou = preg_match('/\bpartout\b/', $reste) ? 'partout' : (preg_match('/\b(statut|status)\b/', $reste) ? 'statut' : 'groupes');
+        [$ou, $facebook, $story] = self::cibles($reste);
         $groupes = null;
         if (preg_match('/\bdans (?:le groupe |mon groupe )?(.+)$/', $reste, $m) && !preg_match('/^(?:tous )?(?:mes |les )?groupes?$/', trim($m[1]))) {
-            $nom = trim(preg_replace('/\b(?:et )?(?:statut|status|partout)\b/', '', $m[1]));
+            $nom = trim(preg_replace('/\b(?:et )?(?:statut|status|partout|chaines?|facebook|fb|story|stories)\b/', '', $m[1]));
             foreach (Bayam_WA_Stockage::reglages($this->vendeur)['groupes'] as $id => $libelle) {
                 $l = Bayam_WA_Outils::normaliser($libelle);
                 if ($nom !== '' && (str_contains($l, $nom) || str_contains($nom, $l))) {
@@ -565,8 +568,9 @@ final class Bayam_WA_Copilote
                 return [['texte' => "Je ne trouve pas le groupe « {$nom} » parmi vos groupes de publication (*bayam groupes* pour la liste)."]];
             }
             $reste = trim(substr($reste, 0, strpos($reste, $m[0])));
+            $ou = $ou === null ? 'groupes' : (str_contains($ou, 'groupes') || $ou === 'partout' ? $ou : "groupes+{$ou}");
         }
-        $mots = trim(preg_replace('/\b(statut|status|partout|groupes?|dans|mes|sur|mon|le|les|et|tous|tout)\b/', '', $reste));
+        $mots = trim(preg_replace('/\b(statut|status|partout|groupes?|chaines?|whatsapp|facebook|fb|page|story|stories|storys|dans|mes|ma|sur|mon|le|les|et|en|tous|tout)\b/', '', $reste));
         $mots = trim(preg_replace('/\s+/', ' ', $mots));
         if (preg_match('/\b(nouveautes?|nouveaux?|nouvelles?|derniers?|dernieres?|new)\b/', $mots)) {
             $en_stock = array_filter(Bayam_WA_Boutique::produits($this->vendeur), static fn (WC_Product $p) => $p->is_in_stock());
@@ -580,7 +584,73 @@ final class Bayam_WA_Copilote
         if (!$produits) {
             return [['texte' => "Rien en stock pour « {$mots} »."]];
         }
-        return [['texte' => Bayam_WA_Diffusion::programmer($this->vendeur, $produits, $ou, $groupes)]];
+        return $this->lancer_publication($produits, $ou, $facebook, $story, $groupes);
+    }
+
+    /**
+     * Où publier, d'après la demande. WhatsApp : « groupes » (par défaut), « statut », « chaîne », plusieurs à la fois.
+     * Facebook : « facebook », « fb » ou « page » ; « story » pour les stories de la Page. « partout » : tout, la Page
+     * Facebook comprise si elle est reliée.
+     *
+     * @return array{0: ?string, 1: bool, 2: bool} cibles WhatsApp pour Bayam_WA_Diffusion::programmer (null : aucune), Facebook, story
+     */
+    private static function cibles(string $texte): array
+    {
+        if (preg_match('/\bpartout\b/', $texte)) {
+            return ['partout', true, false];
+        }
+        $story = (bool) preg_match('/\b(story|stories|storys)\b/', $texte);
+        $facebook = $story || (bool) preg_match('/\b(facebook|fb|page)\b/', $texte);
+        $whatsapp = [];
+        if (preg_match('/\bgroupes?\b/', $texte)) {
+            $whatsapp[] = 'groupes';
+        }
+        if (preg_match('/\b(statut|status)\b/', $texte)) {
+            $whatsapp[] = 'statut';
+        }
+        if (preg_match('/\bchaines?\b/', $texte)) {
+            $whatsapp[] = 'chaine';
+        }
+        if (!$whatsapp && !$facebook) {
+            $whatsapp[] = 'groupes';
+        }
+        return [$whatsapp ? implode('+', $whatsapp) : null, $facebook, $story];
+    }
+
+    /** @param WC_Product[] $produits */
+    private function lancer_publication(array $produits, ?string $ou, bool $facebook, bool $story, ?array $groupes = null): array
+    {
+        $reponses = [];
+        if ($ou !== null) {
+            $reponses[] = ['texte' => Bayam_WA_Diffusion::programmer($this->vendeur, $produits, $ou, $groupes)];
+        }
+        if ($facebook) {
+            $reponses[] = ['texte' => Bayam_WA_Facebook::publier($this->vendeur, $produits, $story)];
+        }
+        return $reponses;
+    }
+
+    /** « bayam facebook » : Pages reliées, et le lien qui relie une Page en une minute (propriétaire seulement). */
+    private function facebook(): array
+    {
+        if ($this->equipe) {
+            return [['texte' => 'Seul le propriétaire de la boutique peut relier une Page Facebook.']];
+        }
+        $pages = Bayam_WA_Facebook::pages($this->vendeur) ?? [];
+        $noms = static fn (array $liste) => implode(', ', array_map(static fn ($p) => '« ' . $p['nom'] . ' »', $liste));
+        $actives = array_filter($pages, static fn ($p) => !empty($p['actif']));
+        $coupees = array_filter($pages, static fn ($p) => empty($p['actif']));
+        $etat = ($actives ? '✅ Reliée(s) : ' . $noms($actives) . "
+" : '') . ($coupees ? '⚠️ À reconnecter : ' . $noms($coupees) . "
+" : '');
+        $lien = Bayam_WA_Facebook::lien_connexion($this->vendeur);
+        return [['texte' => "📘 *Facebook*
+{$etat}" . ($actives ? 'Pour relier une autre Page' : 'Reliez la Page Facebook de votre boutique en une minute')
+            . " : touchez ce lien (valable 30 min), connectez-vous à Facebook et cochez votre Page.
+{$lien}
+
+"
+            . "Ensuite, tout seul : votre catalogue dans Messenger, une réponse privée à chaque « prix ? » sous vos publications, les commandes confirmées dans Messenger. Pour publier : *bayam publier robes facebook*, ou *… story*."]];
     }
 
     private function envoyer_collection(string $reste): array
@@ -984,9 +1054,9 @@ final class Bayam_WA_Copilote
         $lien = Bayam_WA_Liens::produit($this->vendeur, $p);
         $detail = $tailles ? implode(', ', array_map(static fn ($k, $v) => "$k : $v", array_keys($tailles), $tailles)) : "$stock pièce(s)";
         if (preg_match('/\bpubli(?:er|e|ez)\b(.*)$/', $reste, $pub)) {
-            $ou = preg_match('/\bpartout\b/', $pub[1]) ? 'partout' : (preg_match('/\b(statut|status)\b/', $pub[1]) ? 'statut' : 'groupes');
+            [$ou, $facebook, $story] = self::cibles($pub[1]);
             return [['texte' => "✅ Produit créé : *{$p->get_name()}*, " . Bayam_WA_Outils::fcfa($prix) . " ({$detail}).\nLien : {$lien}"],
-                ['texte' => Bayam_WA_Diffusion::programmer($this->vendeur, [$p], $ou)]];
+                ...$this->lancer_publication([$p], $ou, $facebook, $story)];
         }
         return [['texte' => "✅ Produit créé : *{$p->get_name()}*, " . Bayam_WA_Outils::fcfa($prix) . " ({$detail}).\nLien à partager : {$lien}\n\n👉 *bayam cartes " . Bayam_WA_Outils::normaliser($nom) . "* pour sa carte à transférer."]];
     }

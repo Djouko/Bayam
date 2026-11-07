@@ -25,9 +25,10 @@ WordPress reste la boutique pendant la transition ; les nouvelles fonctions nais
 | Élément | Rôle |
 |---|---|
 | Traefik 3.6 (`infra/traefik`) | Entrée unique sur le port 8080 et pour le tunnel : répartition de charge, limitation de débit, en-têtes de sécurité, adresses internes refusées |
-| Passerelle (`services/src/passerelle`) | Reçoit les événements de WAHA, vérifie leur signature, garde ce qui concerne BAYAM et l'écrit dans le bus |
+| Passerelle (`services/src/passerelle`) | Reçoit les événements de WAHA et de Meta (Facebook), vérifie leur signature, garde ce qui concerne BAYAM et l'écrit dans le bus |
 | NATS JetStream 2.12 (`infra/nats`) | Bus d'événements durable : rien ne se perd si un service redémarre |
 | Canal WhatsApp (`services/src/canal-whatsapp`) | Catalogue interactif (rayons, cartes, lien personnel de commande), confirmations aux clients ; transmet le reste à l'extension WordPress |
+| Canal Facebook (`services/src/canal-facebook`) | Pages Facebook des vendeurs (API officielle de Meta) : catalogue dans Messenger, réponses aux commentaires, publications et stories, confirmations de commande |
 | PostgreSQL 18 (`infra/postgres`) | Base des nouveaux services, un rôle et un schéma par service |
 | Redis 8.2 | Cache, verrous, plafonds d'envoi |
 
@@ -131,6 +132,21 @@ docker compose run --rm cli wp eval-file /var/www/html/wp-content/plugins/bayam-
 ```
 
 Journal de l'extension : WooCommerce, État, Journaux, source `bayam-whatsapp`.
+
+Chaînes WhatsApp : « bayam publier robes chaîne » publie dans les chaînes dont le vendeur est propriétaire ou administrateur (celles qu'il suit seulement sont ignorées) ; « partout » couvre les groupes, la chaîne, le statut et la Page Facebook.
+
+## Vendre sur Facebook (canal Facebook)
+
+Ce que fait une Page reliée, sans effort du vendeur :
+
+- Messenger : le client qui écrit (« Bonsoir », « prix ? ») reçoit les rayons en réponses rapides, puis un carrousel d'articles à faire défiler (photo, prix, stock, boutons), l'article choisi avec le bouton « Commander » vers son lien personnel, et la confirmation de sa commande dans Messenger. Un message que BAYAM ne sait pas traiter prévient le vendeur sur son WhatsApp (une fois par demi-heure et par client). Quand le vendeur répond lui-même, BAYAM se tait deux heures dans cette discussion.
+- Commentaires : chaque commentaire d'achat (« prix ? », « cb », « dispo », « ib », « je prends », « le 2 ») reçoit une réponse privée avec l'article et son prix, et une réponse publique courte ; une seule par personne et par publication. Les mentions d'amis et les « Amen » sont ignorés.
+- Publications : « bayam publier robes facebook » (photo ou album numéroté), « … story » (visuel vertical avec le prix). Chaque publication porte un lien m.me qui ouvre l'article directement dans Messenger : le vendeur peut le recopier sur son profil, dans les groupes ou sur Marketplace.
+- Connexion : le vendeur écrit « bayam facebook » sur WhatsApp, touche le lien (valable 30 minutes) et coche sa Page. Les jetons des Pages sont chiffrés en base (`FACEBOOK_CLE`).
+
+Mise en service (une fois, gratuite) : créer une application sur developers.facebook.com avec le cas d'usage Messenger et la connexion Facebook, puis renseigner `FACEBOOK_APP_ID` et `FACEBOOK_APP_SECRET` dans `.env` et relancer `docker compose up -d`. Dans l'application : adresse des événements `https://<adresse publique>/webhooks/facebook` avec le jeton `FACEBOOK_JETON_VERIFICATION` du fichier `.env` (champs `messages`, `messaging_postbacks`, `messaging_referrals`, `message_echoes`, `feed`), adresse de retour de connexion `https://<adresse publique>/facebook/retour`. Tant que l'application est en mode développement, seules les personnes qui y ont un rôle (administrateur, testeur) peuvent écrire à la Page ; l'examen de l'application par Meta ouvre ensuite à tous. Avec le tunnel gratuit, ces deux adresses changent à chaque relance : un nom de domaine règle la question.
+
+Essai de bout en bout sans application Meta (un faux Graph remplace Meta, tout le reste est réel, données effacées à la fin) : `bash scripts/essai_facebook.sh`.
 
 ## Captures
 

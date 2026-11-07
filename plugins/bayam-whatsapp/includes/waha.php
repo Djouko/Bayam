@@ -172,6 +172,12 @@ class Bayam_WA_Waha
         return $this->appel('GET', "/api/$session/groups", null, ['limit' => $limite, 'offset' => $decalage, 'sortBy' => 'subject', 'sortOrder' => 'asc'], 40);
     }
 
+    /** Chaînes WhatsApp que la session suit ou administre (champ role : OWNER, ADMIN, SUBSCRIBER…). */
+    public function chaines(string $session)
+    {
+        return $this->appel('GET', "/api/$session/channels", null, [], 30);
+    }
+
     /** $contacts vide : statut vu par tous les contacts ; sinon, seulement par ces numéros. */
     public function statut_image(string $session, array $fichier, string $legende = '', array $contacts = [])
     {

@@ -3,7 +3,7 @@
 // photo avec ses détails et son lien personnel de commande. Fonctions pures (aucun envoi ici).
 
 import { MARQUE } from '../passerelle/filtre.ts';
-import type { Boutique, Commande, PageRayon, Produit, Rayon } from './commerce.ts';
+import type { Boutique, Commande, PageRayon, Produit, Rayon } from '../commun/commerce.ts';
 import { idAction } from './routeur.ts';
 
 export type Ligne = { id: string; titre: string; description?: string };

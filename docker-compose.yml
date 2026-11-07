@@ -1,6 +1,7 @@
 # Plateforme locale BAYAM, en migration progressive vers des microservices :
 # - boutique actuelle : WordPress + WooCommerce + WCFM (place de marché) + MStore API ;
-# - nouveaux services (services/, TypeScript) : passerelle des événements WhatsApp, canal WhatsApp ;
+# - nouveaux services (services/, TypeScript) : passerelle des événements WhatsApp et Facebook, canal WhatsApp,
+#   canal Facebook ;
 # - socle : bus NATS JetStream, PostgreSQL (un schéma par service), Redis.
 # Démarrer : docker compose up -d --build   puis, la première fois : docker compose run --rm cli bash /scripts/installer.sh
 # Site et administration : http://localhost:8080  (identifiants dans le fichier .env)
@@ -142,6 +143,7 @@ services:
       # Microservices : jeton partagé de l'API interne, adresse du canal WhatsApp (liens personnels, notifications).
       BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
       BAYAM_CANAL_URL: http://canal-whatsapp:8091
+      BAYAM_CANAL_FACEBOOK_URL: http://canal-facebook:8092
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
       CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
@@ -221,6 +223,7 @@ services:
       POSTGRES_USER: bayam_admin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       CANAL_WHATSAPP_DB_PASSWORD: ${CANAL_WHATSAPP_DB_PASSWORD}
+      CANAL_FACEBOOK_DB_PASSWORD: ${CANAL_FACEBOOK_DB_PASSWORD}
       TZ: Africa/Douala
     volumes:
       - postgres:/var/lib/postgresql
@@ -265,7 +268,21 @@ services:
     command: ["node", "src/passerelle/index.ts"]
     environment:
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
+      # Facebook : secret de l'application Meta (signature des événements) et jeton de vérification de l'adresse.
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      FACEBOOK_JETON_VERIFICATION: ${FACEBOOK_JETON_VERIFICATION:-}
       NATS_URL: nats://nats:4222
+    # Seule l'adresse des événements Facebook est publique (https://<adresse>/webhooks/facebook) ; /whatsapp et
+    # /sante restent sur le réseau interne.
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.passerelle.loadbalancer.server.port: "8090"
+      traefik.http.middlewares.vers-facebook.replacepath.path: /facebook
+      traefik.http.routers.webhook-facebook.rule: Path(`/webhooks/facebook`)
+      traefik.http.routers.webhook-facebook.priority: "100"
+      traefik.http.routers.webhook-facebook.entrypoints: web
+      traefik.http.routers.webhook-facebook.service: passerelle
+      traefik.http.routers.webhook-facebook.middlewares: securite@file,debit-general@file,corps-limite@file,vers-facebook
     depends_on:
       nats:
         condition: service_healthy
@@ -312,6 +329,50 @@ services:
       interval: 10s
       retries: 6
 
+  # Canal Facebook (services/src/canal-facebook) : Pages des vendeurs par l'API officielle de Meta. Messenger
+  # (catalogue en carrousel, lien personnel de commande), réponses aux commentaires, publications et stories,
+  # connexion des Pages (https://<adresse>/facebook/connexion). Sans application Meta configurée, il attend.
+  canal-facebook:
+    image: bayam/services:1
+    restart: unless-stopped
+    command: ["node", "src/canal-facebook/index.ts"]
+    environment:
+      CANAL_FACEBOOK_BASE: postgres://canal_facebook:${CANAL_FACEBOOK_DB_PASSWORD}@postgres:5432/bayam
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      # Clé de chiffrement des jetons de Page en base (32 octets en base64).
+      FACEBOOK_CLE: ${FACEBOOK_CLE}
+      NATS_URL: nats://nats:4222
+      REDIS_URL: redis://redis:6379
+      BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
+      BAYAM_WP_INTERNE: http://wordpress
+      BAYAM_CANAL_WHATSAPP: http://canal-whatsapp:8091
+      BAYAM_URL_PUBLIQUE: ${BAYAM_URL_PUBLIQUE:-}
+      BAYAM_TUNNEL_METRICS: http://tunnel:2000
+      TZ: Africa/Douala
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8092/sante"]
+      interval: 10s
+      retries: 6
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.canal-facebook.loadbalancer.server.port: "8092"
+      traefik.http.routers.facebook-connexion.rule: Path(`/facebook/connexion`) || Path(`/facebook/retour`)
+      traefik.http.routers.facebook-connexion.priority: "100"
+      traefik.http.routers.facebook-connexion.entrypoints: web
+      traefik.http.routers.facebook-connexion.service: canal-facebook
+      traefik.http.routers.facebook-connexion.middlewares: securite@file,debit-liens@file
+
   # Travailleur BAYAM : traite les messages WhatsApp en moins d'une seconde et les tâches programmées
   # (publications étalées, rapports), indépendamment des visites du site.
   travailleur:
@@ -337,6 +398,7 @@ services:
       # Microservices : jeton partagé de l'API interne, adresse du canal WhatsApp (liens personnels, notifications).
       BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
       BAYAM_CANAL_URL: http://canal-whatsapp:8091
+      BAYAM_CANAL_FACEBOOK_URL: http://canal-facebook:8092
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
       CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
@@ -399,6 +461,7 @@ services:
       # Microservices : jeton partagé de l'API interne, adresse du canal WhatsApp (liens personnels, notifications).
       BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
       BAYAM_CANAL_URL: http://canal-whatsapp:8091
+      BAYAM_CANAL_FACEBOOK_URL: http://canal-facebook:8092
       CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
       CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
       CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}

@@ -2,7 +2,7 @@
   "name": "bayam-services",
   "private": true,
   "type": "module",
-  "description": "Microservices BAYAM : passerelle des événements WhatsApp, canal WhatsApp. TypeScript exécuté directement par Node 24.",
+  "description": "Microservices BAYAM : passerelle des événements WhatsApp et Facebook, canal WhatsApp, canal Facebook. TypeScript exécuté directement par Node 24.",
   "engines": {
     "node": ">=24.11"
   },

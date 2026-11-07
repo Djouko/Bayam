@@ -1,5 +1,5 @@
 // Accès au commerce (boutiques, rayons, articles, commandes) derrière une interface : aujourd'hui l'extension
-// WordPress/WooCommerce, demain le service catalogue. Le canal WhatsApp ne change pas quand la source change.
+// WordPress/WooCommerce, demain le service catalogue. Les canaux (WhatsApp, Facebook) ne changent pas quand la source change.
 
 import type { RedisClientType } from 'redis';
 import { texteErreur } from '../commun/journal.ts';
@@ -49,6 +49,8 @@ export interface Commerce {
   rayon(id: number, rayon: number, page: number, parPage: number): Promise<PageRayon>;
   produit(id: number, produit: number): Promise<Produit | null>;
   commandes(id: number, numero: string): Promise<Commande[]>;
+  /** Photo d'un article (chemin donné par le catalogue), ou null si indisponible. */
+  image(chemin: string | null): Promise<Buffer | null>;
 }
 
 /** Source WooCommerce : API interne de l'extension BAYAM, mise en cache dans Redis jusqu'à la prochaine modification. */
@@ -78,6 +80,14 @@ export class CommerceWordpress implements Commerce {
 
   async commandes(id: number, numero: string): Promise<Commande[]> {
     return (await this.lire<Commande[]>(`/boutiques/${id}/commandes?numero=${encodeURIComponent(numero)}`)) ?? [];
+  }
+
+  async image(chemin: string | null): Promise<Buffer | null> {
+    if (!chemin) {
+      return null;
+    }
+    const r = await fetch(new URL(chemin, this.url).toString(), { signal: AbortSignal.timeout(5000) }).catch(() => null);
+    return r?.ok ? Buffer.from(await r.arrayBuffer()) : null;
   }
 
   /** Clé de cache liée à la version du catalogue, que WordPress incrémente à chaque modification d'article. */

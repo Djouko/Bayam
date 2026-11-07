@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MARQUE } from '../passerelle/filtre.ts';
 import { commandes, couper, fcfa, LIMITES, livraison, menu, numeroLisible, pageRayon, peuDeStock, prixTexte, produit, vendeur, type Envoi } from './catalogue.ts';
-import type { Boutique, Produit } from './commerce.ts';
+import type { Boutique, Produit } from '../commun/commerce.ts';
 
 const boutique: Boutique = {
   id: 3, nom: 'Mode Aïcha', actif: true, chat_vendeur: '237654770063@c.us', identifiants: ['237654770063@c.us'], base_publique: 'https://exemple.trycloudflare.com',
