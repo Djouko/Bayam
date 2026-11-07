@@ -9,18 +9,21 @@ import Fastify from 'fastify';
 import { createClient, type RedisClientType } from 'redis';
 import { adressePublique } from '../commun/adresse.ts';
 import { creerPool, migrer } from '../commun/base.ts';
+import { MARQUE } from '../passerelle/filtre.ts';
 import { assurerFluxWhatsapp, connecterBus, consommer, FLUX_WHATSAPP, SUJET_WHATSAPP } from '../commun/bus.ts';
 import { exiger, lire, nombre } from '../commun/config.ts';
 import { journal, texteErreur } from '../commun/journal.ts';
 import { ordonnanceur } from '../commun/ordre.ts';
+import { appel } from './appel.ts';
 import * as catalogue from './catalogue.ts';
 import { CommerceWordpress, type Boutique } from '../commun/commerce.ts';
 import { Expediteur } from './expediteur.ts';
 import { creerJeton, nettoyer, ouvrirJeton } from './jetons.ts';
 import { LotWordpress } from './lot.ts';
-import { discussionDuVendeur, lireMessage, type Evenement } from './message.ts';
+import * as menuVendeur from './menu-vendeur.ts';
+import { discussionDuVendeur, lireMessage, type Evenement, type MessageWhatsapp } from './message.ts';
 import { deposer, envoyerDues, valide, type Notification } from './notifications.ts';
-import { decider, type Decision } from './routeur.ts';
+import { decider, FRAICHEUR, type Decision } from './routeur.ts';
 import { COTE_PHOTO, dessinerVitrine, photoLegere } from './vitrine.ts';
 import { Waha } from './waha.ts';
 
@@ -54,7 +57,8 @@ async function repondre(d: Extract<Decision, { route: 'catalogue' }>): Promise<'
   const m = d.message;
   const vendeur = Number(/^boutique-(\d+)$/.exec(m.session)?.[1] ?? 0);
   const b = vendeur ? await commerce.boutique(vendeur) : null;
-  if (!b || (m.deMoi && discussionDuVendeur(m.chat, b.identifiants)) || (!m.deMoi && d.action.type === 'menu' && !b.actif)) {
+  // Message tapé par le client (menu, référence d'article) : rien quand le vendeur a coupé les réponses automatiques.
+  if (!b || (m.deMoi && discussionDuVendeur(m.chat, b.identifiants)) || (!m.deMoi && !m.choixListe && !b.actif)) {
     return 'heritage';
   }
   const a = d.action;
@@ -136,6 +140,51 @@ async function photoArticle(e: catalogue.EnvoiPhoto): Promise<catalogue.EnvoiPre
   return { type: 'image', legende: e.legende, donnees };
 }
 
+/**
+ * « Message à moi-même » : le menu BAYAM et ses parcours guidés (« bayam », puis des choix). Renvoie faux quand le
+ * message n'est pas pour le menu (commande tapée, note personnelle, écho d'un envoi) : WordPress le traite comme avant.
+ */
+async function pourLeVendeur(m: MessageWhatsapp, b: Boutique): Promise<boolean> {
+  // Échos de nos propres envois (marque BAYAM), messages vides : jamais une réponse du vendeur.
+  if (m.texte.includes(MARQUE) || (!m.texte.trim() && !m.photo && !m.choixListe)) {
+    return false;
+  }
+  const cle = `canal:menu-vendeur:${b.id}`;
+  const brut = await redis.get(cle);
+  const etat = brut ? (JSON.parse(brut) as menuVendeur.Etat) : null;
+  const demande = appel(m.texte);
+  const source = (recherche: string, page: number) => commerce.articles(b.id, recherche, page, 8);
+  let pas: menuVendeur.Pas;
+  if (m.choixListe?.startsWith('bayam:v:')) {
+    pas = await menuVendeur.avancer(etat ?? { etape: 'menu', options: [] }, { type: 'choix', id: m.choixListe }, source);
+  } else if (demande !== null && /^(menu)?$/i.test(demande)) {
+    pas = menuVendeur.menu();
+  } else if (etat && demande === null) {
+    pas = await menuVendeur.avancer(etat, m.photo ? { type: 'photo', url: m.photo } : { type: 'texte', texte: m.texte }, source);
+  } else {
+    if (etat) {
+      await redis.del(cle); // commande tapée en entier : le parcours s'arrête, WordPress la traite
+    }
+    return false;
+  }
+  if (pas.etat) {
+    await redis.set(cle, JSON.stringify(pas.etat), { expiration: { type: 'EX', value: 900 } });
+  } else {
+    await redis.del(cle);
+  }
+  if (pas.envois.length) {
+    await expediteur.envoyer(m.session, m.chat, b.chat_vendeur, pas.envois, true);
+  }
+  if (pas.commande) {
+    // Jamais rejouée automatiquement (une vente ne doit pas compter deux fois) : en cas d'échec, le vendeur est prévenu.
+    await commerce.copilote(b.id, pas.commande.texte, pas.commande.photo).catch(async (e: unknown) => {
+      log.erreur('commande du menu non exécutée', { vendeur: b.id, erreur: texteErreur(e) });
+      await expediteur.envoyer(m.session, m.chat, b.chat_vendeur, [{ type: 'texte', texte: `${MARQUE}⚠️ L'action n'a pas pu se faire. Réessayez dans un instant (tapez *bayam*).` }], true);
+    });
+  }
+  return true;
+}
+
 /** Transmission à l'extension WordPress, par lots ; chaque événement garde la signature HMAC de WAHA, revérifiée. */
 const lot = new LotWordpress(`${urlWordpress}/wp-json/bayam/v1/interne/whatsapp/lot`, jetonService);
 function transmettre(msg: JsMsg): Promise<void> {
@@ -156,7 +205,24 @@ async function traiter(msg: JsMsg): Promise<void> {
     return;
   }
   const recu = Date.now();
-  const d = decider(lireMessage(evt), Math.floor(recu / 1000));
+  const message = lireMessage(evt);
+  const vendeur = Number(/^boutique-(\d+)$/.exec(message?.session ?? '')?.[1] ?? 0);
+  if (message && vendeur && message.deMoi && !message.groupe && recu / 1000 - message.horodatage <= FRAICHEUR) {
+    const b = await commerce.boutique(vendeur);
+    if (b && discussionDuVendeur(message.chat, b.identifiants)) {
+      if (await pool.query('SELECT 1 FROM canal_whatsapp.evenements_traites WHERE evt_id = $1', [message.evt]).then((r) => r.rowCount)) {
+        msg.ack();
+        return;
+      }
+      if (await pourLeVendeur(message, b)) {
+        await pool.query('INSERT INTO canal_whatsapp.evenements_traites (evt_id) VALUES ($1) ON CONFLICT DO NOTHING', [message.evt]);
+        log.info('menu du vendeur', { session: message.session, duree_ms: Date.now() - recu });
+        msg.ack();
+        return;
+      }
+    }
+  }
+  const d = decider(message, Math.floor(recu / 1000));
   if (d.route === 'catalogue') {
     const deja = await pool.query('SELECT 1 FROM canal_whatsapp.evenements_traites WHERE evt_id = $1', [d.message.evt]);
     if (deja.rowCount) {

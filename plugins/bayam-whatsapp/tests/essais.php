@@ -618,6 +618,38 @@ file_put_contents('/var/www/html/wp-content/uploads/bayam-carte-essai.jpg', base
 $statut = Bayam_WA_Cartes::carte(wc_get_product(15), home_url('/b/Essai1'), 'Mode Aïcha', true);
 file_put_contents('/var/www/html/wp-content/uploads/bayam-statut-essai.jpg', base64_decode($statut['data']));
 
+// --- Menu du vendeur et partage sur Facebook ------------------------------------------------------------------
+echo "\nMenu du vendeur et partage sur Facebook\n";
+$r = bayam_dire('bayam +2 #25');
+bayam_verifier('« +2 #25 » : l’article désigné par son numéro (choisi dans le menu), sans ambiguïté de nom', str_contains($joint($r), 'Entrée de 2 : *Polo*'), $r);
+$r = bayam_dire('bayam vendu #25 x1 momo');
+bayam_verifier('« vendu #25 x1 momo » : vente du bon article', str_contains($joint($r), 'Vente n°') && str_contains($joint($r), '1 × Polo'), $r);
+$r = bayam_dire('bayam publier #25 statut');
+bayam_verifier('« publier #25 statut » : l’article choisi, lui seul', str_contains($joint($r), '1 publication(s) : 1 en statut'), $r);
+$wpdb->query($wpdb->prepare("UPDATE $t SET statut = 'annule' WHERE vendeur = 3 AND statut = 'attente' AND id > %d", $depart['diffusions']));
+$r = bayam_dire('bayam partager polo');
+$a_coller = (string) end($r);
+bayam_verifier('« partager polo » : texte prêt à coller (prix, lien WhatsApp avec la référence de l’article), sans gras WhatsApp',
+    str_contains($joint($r), 'Prêt à publier sur votre profil') && str_contains($a_coller, '💰 ') && str_contains($a_coller, 'https://wa.me/237690000003?text=')
+    && str_contains($a_coller, rawurlencode('(réf. P25)')) && !str_contains($a_coller, '*'), $r);
+$r = bayam_dire('bayam aide partager');
+bayam_verifier('« bayam aide partager » : explique pourquoi et comment', str_contains($joint($r), 'Publier sur votre profil ou vos groupes Facebook'), $r);
+$requete = new WP_REST_Request('GET', '/bayam/v1/interne/boutiques/3/articles');
+$requete->set_header('x-bayam-service', (string) getenv('BAYAM_SERVICE_JETON'));
+$requete->set_param('q', '#25');
+$articles = rest_do_request($requete)->get_data();
+bayam_verifier('articles du vendeur pour ses menus : l’article demandé, avec son stock exact', ($articles['articles'][0]['id'] ?? 0) === 25 && array_key_exists('stock', $articles['articles'][0]) && $articles['total'] === 1, $articles);
+$requete = new WP_REST_Request('GET', '/bayam/v1/interne/boutiques/3/articles');
+$tous_articles = rest_do_request($requete)->get_data();
+bayam_verifier('API interne du menu : refusée sans le jeton de service', ($tous_articles['code'] ?? '') === 'rest_forbidden', $tous_articles);
+$faux->envois = [];
+$requete = new WP_REST_Request('POST', '/bayam/v1/interne/boutiques/3/copilote');
+$requete->set_header('x-bayam-service', (string) getenv('BAYAM_SERVICE_JETON'));
+$requete->set_param('texte', 'stock polo');
+$execute = rest_do_request($requete)->get_data();
+$au_vendeur = array_filter($faux->envois, static fn ($e) => $e['chemin'] === '/api/sendText' && ($e['corps']['chatId'] ?? '') === '237690000003@c.us');
+bayam_verifier('commande choisie dans le menu : exécutée, réponse dans « Message à moi-même »', ($execute['envoyes'] ?? 0) >= 1 && $au_vendeur, [$execute, array_column($faux->envois, 'chemin')]);
+
 // --- Remise en état ---------------------------------------------------------------------------------------------
 echo "\nRemise en état\n";
 foreach (wc_get_orders(['created_via' => ['bayam-whatsapp', 'bayam-assistant'], 'limit' => -1, 'date_created' => '>=' . ($debut_ts - 5)]) as $c) {

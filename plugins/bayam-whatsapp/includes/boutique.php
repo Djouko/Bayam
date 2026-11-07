@@ -7,6 +7,10 @@ final class Bayam_WA_Boutique
     /** Produits publiés du vendeur dont le nom correspond aux mots (pluriels et fautes légères tolérés). */
     public static function chercher(int $vendeur, string $mots, bool $en_stock = true, int $limite = 8, bool $tous_les_mots = false): array
     {
+        // « #25 » : l'article choisi dans un menu, désigné par son identifiant (aucune ambiguïté de nom).
+        if (($p = self::par_identifiant($vendeur, $mots)) !== null) {
+            return !$en_stock || $p->is_in_stock() ? [$p] : [];
+        }
         $mots = trim(Bayam_WA_Outils::normaliser(ltrim($mots, '#')));
         $tous = self::produits($vendeur);
         if ($mots === '' || in_array($mots, ['tout', 'tous', 'catalogue', 'produits', 'articles'], true)) {
@@ -206,6 +210,16 @@ final class Bayam_WA_Boutique
         return array_values(array_filter(array_map('wc_get_product', $ids)));
     }
 
+    /** Article du vendeur désigné par « #<identifiant> » dans le texte (premier mot), sinon null. */
+    public static function par_identifiant(int $vendeur, string $texte): ?WC_Product
+    {
+        if (!preg_match('/^\s*#(\d{1,10})(?:\s|$)/', $texte, $m)) {
+            return null;
+        }
+        $p = wc_get_product((int) $m[1]);
+        return $p && !$p->get_parent_id() && $p->get_status() === 'publish' && (int) get_post_field('post_author', $p->get_id()) === $vendeur ? $p : null;
+    }
+
     /** Singulier approximatif : « robes » et « robe », « chapeaux » et « chapeau ». */
     public static function racine(string $mot): string
     {
@@ -222,9 +236,10 @@ final class Bayam_WA_Boutique
     {
         $texte = Bayam_WA_Outils::normaliser($texte);
         $jetons = explode(' ', $texte);
-        $meilleur = null;
-        $score = 0;
-        foreach (self::produits($vendeur) as $p) {
+        // « #25 M » : l'article choisi dans un menu, puis sa variante par les mots qui suivent.
+        $meilleur = self::par_identifiant($vendeur, $texte);
+        $score = $meilleur ? 1 : 0;
+        foreach ($meilleur ? [] : self::produits($vendeur) as $p) {
             $nom = explode(' ', Bayam_WA_Outils::normaliser($p->get_name()));
             $communs = 0;
             foreach ($nom as $m) {

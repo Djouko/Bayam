@@ -28,17 +28,20 @@ export class Expediteur {
     this.plafonds = plafonds;
   }
 
-  /** Envoie les messages dans l'ordre ; renvoie le nombre envoyé (0 si un plafond est atteint). */
-  envoyer(session: string, chat: string, chatVendeur: string | null, envois: EnvoiPret[]): Promise<number> {
+  /**
+   * Envoie les messages dans l'ordre ; renvoie le nombre envoyé (0 si un plafond est atteint). soi : discussion du
+   * vendeur avec lui-même (menu BAYAM), sans risque pour le numéro, donc sans plafond par discussion.
+   */
+  envoyer(session: string, chat: string, chatVendeur: string | null, envois: EnvoiPret[], soi = false): Promise<number> {
     const precedent = this.files.get(session) ?? Promise.resolve();
-    const suivant = precedent.catch(() => undefined).then(() => this.envoyerMaintenant(session, chat, chatVendeur, envois));
+    const suivant = precedent.catch(() => undefined).then(() => this.envoyerMaintenant(session, chat, chatVendeur, envois, soi));
     this.files.set(session, suivant);
     void suivant.finally(() => this.files.get(session) === suivant && this.files.delete(session)).catch(() => undefined);
     return suivant;
   }
 
-  private async envoyerMaintenant(session: string, chat: string, chatVendeur: string | null, envois: EnvoiPret[]): Promise<number> {
-    const auClient = envois.filter((e) => e.type !== 'au_vendeur').length;
+  private async envoyerMaintenant(session: string, chat: string, chatVendeur: string | null, envois: EnvoiPret[], soi: boolean): Promise<number> {
+    const auClient = soi ? 0 : envois.filter((e) => e.type !== 'au_vendeur').length;
     const jour = new Date().toISOString().slice(0, 10);
     const [discussion, quotidien] = await Promise.all([
       this.compter(`canal:plafond:chat:${session}:${chat}`, auClient, 600),

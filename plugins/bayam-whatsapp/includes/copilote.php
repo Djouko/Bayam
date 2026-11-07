@@ -21,6 +21,7 @@ final class Bayam_WA_Copilote
         'statut' => ['statut', 'status'],
         'publier' => ['publier', 'publie', 'poster', 'diffuser'],
         'facebook' => ['facebook', 'fb', 'messenger'],
+        'partager' => ['partager', 'partage', 'partagez'],
         'envoie' => ['envoie', 'envoyer', 'envoi'],
         'stock' => ['stock', 'stocks', 'reste'],
         'vendu' => ['vendu', 'vendue', 'vente', 'vendus'],
@@ -144,6 +145,7 @@ final class Bayam_WA_Copilote
             'statut' => $this->cartes($reste, true),
             'publier' => $this->publier($reste),
             'facebook' => $this->facebook(),
+            'partager' => $this->partager($reste),
             'envoie' => $this->envoyer_collection($reste),
             'stock' => $this->stock($reste),
             'vendu' => $this->vendu($reste, $avec_accents),
@@ -570,21 +572,86 @@ final class Bayam_WA_Copilote
             $reste = trim(substr($reste, 0, strpos($reste, $m[0])));
             $ou = $ou === null ? 'groupes' : (str_contains($ou, 'groupes') || $ou === 'partout' ? $ou : "groupes+{$ou}");
         }
-        $mots = trim(preg_replace('/\b(statut|status|partout|groupes?|chaines?|whatsapp|facebook|fb|page|story|stories|storys|dans|mes|ma|sur|mon|le|les|et|en|tous|tout)\b/', '', $reste));
-        $mots = trim(preg_replace('/\s+/', ' ', $mots));
-        if (preg_match('/\b(nouveautes?|nouveaux?|nouvelles?|derniers?|dernieres?|new)\b/', $mots)) {
-            $en_stock = array_filter(Bayam_WA_Boutique::produits($this->vendeur), static fn (WC_Product $p) => $p->is_in_stock());
-            $recents = array_filter($en_stock, static fn (WC_Product $p) => $p->get_date_created() && $p->get_date_created()->getTimestamp() > time() - 7 * DAY_IN_SECONDS);
-            $produits = array_slice(array_values($recents ?: $en_stock), 0, 5); // sans nouveauté de la semaine : les 5 derniers
-        } elseif (preg_match('/\b(promos?|promotions?|soldes?)\b/', $mots)) {
-            $produits = array_slice(array_values(array_filter(Bayam_WA_Boutique::produits($this->vendeur), static fn (WC_Product $p) => $p->is_in_stock() && $p->is_on_sale())), 0, 5);
-        } else {
-            $produits = Bayam_WA_Boutique::chercher($this->vendeur, $mots, true, 5);
-        }
+        [$produits, $mots] = $this->selection($reste);
         if (!$produits) {
             return [['texte' => "Rien en stock pour « {$mots} »."]];
         }
         return $this->lancer_publication($produits, $ou, $facebook, $story, $groupes);
+    }
+
+    /**
+     * Articles demandés (5 au plus, en stock) : « nouveautés » (de la semaine, sinon les derniers), « promos », un
+     * article choisi dans le menu (« #25 ») ou des mots du nom ; les mots de destination sont ignorés.
+     *
+     * @return array{0: WC_Product[], 1: string} articles et mots retenus
+     */
+    private function selection(string $reste): array
+    {
+        $mots = trim(preg_replace('/\b(statut|status|partout|groupes?|chaines?|whatsapp|facebook|fb|page|story|stories|storys|profil|dans|mes|ma|sur|mon|le|les|et|en|tous|tout)\b/', '', $reste));
+        $mots = trim(preg_replace('/\s+/', ' ', $mots));
+        if (preg_match('/\b(nouveautes?|nouveaux?|nouvelles?|derniers?|dernieres?|new)\b/', $mots)) {
+            $en_stock = array_filter(Bayam_WA_Boutique::produits($this->vendeur), static fn (WC_Product $p) => $p->is_in_stock());
+            $recents = array_filter($en_stock, static fn (WC_Product $p) => $p->get_date_created() && $p->get_date_created()->getTimestamp() > time() - 7 * DAY_IN_SECONDS);
+            return [array_slice(array_values($recents ?: $en_stock), 0, 5), $mots]; // sans nouveauté de la semaine : les 5 derniers
+        }
+        if (preg_match('/\b(promos?|promotions?|soldes?)\b/', $mots)) {
+            return [array_slice(array_values(array_filter(Bayam_WA_Boutique::produits($this->vendeur), static fn (WC_Product $p) => $p->is_in_stock() && $p->is_on_sale())), 0, 5), $mots];
+        }
+        return [Bayam_WA_Boutique::chercher($this->vendeur, $mots, true, 5), $mots];
+    }
+
+    /**
+     * « bayam partager robes » : pour publier soi-même sur son profil Facebook ou dans ses groupes (aucune API ne le
+     * permet), chaque article arrive prêt à coller : sa photo, puis un texte avec le prix et deux liens de commande.
+     * Le lien WhatsApp ouvre la discussion du vendeur avec la référence de l'article (BAYAM répond avec la fiche) ;
+     * le lien Messenger ouvre l'article dans la Page, si elle est reliée.
+     */
+    private function partager(string $reste): array
+    {
+        [$produits, $mots] = $this->selection($reste);
+        if (!$produits) {
+            return [['texte' => "Rien en stock pour « {$mots} »."]];
+        }
+        $numero = Bayam_WA_Outils::numero_de((string) get_user_meta($this->vendeur, 'bayam_wa_moi', true));
+        $page = array_values(array_filter(Bayam_WA_Facebook::pages($this->vendeur) ?? [], static fn ($p) => !empty($p['actif'])))[0]['page'] ?? null;
+        $reponses = [['texte' => "✍️ *Prêt à publier sur votre profil ou dans vos groupes Facebook* : pour chaque article, enregistrez la photo (appui long, puis Enregistrer), copiez le texte (appui long, puis Copier), puis collez-les dans une nouvelle publication. Le client qui touche un lien arrive directement sur l'article, et BAYAM lui répond."]];
+        foreach ($produits as $p) {
+            $photo = Bayam_WA_Cartes::photo_whatsapp($p);
+            if ($photo) {
+                $reponses[] = ['image' => $photo, 'legende' => ''];
+            }
+            $reponses[] = ['texte' => self::texte_a_coller($p, $numero, $page)];
+        }
+        return $reponses;
+    }
+
+    /** Texte d'une publication Facebook (sans gras WhatsApp, que Facebook n'affiche pas) : nom, prix, tailles, liens. */
+    public static function texte_a_coller(WC_Product $p, ?string $numero, ?string $page): string
+    {
+        $prix = Bayam_WA_Outils::fcfa((float) $p->get_price());
+        if ($p->is_on_sale() && (float) $p->get_regular_price() > (float) $p->get_price()) {
+            $prix .= ' au lieu de ' . Bayam_WA_Outils::fcfa((float) $p->get_regular_price());
+        }
+        $resume = trim(wp_strip_all_tags((string) ($p->get_short_description() ?: $p->get_description())));
+        $lignes = ['🛍️ ' . html_entity_decode($p->get_name(), ENT_QUOTES, 'UTF-8'), '💰 ' . ($p->is_type('variable') ? 'dès ' : '') . $prix];
+        if (($options = Bayam_WA_Boutique::options_disponibles($p)) !== '') {
+            $lignes[] = '📏 ' . $options;
+        }
+        if ($resume !== '') {
+            $lignes[] = mb_strimwidth($resume, 0, 220, '…', 'UTF-8');
+        }
+        $lignes[] = '';
+        if ($numero) {
+            $message = 'Bonjour ! Je veux commander : ' . html_entity_decode($p->get_name(), ENT_QUOTES, 'UTF-8') . ' (réf. P' . $p->get_id() . ')';
+            $lignes[] = '👉 Commander sur WhatsApp : https://wa.me/' . $numero . '?text=' . rawurlencode($message);
+        }
+        if ($page) {
+            $lignes[] = '💬 Ou sur Messenger : https://m.me/' . $page . '?ref=produit-' . $p->get_id();
+        }
+        if (!$numero && !$page) {
+            $lignes[] = '👉 Commander : ' . Bayam_WA_Liens::produit((int) get_post_field('post_author', $p->get_id()), $p, 'facebook');
+        }
+        return implode("\n", $lignes);
     }
 
     /**

@@ -32,6 +32,9 @@ final class Bayam_WA_Interne
         register_rest_route('bayam/v1', '/interne/boutiques/(?P<id>\d+)/rayons/(?P<rayon>\d+)', $lecture + ['callback' => [self::class, 'rayon']]);
         register_rest_route('bayam/v1', '/interne/boutiques/(?P<id>\d+)/produits/(?P<produit>\d+)', $lecture + ['callback' => [self::class, 'produit']]);
         register_rest_route('bayam/v1', '/interne/boutiques/(?P<id>\d+)/commandes', $lecture + ['callback' => [self::class, 'commandes']]);
+        // Menu du vendeur (canal WhatsApp) : ses articles, épuisés compris, et l'exécution d'une commande du Copilote.
+        register_rest_route('bayam/v1', '/interne/boutiques/(?P<id>\d+)/articles', $lecture + ['callback' => [self::class, 'articles']]);
+        register_rest_route('bayam/v1', '/interne/boutiques/(?P<id>\d+)/copilote', ['methods' => 'POST', 'permission_callback' => [self::class, 'autorise'], 'callback' => [self::class, 'copilote']]);
     }
 
     public static function autorise(WP_REST_Request $requete): bool
@@ -209,6 +212,71 @@ final class Bayam_WA_Interne
         if ($vendeur && $redis) {
             $redis->incr("canal:catalogue:version:{$vendeur}");
         }
+    }
+
+    // --- Menu du vendeur --------------------------------------------------------------------------------------
+
+    /**
+     * Articles du vendeur pour ses menus (stock, vente, publication) : tous, épuisés compris, avec le stock de chaque
+     * variante. « q » filtre par le nom ; pages de « par » articles, par ordre alphabétique.
+     */
+    public static function articles(WP_REST_Request $r)
+    {
+        $vendeur = self::vendeur($r);
+        if (!$vendeur) {
+            return new WP_REST_Response(['erreur' => 'boutique inconnue'], 404);
+        }
+        $q = trim((string) $r->get_param('q'));
+        $produits = $q !== '' ? Bayam_WA_Boutique::chercher($vendeur, $q, false, 20) : Bayam_WA_Boutique::produits($vendeur);
+        if ($q === '') {
+            usort($produits, static fn (WC_Product $a, WC_Product $b) => strcasecmp(remove_accents($a->get_name()), remove_accents($b->get_name())));
+        }
+        $par = max(1, min(20, (int) ($r->get_param('par') ?: 9)));
+        $page = max(1, (int) ($r->get_param('page') ?: 1));
+        $fiche = static function (WC_Product $p): array {
+            $variantes = [];
+            foreach ($p->is_type('variable') ? $p->get_children() : [] as $id) {
+                $v = wc_get_product($id);
+                if ($v) {
+                    $variantes[] = ['id' => $v->get_id(), 'nom' => wc_get_formatted_variation($v, true, false, false), 'stock' => $v->managing_stock() ? (int) $v->get_stock_quantity() : null];
+                }
+            }
+            return [
+                'id' => $p->get_id(), 'nom' => html_entity_decode($p->get_name(), ENT_QUOTES, 'UTF-8'), 'prix' => (float) $p->get_price(),
+                'stock' => $p->is_type('variable') ? null : ($p->managing_stock() ? (int) $p->get_stock_quantity() : null),
+                'en_stock' => $p->is_in_stock(), 'variable' => $p->is_type('variable'), 'variantes' => $variantes,
+            ];
+        };
+        return ['total' => count($produits), 'articles' => array_map($fiche, array_slice($produits, ($page - 1) * $par, $par))];
+    }
+
+    /**
+     * Commande du Copilote choisie dans le menu (« +5 #25 M », « vendu #25 x2 momo », « bilan hier ») : exécutée
+     * comme si le vendeur l'avait tapée, réponses envoyées dans sa discussion « Message à moi-même ». Photo d'un nouvel
+     * article : adresse du média chez WAHA, téléchargée ici.
+     */
+    public static function copilote(WP_REST_Request $r)
+    {
+        $vendeur = self::vendeur($r);
+        $texte = trim((string) $r->get_param('texte'));
+        if (!$vendeur || $texte === '' || mb_strlen($texte) > 500) {
+            return new WP_REST_Response(['erreur' => 'demande invalide'], 400);
+        }
+        $photo = null;
+        if (($url = (string) $r->get_param('photo')) !== '') {
+            $binaire = Bayam_WA_Waha::client()->telecharger($url);
+            if (is_wp_error($binaire)) {
+                return new WP_REST_Response(['erreur' => 'photo introuvable'], 422);
+            }
+            $photo = ['binaire' => $binaire];
+        }
+        $reponses = Bayam_WA_Copilote::traiter($vendeur, $texte, $photo);
+        foreach ($reponses as $reponse) {
+            isset($reponse['image'])
+                ? Bayam_WA_Regles::image_au_vendeur($vendeur, $reponse['image'], $reponse['legende'] ?? '')
+                : Bayam_WA_Regles::au_vendeur($vendeur, $reponse['texte']);
+        }
+        return ['envoyes' => count($reponses)];
     }
 
     // --- Lien personnel de commande ----------------------------------------------------------------------------

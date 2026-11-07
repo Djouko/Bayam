@@ -5,6 +5,9 @@ import { MARQUE } from '../passerelle/filtre.ts';
 import { demandeMenu } from './appel.ts';
 import type { MessageWhatsapp } from './message.ts';
 
+/** Référence d'article écrite dans un message (« réf. P25 ») : liens wa.me des publications partagées par le vendeur. */
+const REFERENCE = /\br[ée]f(?:[ée]rence)?\.?\s*:?\s*P(\d{1,10})\b/i;
+
 /** Au-delà, un message est un rattrapage d'historique (reconnexion) : on ne répond pas des heures plus tard. */
 export const FRAICHEUR = 900;
 
@@ -66,6 +69,11 @@ export function decider(m: MessageWhatsapp | null, maintenant: number): Decision
   if (m.choixListe && !m.deMoi) {
     const action = lireAction(m.choixListe);
     return action ? { route: 'catalogue', action, message: m } : { route: 'heritage' };
+  }
+  // Le client arrive d'une publication (profil ou groupe Facebook, statut) avec la référence de l'article.
+  const reference = REFERENCE.exec(m.texte);
+  if (reference && !m.deMoi) {
+    return { route: 'catalogue', action: { type: 'produit', produit: Number(reference[1]) }, message: m };
   }
   // Le client demande la boutique ; ou le vendeur tape « bayam menu » dans la discussion d'un client pour la lui
   // montrer (dans sa propre discussion, c'est le menu du Copilote : le service le renvoie à WordPress).

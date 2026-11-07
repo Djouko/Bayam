@@ -58,7 +58,8 @@ export function peuDeStock(p: Produit): number | null {
   return p.stock !== null && p.stock > 0 && p.stock <= 3 ? p.stock : null;
 }
 
-function liste(titre: string, texte: string, bouton: string, pied: string, sections: Section[]): EnvoiPret {
+/** Liste WhatsApp aux limites de l'API officielle, marque BAYAM en tête (titre et texte). */
+export function liste(titre: string, texte: string, bouton: string, pied: string, sections: Section[]): EnvoiPret {
   return {
     type: 'liste',
     // La marque en tête du titre : l'écho de la liste (premier mot du message) est reconnu comme venant de BAYAM.

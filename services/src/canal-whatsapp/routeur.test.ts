@@ -105,3 +105,9 @@ test('identifiants de ligne : aller-retour sans perte', () => {
 test('anciennes lignes « Commander » des listes déjà envoyées : toujours comprises', () => {
   assert.deepEqual(lireAction('bayam:commander:25'), { type: 'produit', produit: 25 });
 });
+
+test('référence d’article dans le message du client (lien wa.me d’une publication Facebook) : la fiche de l’article', () => {
+  const d = decider(lireMessage(texte('Bonjour ! Je veux commander : Polo (réf. P25)')), MAINTENANT);
+  assert.deepEqual(d.route === 'catalogue' ? d.action : d, { type: 'produit', produit: 25 });
+  assert.equal(decider(lireMessage(texte('Ma référence est la P25 de la liste')), MAINTENANT).route, 'heritage');
+});

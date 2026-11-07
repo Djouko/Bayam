@@ -49,6 +49,10 @@ const texte = (t) => message({ message: { mid: `m.essai.${PASSAGE}.${++sequence}
 const envoisAuClient = (a) => a.methode === 'POST' && a.chemin === `/${PAGE}/messages` && a.corps?.recipient?.id === CLIENT;
 
 console.log('\nVérification de l\'adresse par Meta et signature');
+const declaration = await recus((a) => a.methode === 'POST' && a.chemin === '/1000000000000001/subscriptions', 1, 8000);
+verifier('le service déclare lui-même à Meta l\'adresse publique des événements et ses champs',
+  /^https:\/\/.+\/webhooks\/facebook$/.test(declaration[0]?.corps?.callback_url ?? '') && declaration[0].corps.verify_token === VERIFICATION
+  && declaration[0].corps.fields === 'messages,messaging_postbacks,messaging_referrals,message_echoes,feed' && declaration[0].jeton === `1000000000000001|${SECRET}`, declaration[0]);
 let r = await fetch(`${ENTREE}?hub.mode=subscribe&hub.verify_token=${VERIFICATION}&hub.challenge=1158201444`, { headers: ENTETES_PUBLICS });
 verifier('GET de vérification : défi renvoyé tel quel', r.status === 200 && (await r.text()) === '1158201444');
 r = await fetch(`${ENTREE}?hub.mode=subscribe&hub.verify_token=mauvais&hub.challenge=1`, { headers: ENTETES_PUBLICS });

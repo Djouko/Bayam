@@ -22,7 +22,7 @@ import { dessinerStory } from '../canal-whatsapp/vitrine.ts';
 import { METADONNEE_BAYAM, type EvenementFacebook } from '../passerelle/facebook.ts';
 import { cleDepuis } from './coffre.ts';
 import { Donnees, type Page } from './donnees.ts';
-import { ErreurGraph, Graph } from './graph.ts';
+import { ABONNEMENTS, ErreurGraph, Graph } from './graph.ts';
 import * as messenger from './messenger.ts';
 import { decider, type Decision } from './routeur.ts';
 
@@ -34,6 +34,7 @@ const urlCanalWhatsapp = lire('BAYAM_CANAL_WHATSAPP', 'http://canal-whatsapp:809
 const appId = lire('FACEBOOK_APP_ID', '');
 const secretApp = lire('FACEBOOK_APP_SECRET', '');
 const configure = Boolean(appId && secretApp);
+const jetonVerification = lire('FACEBOOK_JETON_VERIFICATION', '');
 const graph = new Graph(lire('FACEBOOK_GRAPH_URL', 'https://graph.facebook.com/v27.0'), appId, secretApp);
 
 const pool = creerPool(exiger('CANAL_FACEBOOK_BASE'));
@@ -233,6 +234,27 @@ function cleDiscussion(msg: JsMsg): string {
   }
 }
 
+/**
+ * Adresse des événements déclarée à Meta par le service lui-même, et redéclarée quand l'adresse publique change
+ * (tunnel relancé) ou quand Meta a coupé l'abonnement (une heure d'échecs). Rien à régler à la main dans Meta.
+ */
+let declaration = { adresse: '', lue: 0 };
+async function declarerAdresse(): Promise<void> {
+  const base = await adressePublique();
+  const adresse = `${base}/webhooks/facebook`;
+  // Même adresse vérifiée il y a moins de 10 minutes : rien à demander à Meta.
+  if (!configure || !jetonVerification || !base || (adresse === declaration.adresse && Date.now() - declaration.lue < 600_000)) {
+    return;
+  }
+  const actuel = (await graph.abonnementsApplication()).find((a) => a.object === 'page');
+  const champs = new Set(actuel?.fields.map((f) => f.name));
+  if (!actuel?.active || actuel.callback_url !== adresse || ABONNEMENTS.some((c) => !champs.has(c))) {
+    await graph.abonnerApplication(adresse, jetonVerification);
+    log.info('adresse des événements déclarée à Meta', { adresse });
+  }
+  declaration = { adresse, lue: Date.now() };
+}
+
 // --- Connexion des Pages ---------------------------------------------------------------------------------------
 
 /** Lien de connexion signé par WordPress (jeton de service), valable jusqu'à son échéance. */
@@ -421,6 +443,12 @@ await app.listen({ host: '0.0.0.0', port: nombre('PORT', 8092) });
 log.info('à l\'écoute', { port: nombre('PORT', 8092), configure, parallelisme: MAX_EN_COURS });
 
 const menage = setInterval(() => void donnees.nettoyer().catch((e: unknown) => log.erreur('ménage', { erreur: texteErreur(e) })), 3_600_000);
+const declarer = () => void declarerAdresse().catch((e: unknown) => {
+  log.alerte('adresse des événements non déclarée à Meta', { erreur: texteErreur(e) });
+});
+declarer();
+// Chaque minute : Meta n'est interrogé que si l'adresse publique a changé, ou toutes les 10 minutes.
+const veille = setInterval(declarer, 60_000);
 let filesOccupees = false;
 const files = setInterval(() => {
   if (filesOccupees || arret || !configure) {
@@ -444,6 +472,7 @@ for (const signal of ['SIGTERM', 'SIGINT'] as const) {
   process.once(signal, async () => {
     arret = true;
     clearInterval(menage);
+    clearInterval(veille);
     clearInterval(files);
     await flot.close();
     while (enCours > 0) {

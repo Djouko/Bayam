@@ -35,6 +35,7 @@ createServer((req, res) => {
     const preuve = jeton ? url.searchParams.get('appsecret_proof') === createHmac('sha256', SECRET).update(jeton).digest('hex') : null;
     appels.push({ methode: req.method, chemin, jeton, preuve, requete: Object.fromEntries([...url.searchParams].filter(([k]) => !['access_token', 'appsecret_proof', 'client_secret'].includes(k))), corps, t: Date.now() });
     n++;
+    if (chemin.endsWith('/subscriptions')) return envoyer(200, req.method === 'GET' ? { data: [] } : { success: true });
     if (chemin === '/oauth/access_token') return envoyer(200, { access_token: url.searchParams.get('code') ? 'COURT' : 'LONG-UTILISATEUR', token_type: 'bearer' });
     if (chemin === '/me/accounts') return envoyer(200, { data: [{ id: PAGE, name: 'Accessoires Akwa Douala', access_token: 'JETON-PAGE-ESSAI', tasks: ['MESSAGING', 'CREATE_CONTENT', 'MODERATE'] }] });
     if (chemin.endsWith('/subscribed_apps')) return envoyer(200, { success: true });

@@ -79,6 +79,11 @@ export function decider(e: EvenementFacebook, maintenant: number): Decision {
   if (!texte && !m.message?.attachments?.length) {
     return { route: 'ignore' };
   }
+  // Référence d'article copiée d'une publication (« réf. P25 ») : l'article directement.
+  const reference = /\br[ée]f(?:[ée]rence)?\.?\s*:?\s*P(\d{1,10})\b/i.exec(texte);
+  if (reference) {
+    return choisi({ type: 'produit', produit: Number(reference[1]) }, true);
+  }
   if (texte && (demandeMenu(texte) || SALUTATION.test(sansAccents(texte.toLowerCase())))) {
     return choisi({ type: 'menu' }, true);
   }

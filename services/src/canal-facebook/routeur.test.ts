@@ -52,3 +52,7 @@ test('identifiants d’actions : ceux de WhatsApp restent valables', () => {
   assert.deepEqual(lireActionFacebook('bayam:commander:5'), { type: 'produit', produit: 5 });
   assert.equal(lireActionFacebook('bayam:photos:x'), null);
 });
+
+test('référence d’article copiée d’une publication (« réf. P25 ») : l’article directement', () => {
+  assert.deepEqual(action(message({ message: { mid: 'm', text: 'Bonjour ! Je veux commander : Polo (réf. P25)' } })), [{ type: 'produit', produit: 25 }, true]);
+});

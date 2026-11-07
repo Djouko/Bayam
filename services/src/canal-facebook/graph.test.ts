@@ -77,3 +77,14 @@ test('connexion du vendeur : code échangé puis jeton longue durée ; abonnemen
   assert.ok(url.searchParams.get('scope')?.includes('pages_messaging'));
   f.serveur.close();
 });
+
+test('adresse des événements déclarée avec le jeton d’application (identifiant|secret), champs utiles', async () => {
+  const f = await fauxGraph((a) => [200, a.methode === 'GET' ? { data: [{ object: 'page', callback_url: 'https://ancienne/webhooks/facebook', active: true, fields: [{ name: 'messages' }] }] } : { success: true }]);
+  const [abonnement] = await f.graph.abonnementsApplication();
+  assert.equal(abonnement.callback_url, 'https://ancienne/webhooks/facebook');
+  await f.graph.abonnerApplication('https://nouvelle/webhooks/facebook', 'jeton-verif');
+  assert.equal(f.appels[1].chemin, '/1234/subscriptions');
+  assert.equal(f.appels[1].requete.get('access_token'), '1234|secret-app');
+  assert.deepEqual(JSON.parse(f.appels[1].corps), { object: 'page', callback_url: 'https://nouvelle/webhooks/facebook', verify_token: 'jeton-verif', fields: 'messages,messaging_postbacks,messaging_referrals,message_echoes,feed' });
+  f.serveur.close();
+});

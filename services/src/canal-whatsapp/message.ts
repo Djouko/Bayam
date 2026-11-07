@@ -18,6 +18,8 @@ export type Evenement = {
     from?: string;
     fromMe?: boolean;
     body?: string;
+    hasMedia?: boolean;
+    media?: { url?: string | null; mimetype?: string | null } | null;
     replyTo?: { body?: string } | null;
     _data?: {
       Info?: { Chat?: string; IsGroup?: boolean; SenderAlt?: string; PushName?: string };
@@ -40,6 +42,8 @@ export type MessageWhatsapp = {
   idMessage: string;
   /** Ligne choisie dans une liste envoyée par BAYAM, sinon null. */
   choixListe: string | null;
+  /** Adresse de la photo envoyée (chez WAHA), sinon null. */
+  photo: string | null;
 };
 
 function numeroDe(adresse: string | undefined): string | null {
@@ -84,5 +88,6 @@ export function lireMessage(evt: Evenement): MessageWhatsapp | null {
     nom: String(info.PushName ?? ''),
     idMessage: String(p.id ?? ''),
     choixListe: reponse && deBayam && choix ? choix : null,
+    photo: p.hasMedia && p.media?.url && String(p.media.mimetype ?? '').startsWith('image/') ? p.media.url : null,
   };
 }

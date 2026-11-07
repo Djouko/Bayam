@@ -78,6 +78,17 @@ export class Graph {
     await this.appel('POST', `/${page}/subscribed_apps`, jeton, { subscribed_fields: ABONNEMENTS.join(',') });
   }
 
+  /** Abonnements de l'application aux événements (objet, adresse de rappel, champs, actif), avec le jeton d'application. */
+  async abonnementsApplication(): Promise<{ object: string; callback_url: string; active: boolean; fields: { name: string }[] }[]> {
+    const r = await this.appel<{ data: { object: string; callback_url: string; active: boolean; fields: { name: string }[] }[] }>('GET', `/${this.appId}/subscriptions`, this.jetonApplication());
+    return r.data;
+  }
+
+  /** Déclare à Meta l'adresse où envoyer les événements des Pages ; Meta la vérifie aussitôt (GET avec le jeton). */
+  async abonnerApplication(adresse: string, jetonVerification: string): Promise<void> {
+    await this.appel('POST', `/${this.appId}/subscriptions`, this.jetonApplication(), { object: 'page', callback_url: adresse, verify_token: jetonVerification, fields: ABONNEMENTS.join(',') });
+  }
+
   /** Bouton « Démarrer » et message d'accueil de la Page dans Messenger. */
   async accueil(jeton: string, salutation: string): Promise<void> {
     await this.appel('POST', '/me/messenger_profile', jeton, { get_started: { payload: 'bayam:menu' }, greeting: [{ locale: 'default', text: salutation }] });
@@ -114,6 +125,11 @@ export class Graph {
   async story(page: string, jeton: string, photo: string): Promise<string> {
     const r = await this.appel<{ post_id: string | number }>('POST', `/${page}/photo_stories`, jeton, { photo_id: photo });
     return String(r.post_id);
+  }
+
+  /** Jeton d'application (identifiant|secret) : réglages de l'application elle-même, jamais envoyé ailleurs qu'à Graph. */
+  private jetonApplication(): string {
+    return `${this.appId}|${this.secret}`;
   }
 
   private async appel<T>(methode: 'GET' | 'POST', chemin: string, jeton: string | null, corps?: Record<string, unknown> | FormData, requete: Record<string, string> = {}): Promise<T> {

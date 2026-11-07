@@ -42,6 +42,18 @@ export type Boutique = {
   conditions: string;
 };
 export type PageRayon = { total: number; produits: Produit[] };
+/** Article vu par son vendeur (menus de stock, de vente, de publication) : épuisés compris, stock par variante. */
+export type ArticleVendeur = {
+  id: number;
+  nom: string;
+  prix: number;
+  /** Pièces en stock (article simple suivi), sinon null. */
+  stock: number | null;
+  en_stock: boolean;
+  variable: boolean;
+  variantes: { id: number; nom: string; stock: number | null }[];
+};
+export type PageArticles = { total: number; articles: ArticleVendeur[] };
 export type Commande = { numero: string; total: number; statut: string; date: string };
 
 export interface Commerce {
@@ -51,6 +63,10 @@ export interface Commerce {
   commandes(id: number, numero: string): Promise<Commande[]>;
   /** Photo d'un article (chemin donné par le catalogue), ou null si indisponible. */
   image(chemin: string | null): Promise<Buffer | null>;
+  /** Articles du vendeur, par recherche (« robe », « #25 ») ou par page alphabétique. */
+  articles(id: number, recherche: string, page: number, parPage: number): Promise<PageArticles>;
+  /** Commande du Copilote exécutée pour le vendeur ; les réponses arrivent dans sa discussion « Message à moi-même ». */
+  copilote(id: number, texte: string, photo?: string): Promise<void>;
 }
 
 /** Source WooCommerce : API interne de l'extension BAYAM, mise en cache dans Redis jusqu'à la prochaine modification. */
@@ -88,6 +104,25 @@ export class CommerceWordpress implements Commerce {
     }
     const r = await fetch(new URL(chemin, this.url).toString(), { signal: AbortSignal.timeout(5000) }).catch(() => null);
     return r?.ok ? Buffer.from(await r.arrayBuffer()) : null;
+  }
+
+  async articles(id: number, recherche: string, page: number, parPage: number): Promise<PageArticles> {
+    // Jamais en cache : le vendeur voit le stock exact du moment.
+    const q = new URLSearchParams({ q: recherche, page: String(page), par: String(parPage) });
+    return (await this.lire<PageArticles>(`/boutiques/${id}/articles?${q}`)) ?? { total: 0, articles: [] };
+  }
+
+  async copilote(id: number, texte: string, photo?: string): Promise<void> {
+    const r = await fetch(`${this.url}/boutiques/${id}/copilote`, {
+      method: 'POST',
+      headers: { 'x-bayam-service': this.jeton, 'content-type': 'application/json' },
+      body: JSON.stringify(photo ? { texte, photo } : { texte }),
+      // Publier ou interroger le modèle de langage peut prendre du temps.
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!r.ok) {
+      throw new Error(`Copilote : réponse ${r.status}`);
+    }
   }
 
   /** Clé de cache liée à la version du catalogue, que WordPress incrémente à chaque modification d'article. */
