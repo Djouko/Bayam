@@ -19,52 +19,103 @@ final class Bayam_WA_Webhook
                 'callback' => [self::class, 'recevoir'],
                 'permission_callback' => [self::class, 'signature_valide'],
             ]);
+            // Lots du canal WhatsApp (réseau interne, jeton de service) : charger WordPress coûte bien plus que ranger
+            // un événement, d'où un seul chargement pour tout un lot.
+            register_rest_route('bayam/v1', '/interne/whatsapp/lot', [
+                'methods' => 'POST',
+                'callback' => [self::class, 'recevoir_lot'],
+                'permission_callback' => [Bayam_WA_Interne::class, 'autorise'],
+            ]);
         });
     }
 
     /** Signature HMAC de WAHA (en-têtes X-Webhook-Hmac et X-Webhook-Hmac-Algorithm) sur le corps brut. */
     public static function signature_valide(WP_REST_Request $requete): bool
     {
+        return self::hmac_valide($requete->get_body(), (string) $requete->get_header('x_webhook_hmac'), (string) ($requete->get_header('x_webhook_hmac_algorithm') ?: 'sha512'));
+    }
+
+    private static function hmac_valide(string $corps, string $recue, string $algo): bool
+    {
         $secret = getenv('WAHA_WEBHOOK_SECRET') ?: '';
-        $recue = (string) $requete->get_header('x_webhook_hmac');
-        if ($secret === '' || $recue === '') {
+        $algo = strtolower($algo);
+        if ($secret === '' || $recue === '' || !in_array($algo, ['sha512', 'sha256'], true)) {
             return false;
         }
-        $algo = strtolower((string) ($requete->get_header('x_webhook_hmac_algorithm') ?: 'sha512'));
-        if (!in_array($algo, ['sha512', 'sha256'], true)) {
-            return false;
-        }
-        return hash_equals(hash_hmac($algo, $requete->get_body(), $secret), $recue);
+        return hash_equals(hash_hmac($algo, $corps, $secret), $recue);
     }
 
     public static function recevoir(WP_REST_Request $requete): WP_REST_Response
     {
-        global $wpdb;
-        $evt = json_decode($requete->get_body(), true);
-        if (!is_array($evt) || empty($evt['session']) || empty($evt['event'])) {
+        $resultat = self::enregistrer($requete->get_body());
+        if ($resultat === 'invalide') {
             return new WP_REST_Response(['ok' => false], 400);
+        }
+        if ($resultat === 'range') {
+            self::reveiller();
+        }
+        return new WP_REST_Response(['ok' => true] + ($resultat === 'ecarte' ? ['ignore' => true] : []), 200);
+    }
+
+    /**
+     * Lot d'événements du canal : chacun garde la signature d'origine de WAHA, revérifiée ici (un événement forgé est
+     * refusé, sans bloquer les autres). Un seul réveil des travailleurs pour tout le lot.
+     */
+    public static function recevoir_lot(WP_REST_Request $requete): WP_REST_Response
+    {
+        $lot = $requete->get_json_params()['evenements'] ?? null;
+        if (!is_array($lot) || count($lot) > 100) {
+            return new WP_REST_Response(['ok' => false, 'erreur' => 'lot invalide (100 événements au plus)'], 400);
+        }
+        $comptes = ['range' => 0, 'ecarte' => 0, 'invalide' => 0, 'refuse' => 0];
+        foreach ($lot as $e) {
+            $corps = (string) ($e['corps'] ?? '');
+            $comptes[self::hmac_valide($corps, (string) ($e['hmac'] ?? ''), (string) ($e['algo'] ?? 'sha512')) ? self::enregistrer($corps) : 'refuse']++;
+        }
+        if ($comptes['refuse']) {
+            Bayam_WA_Outils::journal('Lot : signatures invalides', ['nombre' => $comptes['refuse']]);
+        }
+        if ($comptes['range']) {
+            self::reveiller();
+        }
+        return new WP_REST_Response(['ok' => true] + $comptes, 200);
+    }
+
+    /** Range un événement signé : 'range', 'ecarte' (hors BAYAM), ou 'invalide'. Doublons ignorés (identifiant unique). */
+    private static function enregistrer(string $corps): string
+    {
+        global $wpdb;
+        $evt = json_decode($corps, true);
+        if (!is_array($evt) || empty($evt['session']) || empty($evt['event'])) {
+            return 'invalide';
         }
         // Même règle que la passerelle, si les événements arrivent sans elle : chaînes, statuts et listes de diffusion
         // écartés, et des groupes seuls les commentaires sous une publication de BAYAM, avant toute écriture.
         if ($evt['event'] === 'message.any' && !self::utile((array) ($evt['payload'] ?? []))) {
-            return new WP_REST_Response(['ok' => true, 'ignore' => true], 200);
+            return 'ecarte';
         }
         // Un même événement peut arriver deux fois (nouvel essai de WAHA) : son identifiant unique le dédoublonne.
-        // Le travailleur lit cette table en continu : aucune autre file à alimenter, la réponse à WAHA reste immédiate.
+        // Le travailleur lit cette table en continu : aucune autre file à alimenter.
         $insere = $wpdb->query($wpdb->prepare(
             'INSERT IGNORE INTO ' . Bayam_WA_Stockage::table('wa_evenements') . ' (evt_id, session, type, charge, recu) VALUES (%s, %s, %s, %s, %s)',
-            mb_substr((string) ($evt['id'] ?? wp_generate_uuid4()), 0, 64), sanitize_key($evt['session']), sanitize_text_field((string) $evt['event']), $requete->get_body(), current_time('mysql')
+            mb_substr((string) ($evt['id'] ?? wp_generate_uuid4()), 0, 64), sanitize_key($evt['session']), sanitize_text_field((string) $evt['event']), $corps, current_time('mysql')
         ));
-        // Réveil immédiat des travailleurs (sans Redis, ils relisent la base toutes les demi-secondes).
-        if ($insere && ($redis = Bayam_WA_Outils::redis())) {
-            try {
-                $redis->lPush(Bayam_WA_Outils::FILE_EVENEMENTS, '1');
-                $redis->lTrim(Bayam_WA_Outils::FILE_EVENEMENTS, 0, 999);
-            } catch (Throwable $e) {
-                Bayam_WA_Outils::journal('Redis indisponible', ['erreur' => $e->getMessage()]);
-            }
+        return $insere ? 'range' : 'ecarte';
+    }
+
+    /** Réveil immédiat des travailleurs (sans Redis, ils relisent la base toutes les demi-secondes). */
+    private static function reveiller(): void
+    {
+        $redis = Bayam_WA_Outils::redis();
+        if (!$redis) {
+            return;
         }
-        return new WP_REST_Response(['ok' => true], 200);
+        try {
+            $redis->lPush(Bayam_WA_Outils::FILE_EVENEMENTS, '1');
+            $redis->lTrim(Bayam_WA_Outils::FILE_EVENEMENTS, 0, 999);
+        } catch (Throwable $e) {
+            Bayam_WA_Outils::journal('Redis indisponible', ['erreur' => $e->getMessage()]);
+        }
     }
 
     public static function traiter(int $id): void

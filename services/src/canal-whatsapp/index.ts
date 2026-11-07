@@ -16,6 +16,7 @@ import * as catalogue from './catalogue.ts';
 import { CommerceWordpress, type Boutique } from './commerce.ts';
 import { Expediteur } from './expediteur.ts';
 import { creerJeton, nettoyer, ouvrirJeton } from './jetons.ts';
+import { LotWordpress } from './lot.ts';
 import { discussionDuVendeur, lireMessage, type Evenement } from './message.ts';
 import { deposer, envoyerDues, valide, type Notification } from './notifications.ts';
 import { decider, type Decision } from './routeur.ts';
@@ -25,7 +26,6 @@ import { Waha } from './waha.ts';
 const log = journal('canal-whatsapp');
 const jetonService = exiger('BAYAM_SERVICE_JETON');
 const urlWordpress = lire('BAYAM_WP_INTERNE', 'http://wordpress');
-const webhookWordpress = lire('BAYAM_WP_WEBHOOK', `${urlWordpress}/wp-json/bayam/v1/whatsapp/webhook`);
 
 const pool = creerPool(exiger('CANAL_WHATSAPP_BASE'));
 const appliquees = await migrer(pool, 'canal_whatsapp', fileURLToPath(new URL('./migrations', import.meta.url)));
@@ -159,21 +159,14 @@ async function photoArticle(e: catalogue.EnvoiPhoto): Promise<catalogue.EnvoiPre
   return { type: 'image', legende: e.legende, donnees };
 }
 
-/** Transmission à l'extension WordPress : même corps, même signature HMAC que WAHA (elle la vérifie toujours). */
-async function transmettre(msg: JsMsg): Promise<void> {
-  const r = await fetch(webhookWordpress, {
-    method: 'POST',
-    body: Buffer.from(msg.data),
-    headers: {
-      'content-type': 'application/json',
-      'x-webhook-hmac': msg.headers?.get('x-webhook-hmac') ?? '',
-      'x-webhook-hmac-algorithm': msg.headers?.get('x-webhook-hmac-algorithm') || 'sha512',
-    },
-    signal: AbortSignal.timeout(15_000),
+/** Transmission à l'extension WordPress, par lots ; chaque événement garde la signature HMAC de WAHA, revérifiée. */
+const lot = new LotWordpress(`${urlWordpress}/wp-json/bayam/v1/interne/whatsapp/lot`, jetonService);
+function transmettre(msg: JsMsg): Promise<void> {
+  return lot.ajouter({
+    corps: new TextDecoder().decode(msg.data),
+    hmac: msg.headers?.get('x-webhook-hmac') ?? '',
+    algo: msg.headers?.get('x-webhook-hmac-algorithm') || 'sha512',
   });
-  if (!r.ok) {
-    throw new Error(`WordPress a répondu ${r.status}`);
-  }
 }
 
 async function traiter(msg: JsMsg): Promise<void> {
