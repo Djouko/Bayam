@@ -18,15 +18,65 @@ final class Bayam_WA_Rapports
         });
     }
 
-    public static function texte_bilan(int $vendeur, string $depuis, string $libelle): string
+    /**
+     * Période dite en clair : « hier », « avant-hier », « cette semaine », « la semaine passée », « ce mois »,
+     * « le mois dernier », « lundi », « le 3 novembre », « 03/11 ». Par défaut aujourd'hui.
+     *
+     * @return array{0: string, 1: ?string, 2: string} début, fin exclue (null = jusqu'à maintenant), libellé
+     */
+    public static function periode(string $texte): array
     {
-        $b = Bayam_WA_Boutique::bilan($vendeur, $depuis);
+        $t = Bayam_WA_Outils::normaliser($texte);
+        $jour = new DateTimeImmutable('today', wp_timezone());
+        $f = static fn (DateTimeImmutable $d): string => $d->format('Y-m-d H:i:s');
+        $date = static fn (DateTimeImmutable $d): string => wp_date('j F', $d->getTimestamp());
+        if (preg_match('/avant[- ]?hier/', $t)) {
+            return [$f($jour->modify('-2 days')), $f($jour->modify('-1 day')), "d'avant-hier"];
+        }
+        if (preg_match('/\bhier\b/', $t)) {
+            return [$f($jour->modify('-1 day')), $f($jour), "d'hier"];
+        }
+        if (preg_match('/semaine (?:passee|derniere)|derniere semaine/', $t)) {
+            $lundi = $jour->modify('monday this week');
+            return [$f($lundi->modify('-7 days')), $f($lundi), 'de la semaine passée'];
+        }
+        if (preg_match('/\bsemaine\b/', $t)) {
+            return [$f($jour->modify('monday this week')), null, 'cette semaine'];
+        }
+        if (preg_match('/mois (?:passe|dernier)|dernier mois/', $t)) {
+            $premier = $jour->modify('first day of this month');
+            return [$f($premier->modify('-1 month')), $f($premier), 'du mois passé'];
+        }
+        if (preg_match('/\bmois\b/', $t)) {
+            return [$f($jour->modify('first day of this month')), null, 'ce mois-ci'];
+        }
+        $jours = ['lundi' => 'monday', 'mardi' => 'tuesday', 'mercredi' => 'wednesday', 'jeudi' => 'thursday', 'vendredi' => 'friday', 'samedi' => 'saturday', 'dimanche' => 'sunday'];
+        foreach ($jours as $fr => $en) {
+            if (preg_match("/\\b{$fr}\\b/", $t)) {
+                $d = strtolower($jour->format('l')) === $en ? $jour : $jour->modify("last {$en}");
+                return [$f($d), $f($d->modify('+1 day')), "du {$fr} " . $date($d)];
+            }
+        }
+        $mois = ['janvier' => 1, 'fevrier' => 2, 'mars' => 3, 'avril' => 4, 'mai' => 5, 'juin' => 6, 'juillet' => 7, 'aout' => 8, 'septembre' => 9, 'octobre' => 10, 'novembre' => 11, 'decembre' => 12];
+        if (preg_match('/\b(\d{1,2})\s*[\/-]\s*(\d{1,2})\b/', $t, $m) || (preg_match('/\b(\d{1,2})(?:er)?\s+(' . implode('|', array_keys($mois)) . ')\b/', $t, $m) && ($m[2] = $mois[$m[2]]))) {
+            $d = $jour->setDate((int) $jour->format('Y'), (int) $m[2], (int) $m[1]);
+            if ($d > $jour) {
+                $d = $d->modify('-1 year'); // « le 28/12 » dit en janvier : l'année passée
+            }
+            return [$f($d), $f($d->modify('+1 day')), 'du ' . $date($d)];
+        }
+        return [$f($jour), null, "aujourd'hui"];
+    }
+
+    public static function texte_bilan(int $vendeur, string $depuis, string $libelle, ?string $fin = null): string
+    {
+        $b = Bayam_WA_Boutique::bilan($vendeur, $depuis, $fin);
         $texte = "📊 *Bilan {$libelle}*\n"
             . 'Chiffre d\'affaires : *' . Bayam_WA_Outils::fcfa($b['ca']) . "*\n"
             . "Commandes : {$b['commandes']}\n"
             . 'Encaissé : ' . Bayam_WA_Outils::fcfa($b['encaisse']);
         if ($b['top']) {
-            $texte .= "\nMeilleures ventes : " . implode(', ', $b['top']);
+            $texte .= "\nArticles vendus : " . implode(', ', $b['top']);
         }
         if ($b['ruptures']) {
             $texte .= "\n⚠️ En rupture : " . implode(', ', array_slice($b['ruptures'], 0, 5));
@@ -66,12 +116,13 @@ final class Bayam_WA_Rapports
 
     // --- Dettes -------------------------------------------------------------------------------------------------
 
-    public static function ajouter_dette(int $vendeur, string $client, int $montant, ?string $echeance, ?string $numero = null): void
+    /** $commande : vente à laquelle la dette se rattache (acompte, crédit) ; elle passe en « terminée » une fois soldée. */
+    public static function ajouter_dette(int $vendeur, string $client, int $montant, ?string $echeance, ?string $numero = null, ?int $commande = null): void
     {
         global $wpdb;
         $wpdb->insert(Bayam_WA_Stockage::table('dettes'), [
             'vendeur' => $vendeur, 'client' => $client, 'numero' => $numero, 'montant' => $montant, 'reste' => $montant,
-            'echeance' => $echeance, 'cree' => current_time('mysql'),
+            'echeance' => $echeance, 'note' => $commande ? "commande:{$commande}" : null, 'cree' => current_time('mysql'),
         ]);
     }
 
@@ -93,6 +144,10 @@ final class Bayam_WA_Rapports
             $reste = (int) $d->reste - $paye;
             $wpdb->update($table, ['reste' => $reste, 'solde' => $reste === 0 ? current_time('mysql') : null], ['id' => $d->id]);
             $a_repartir -= $paye;
+            // Vente avec acompte ou à crédit entièrement payée : la commande est terminée (et comptée comme encaissée).
+            if ($reste === 0 && preg_match('/^commande:(\d+)$/', (string) $d->note, $c) && ($vente = wc_get_order((int) $c[1])) && $vente->has_status('on-hold')) {
+                $vente->update_status('completed', 'Soldée : le client a tout payé.');
+            }
         }
         $du = (int) $wpdb->get_var($wpdb->prepare("SELECT COALESCE(SUM(reste), 0) FROM $table WHERE vendeur = %d AND client = %s", $vendeur, $client));
         return "💰 Paiement de " . Bayam_WA_Outils::fcfa($montant) . " noté pour {$client}. "

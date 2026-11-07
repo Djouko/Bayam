@@ -28,10 +28,12 @@ RAYONS = {
 LIVRAISON = "Livraison à Douala sous 24 h, retrait possible en boutique."
 
 
-def article(cle, boutique, rayon, nom, prix, courte, description, recherche, stock=0, promo=None, declinaisons=None, id=None):
+def article(cle, boutique, rayon, nom, prix, courte, description, recherche, stock=0, promo=None, declinaisons=None, id=None, galerie=None):
+    """galerie : autres photos du même article, [clé des candidats, numéro], toujours de la même série."""
     return {
         'cle': cle, 'id': id, 'boutique': boutique, 'rayon': rayon, 'nom': nom, 'prix': prix, 'promo': promo,
         'stock': stock, 'declinaisons': declinaisons, 'courte': courte, 'description': description, 'recherche': recherche,
+        'galerie': galerie or [],
     }
 
 
@@ -54,7 +56,7 @@ ARTICLES = [
             "Robe de tous les jours en wax coton, coupe trapèze qui tombe juste au-dessus du genou, deux poches "
             "cachées dans les coutures. Idéale pour le bureau ou les sorties. " + LIVRAISON,
             ['african print short dress', 'ankara short dress', 'colorful print dress'], promo=12500,
-            declinaisons={'Taille': {'S': 1, 'M': 4, 'L': 2}}),
+            declinaisons={'Taille': {'S': 1, 'M': 4, 'L': 2}}, galerie=[['robe-courte-wax', 4]]),
     article('ensemble-pagne', AICHA, 'robes', 'Ensemble jupe et haut en pagne', 22000,
             'Jupe longue et haut assorti en wax, fait sur mesure en 72 h.',
             "Ensemble deux pièces : jupe longue fendue et haut ajusté à manches bouffantes, dans le même wax. "
@@ -208,7 +210,7 @@ ARTICLES = [
             'Djembé en bois sculpté, peau de chèvre, hauteur 60 cm.',
             "Djembé en bois massif sculpté à la main, peau de chèvre tendue, hauteur 60 cm. Son profond, idéal "
             "pour les chorales et animations. " + LIVRAISON,
-            ['djembe', 'african drum', 'djembe drum'], stock=2),
+            ['djembe', 'african drum', 'djembe drum'], stock=2, galerie=[['djembe', 2], ['djembe', 3]]),
 ]
 
 # Articles d'exemple de WooCommerce qui n'ont rien de réel ici (logos WordPress, téléchargements, doublons).

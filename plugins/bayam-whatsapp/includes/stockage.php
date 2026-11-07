@@ -111,7 +111,13 @@ final class Bayam_WA_Stockage
             'statut_contacts' => [],
             'assistant' => false,          // l'assistant répond aux clients à la place du vendeur occupé
             'assistant_jusqua' => null,    // fin prévue (horodatage), null = jusqu'à « bayam je reprends »
-            'remise_max' => Bayam_WA_Assistant::REMISE_MAX, // en %, sans prix minimum fixé par article       // numéros qui voient les statuts publiés ; vide = tous les contacts (liste réduite pour les essais)
+            'remise_max' => Bayam_WA_Assistant::REMISE_MAX, // en %, sans prix minimum fixé par article
+            // Conditions de paiement annoncées aux clients : « livraison » (à la réception), « acompte » (une part avant
+            // l'envoi, le reste à la livraison) ou « avance » (tout avant l'envoi), et numéros Mobile Money du transfert.
+            'paiement' => 'livraison',
+            'acompte' => 50,               // en % du total
+            'numeros_paiement' => [],      // ['momo' => '2376…', 'om' => '2376…']
+            'nom_paiement' => '',          // nom affiché par Mobile Money, pour rassurer le client
         ]);
     }
 

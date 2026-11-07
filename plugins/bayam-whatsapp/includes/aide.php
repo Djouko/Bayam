@@ -49,8 +49,14 @@ final class Bayam_WA_Aide
             'detail' => "Dans la discussion du client, écrivez *bayam menu* : il reçoit la liste de vos rayons, puis les articles en image et un lien personnel pour commander. Le client peut aussi l'obtenir seul en vous écrivant *bayam*.",
             'exemples' => ['bayam menu (dans la discussion du client)']],
         'vendu' => ['theme' => 'vendre', 'titre' => 'Enregistrer une vente faite en direct',
-            'detail' => "Enregistre une vente conclue au téléphone ou en boutique : le stock baisse, la vente entre dans vos bilans et le client reçoit un reçu. Donnez l'article, la taille, la quantité (x2), le prix réellement payé et le moyen : *cash*, *momo*, *om* ou *credit* suivi du nom du client (la dette est notée toute seule).",
-            'exemples' => ['bayam vendu robe sirène M x2 30000 momo', 'bayam vendu polo 12000 cash', 'bayam vendu casquette 6000 credit Paul']],
+            'detail' => "Enregistre une vente conclue au téléphone ou en boutique : le stock baisse, la vente entre dans vos bilans et le client reçoit un reçu. Donnez l'article, la taille, la quantité (x2), le prix réellement payé et le moyen : *cash*, *momo*, *om* ou *credit*. Le client a payé une partie ? Ajoutez *acompte* et la somme reçue. Avec le nom du client à la fin, ce qui reste à payer est noté dans ses dettes, et la vente se termine toute seule quand il a tout payé. Vous pouvez aussi l'écrire comme vous parlez : « j'ai vendu 2 robes à 30 mille par momo ».",
+            'exemples' => ['bayam vendu robe sirène M x2 30000 momo', 'bayam vendu polo 12000 cash', 'bayam vendu robe sirène M 18000 acompte 9000 momo Clarisse', 'bayam vendu casquette 6000 credit Paul']],
+        'politique' => ['theme' => 'vendre', 'titre' => 'Choisir vos conditions de paiement',
+            'detail' => "Dites comment vos clients paient : à la livraison, avec un acompte avant l'envoi (le reste à la livraison) ou tout avant l'envoi. Votre assistant, vos confirmations de commande et votre catalogue l'annoncent aux clients, avec la somme exacte à envoyer. Seul le propriétaire de la boutique peut le changer.",
+            'exemples' => ['bayam paiement', 'bayam paiement à la livraison', 'bayam paiement acompte 50%', 'bayam paiement avant envoi']],
+        'numero_paiement' => ['theme' => 'vendre', 'titre' => 'Donner le numéro MoMo ou OM qui reçoit l\'argent',
+            'detail' => "Le numéro MTN MoMo ou Orange Money où vos clients envoient l'acompte ou le paiement, avec le nom qu'affiche le transfert pour les rassurer. Seul le propriétaire de la boutique peut le donner ou le changer.",
+            'exemples' => ['bayam momo 6 54 77 00 63 Aïcha Mbarga', 'bayam om 6 90 12 34 56', 'bayam momo retirer']],
         'lien' => ['theme' => 'vendre', 'titre' => 'Créer un lien de paiement pour un client',
             'detail' => "Crée un lien que vous transférez au client pour qu'il paie à distance (Mobile Money ou carte selon ce que la boutique accepte). Vous êtes prévenu ici dès que le paiement arrive.",
             'exemples' => ['bayam lien 15000 Marie', 'bayam lien 7 500 F Tata Odile']],
@@ -61,8 +67,8 @@ final class Bayam_WA_Aide
             'detail' => "Liste les commandes à payer et à préparer, avec le client et le montant.",
             'exemples' => ['bayam commandes', 'bayam montre-moi mes commandes']],
         'bilan' => ['theme' => 'clients', 'titre' => 'Voir vos ventes et choisir l\'heure du résumé',
-            'detail' => "Résume vos ventes : aujourd'hui, *hier*, *semaine* ou *mois* : montant encaissé, meilleures ventes, articles en rupture et dettes à recouvrer. *rapport 21h* choisit l'heure du résumé quotidien, *rapport off* l'arrête.",
-            'exemples' => ['bayam bilan', 'bayam bilan semaine', 'bayam mes ventes du mois', 'bayam rapport 21h']],
+            'detail' => "Résume vos ventes sur la période que vous dites : aujourd'hui, *hier*, *avant-hier*, un jour (*lundi*, *le 3 novembre*, *03/11*), *cette semaine*, *la semaine passée*, *ce mois* ou *le mois dernier* : chiffre d'affaires, argent encaissé, articles vendus, ruptures et dettes à recouvrer. *rapport 21h* choisit l'heure du résumé quotidien, *rapport off* l'arrête.",
+            'exemples' => ['bayam bilan', "bayam qu'est-ce que j'ai vendu hier ?", 'bayam bilan avant-hier', 'bayam mes ventes de la semaine passée', 'bayam rapport 21h']],
         'client' => ['theme' => 'clients', 'titre' => 'Voir l\'historique d\'un client',
             'detail' => "Donne les achats d'un client chez vous (dates, montants, état) à partir de son numéro.",
             'exemples' => ['bayam client 6 90 00 00 10']],
@@ -102,6 +108,9 @@ final class Bayam_WA_Aide
         'menu' => ['theme' => 'boutique', 'titre' => 'Voir l\'essentiel en un coup d\'œil',
             'detail' => "Les actions les plus utiles, avec un exemple chacune.",
             'exemples' => ['bayam menu', 'bayam']],
+        'raccourcis' => ['theme' => 'boutique', 'titre' => 'Voir ce que BAYAM a appris de vous',
+            'detail' => "Quand vous écrivez à votre façon et que vous validez ma proposition, je retiens la tournure : la fois suivante, je la comprends tout de suite. Vous voyez ici ce que j'ai appris, et vous pouvez tout effacer.",
+            'exemples' => ['bayam raccourcis', 'bayam raccourcis effacer']],
         'aide' => ['theme' => 'boutique', 'titre' => 'Voir toutes les actions, ou le détail d\'une action',
             'detail' => "Sans rien après : toutes les actions par thème. Avec le nom d'une action : à quoi elle sert, comment l'écrire, des exemples. Vous pouvez aussi demander « comment publier ? » ou « c'est quoi le plancher ? ».",
             'exemples' => ['bayam aide', 'bayam aide publier', 'bayam comment créer une promo ?']],
@@ -112,7 +121,8 @@ final class Bayam_WA_Aide
 
     /** Mots que les vendeurs emploient pour désigner une action, en plus des mots-clés du Copilote. */
     private const SYNONYMES = [
-        'vendre' => 'vendu', 'vente' => 'vendu', 'ventes' => 'bilan', 'payer' => 'lien', 'paiement' => 'lien', 'encaisser' => 'lien',
+        'vendre' => 'vendu', 'vente' => 'vendu', 'ventes' => 'bilan', 'payer' => 'lien', 'paiement' => 'politique', 'encaisser' => 'lien',
+        'acompte' => 'vendu', 'livraison' => 'politique', 'conditions' => 'politique', 'mobile' => 'numero_paiement', 'appris' => 'raccourcis',
         'photo' => 'photo', 'photos' => 'photo', 'nouveau' => 'photo', 'ajouter' => 'photo', 'creer' => 'photo', 'article' => 'photo',
         'stocker' => 'stock', 'quantite' => 'stock', 'reception' => 'stock', 'arrivage' => 'stock',
         'montrer' => 'vitrine', 'vitrine' => 'vitrine', 'rayons' => 'vitrine',
@@ -163,6 +173,10 @@ final class Bayam_WA_Aide
     public static function action_de(string $demande): ?string
     {
         $mots = preg_split('/[^\p{L}\d-]+/u', Bayam_WA_Outils::normaliser($demande), -1, PREG_SPLIT_NO_EMPTY);
+        // « paiement à la livraison », « mes conditions » : les conditions de paiement, pas le lien de paiement.
+        if (array_intersect($mots, ['livraison', 'conditions', 'politique'])) {
+            return 'politique';
+        }
         foreach ($mots as $mot) {
             $intention = isset(self::ACTIONS[$mot]) ? $mot : Bayam_WA_Copilote::intention($mot);
             if ($intention !== null && isset(self::ACTIONS[$intention])) {
@@ -190,6 +204,6 @@ final class Bayam_WA_Aide
     /** Nom d'une action tel qu'on l'écrit après « bayam ». */
     private static function nom(string $cle): string
     {
-        return ['photo' => 'photo + légende', 'vitrine' => 'menu (chez un client)', 'paye' => 'payé', 'ok' => 'ok', 'annule' => 'annule'][$cle] ?? $cle;
+        return ['photo' => 'photo + légende', 'vitrine' => 'menu (chez un client)', 'paye' => 'payé', 'politique' => 'paiement', 'numero_paiement' => 'momo / om'][$cle] ?? $cle;
     }
 }

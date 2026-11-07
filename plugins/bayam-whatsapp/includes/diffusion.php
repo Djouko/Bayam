@@ -124,8 +124,12 @@ final class Bayam_WA_Diffusion
                 $session = Bayam_WA_Stockage::reglages($vendeur)['session'];
                 $boutique = Bayam_WA_Outils::nom_boutique($vendeur);
                 $lien = Bayam_WA_Liens::produit($vendeur, $p, $d->type === 'statut' ? 'statut' : 'groupe', $d->chat);
-                $carte = Bayam_WA_Cartes::carte($p, $lien, $boutique, $d->type === 'statut');
-                $legende = $p->get_name() . ' : ' . Bayam_WA_Outils::fcfa((float) $p->get_price()) . "\nCommander : " . $lien;
+                // Statut : affiche visuelle (nom et prix sur l'image), la légende ne garde que le lien. Groupes : la vraie
+                // photo de l'article, détails et lien dans la légende ; rien n'est dit deux fois.
+                $statut = $d->type === 'statut';
+                $photo = $statut ? null : Bayam_WA_Cartes::photo_whatsapp($p);
+                $carte = $photo ?? Bayam_WA_Cartes::carte($p, $lien, $boutique, $statut);
+                $legende = $photo ? Bayam_WA_Cartes::legende($p, $lien) : '👉 Commander : ' . $lien;
                 $r = $d->type === 'statut'
                     ? Bayam_WA_Waha::client()->statut_image($session, $carte, $legende, Bayam_WA_Stockage::reglages($vendeur)['statut_contacts'])
                     : Bayam_WA_Waha::client()->image($session, $d->chat, $carte, Bayam_WA_Outils::MARQUE . $legende);

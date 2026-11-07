@@ -108,6 +108,72 @@ final class Bayam_WA_Boutique
         return array_values(array_unique($valeurs));
     }
 
+    /**
+     * Conditions de paiement de la boutique, dites au client (assistant, confirmations, catalogue) : à la livraison,
+     * acompte avant l'envoi ou totalité avant l'envoi, avec les numéros Mobile Money. Avec un montant, les sommes à
+     * envoyer sont calculées (acompte arrondi à la centaine supérieure).
+     */
+    public static function conditions_paiement(int $vendeur, ?float $total = null): string
+    {
+        $r = Bayam_WA_Stockage::reglages($vendeur);
+        $numeros = self::numeros_paiement($vendeur);
+        $par = $numeros !== '' ? " par {$numeros}" : ' par Mobile Money';
+        if ($r['paiement'] === 'acompte') {
+            $pct = max(10, min(90, (int) $r['acompte']));
+            if ($total === null) {
+                return "Acompte de {$pct} %{$par} avant l'envoi, le reste à la livraison.";
+            }
+            $acompte = (int) (ceil($total * $pct / 100 / 100) * 100);
+            return 'Pour lancer la livraison, envoyez un acompte de *' . Bayam_WA_Outils::fcfa($acompte) . "*{$par}, puis la capture ici. Le reste ("
+                . Bayam_WA_Outils::fcfa($total - $acompte) . ') se paie à la livraison.';
+        }
+        if ($r['paiement'] === 'avance') {
+            return $total === null ? "Paiement complet{$par} avant l'envoi."
+                : 'Pour lancer la livraison, envoyez *' . Bayam_WA_Outils::fcfa($total) . "*{$par}, puis la capture ici.";
+        }
+        return $total === null ? 'Paiement à la livraison, en espèces ou par Mobile Money.' : 'Vous payez à la livraison, en espèces ou par Mobile Money.';
+    }
+
+    /** « MTN MoMo au 6 54 77 00 63 ou Orange Money au 6 90 … (Aïcha Mbarga) », ou vide si aucun numéro donné. */
+    public static function numeros_paiement(int $vendeur): string
+    {
+        $r = Bayam_WA_Stockage::reglages($vendeur);
+        $morceaux = [];
+        foreach (['momo' => 'MTN MoMo', 'om' => 'Orange Money'] as $cle => $nom) {
+            if (!empty($r['numeros_paiement'][$cle])) {
+                $morceaux[] = $nom . ' au ' . Bayam_WA_Outils::numero_lisible((string) $r['numeros_paiement'][$cle]);
+            }
+        }
+        return $morceaux ? implode(' ou ', $morceaux) . ($r['nom_paiement'] !== '' ? " ({$r['nom_paiement']})" : '') : '';
+    }
+
+    /** Déclinaisons encore en stock, par attribut : « Taille : S, M, XL · Couleur : Rouge » (vide pour un article simple). */
+    public static function options_disponibles(WC_Product $p): string
+    {
+        if (!$p->is_type('variable')) {
+            return '';
+        }
+        $valeurs = [];
+        foreach ($p->get_children() as $id) {
+            $v = wc_get_product($id);
+            if (!$v || !$v->is_in_stock() || !$v->is_purchasable()) {
+                continue;
+            }
+            foreach ($v->get_attributes() as $nom => $valeur) {
+                if ($valeur !== '') {
+                    $libelle = wc_attribute_label(str_replace('attribute_', '', $nom), $p);
+                    $terme = taxonomy_exists($nom) ? get_term_by('slug', $valeur, $nom) : null;
+                    $valeurs[$libelle][$terme ? $terme->name : $valeur] = true;
+                }
+            }
+        }
+        $morceaux = [];
+        foreach ($valeurs as $libelle => $liste) {
+            $morceaux[] = html_entity_decode($libelle, ENT_QUOTES, 'UTF-8') . ' : ' . implode(', ', array_keys($liste));
+        }
+        return implode(' · ', $morceaux);
+    }
+
     /** Modes de livraison réellement réglés (zones WooCommerce) : « Livraison en ville : 1 000 FCFA ». */
     public static function modes_livraison(): array
     {
@@ -236,7 +302,8 @@ final class Bayam_WA_Boutique
      * Vente enregistrée par le vendeur (« vendu robe rouge M x2 15000 cash ») : commande terminée à son nom,
      * stock décrémenté par WooCommerce, ligne de commission WCFM créée.
      */
-    public static function vendre(int $vendeur, WC_Product $p, ?WC_Product $variante, int $quantite, ?int $prix_total, string $mode, string $client = '')
+    /** $acompte : somme reçue tout de suite quand le client paie en deux fois (le reste à la livraison). */
+    public static function vendre(int $vendeur, WC_Product $p, ?WC_Product $variante, int $quantite, ?int $prix_total, string $mode, string $client = '', ?int $acompte = null)
     {
         $article = $variante ?: $p;
         $commande = wc_create_order(['status' => 'pending', 'created_via' => 'bayam-whatsapp']);
@@ -250,10 +317,17 @@ final class Bayam_WA_Boutique
         }
         $commande->add_order_note('Vente enregistrée depuis le Copilote WhatsApp (' . ($libelles[$mode] ?? 'Espèces') . ').');
         $commande->calculate_totals(false);
+        if ($acompte !== null && $acompte < (float) $commande->get_total()) {
+            $commande->update_meta_data('_bayam_acompte', $acompte);
+            $commande->set_payment_method_title('Acompte ' . ($libelles[$mode] ?? 'Espèces'));
+            $commande->add_order_note('Acompte reçu : ' . Bayam_WA_Outils::fcfa($acompte) . ', reste ' . Bayam_WA_Outils::fcfa((float) $commande->get_total() - $acompte) . ' à encaisser.');
+        } else {
+            $acompte = null;
+        }
         $commande->save();
         // WCFM rattache la commande à la boutique (table des commandes vendeur) au traitement de la commande.
         do_action('woocommerce_checkout_order_processed', $commande->get_id(), [], $commande);
-        $commande->update_status($mode === 'credit' ? 'on-hold' : 'completed', 'Vente directe.');
+        $commande->update_status($mode === 'credit' || $acompte !== null ? 'on-hold' : 'completed', 'Vente directe.');
         return $commande;
     }
 
@@ -284,24 +358,36 @@ final class Bayam_WA_Boutique
     }
 
     /** Bilan d'une période : chiffre d'affaires, commandes, encaissé, 3 meilleurs produits, ruptures. */
-    public static function bilan(int $vendeur, string $debut): array
+    /** Ventes de la boutique entre $debut et $fin (exclue ; null = jusqu'à maintenant), heures de Douala. */
+    public static function bilan(int $vendeur, string $debut, ?string $fin = null): array
     {
         global $wpdb;
         $lignes = $wpdb->get_results($wpdb->prepare(
             "SELECT order_id, product_id, quantity, item_total, order_status FROM {$wpdb->prefix}wcfm_marketplace_orders
-             WHERE vendor_id = %d AND is_trashed = 0 AND created >= %s AND order_status NOT IN ('cancelled','failed','refunded')",
-            $vendeur, $debut
+             WHERE vendor_id = %d AND is_trashed = 0 AND created >= %s AND created < %s AND order_status NOT IN ('cancelled','failed','refunded')",
+            $vendeur, $debut, $fin ?? '9999-12-31'
         ));
+        $acomptes = [];
         $ca = 0.0;
         $encaisse = 0.0;
         $commandes = [];
         $ventes = [];
         $paye = [];
+        $ventes_lues = [];
         foreach ($lignes as $l) {
+            // Le registre de la place de marché garde les lignes des commandes supprimées : elles ne comptent pas.
+            $vente = $ventes_lues[$l->order_id] ??= wc_get_order((int) $l->order_id);
+            if (!$vente) {
+                continue;
+            }
             $ca += (float) $l->item_total;
-            $paye[$l->order_id] ??= ($c = wc_get_order((int) $l->order_id)) && Bayam_WA_Paiements::encaissee($c);
+            $paye[$l->order_id] ??= Bayam_WA_Paiements::encaissee($vente);
             if ($paye[$l->order_id]) {
                 $encaisse += (float) $l->item_total;
+            } elseif (!isset($acomptes[$l->order_id])) {
+                // Vente avec acompte : seul l'acompte est encaissé tant que le client n'a pas tout payé.
+                $acomptes[$l->order_id] = (float) $vente->get_meta('_bayam_acompte');
+                $encaisse += $acomptes[$l->order_id];
             }
             $commandes[$l->order_id] = true;
             $ventes[$l->product_id] = ($ventes[$l->product_id] ?? 0) + (int) $l->quantity;
@@ -310,7 +396,7 @@ final class Bayam_WA_Boutique
         $liens = wc_get_orders([
             'limit' => -1, 'meta_key' => '_bayam_vendeur', 'meta_value' => $vendeur,
             'status' => ['pending', 'on-hold', 'processing', 'completed'],
-            'date_created' => '>=' . strtotime(get_gmt_from_date($debut) . ' UTC'),
+            'date_created' => strtotime(get_gmt_from_date($debut) . ' UTC') . '...' . ($fin ? strtotime(get_gmt_from_date($fin) . ' UTC') - 1 : time()),
         ]);
         foreach ($liens as $c) {
             $ca += (float) $c->get_total();
@@ -321,7 +407,7 @@ final class Bayam_WA_Boutique
         }
         arsort($ventes);
         $top = [];
-        foreach (array_slice($ventes, 0, 3, true) as $id => $q) {
+        foreach (array_slice($ventes, 0, 8, true) as $id => $q) {
             $p = wc_get_product($id);
             $top[] = ($p ? $p->get_name() : "#$id") . " ($q)";
         }

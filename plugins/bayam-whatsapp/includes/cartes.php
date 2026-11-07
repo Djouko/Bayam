@@ -15,6 +15,52 @@ final class Bayam_WA_Cartes
     private const MENTHE = [230, 247, 240];
 
     /** @return array{mimetype: string, data: string} image JPEG en base64, prête pour WAHA */
+    /**
+     * Photo réelle de l'article, sans texte ajouté, allégée pour WhatsApp (carré de 720 px, JPEG, ~60 Ko) : c'est
+     * l'article que le client regarde ; nom, prix et lien vont dans la légende. Gardée en cache tant que la photo
+     * ne change pas. null si l'article n'a pas de photo.
+     */
+    public static function photo_whatsapp(WC_Product $p): ?array
+    {
+        $id = (int) $p->get_image_id();
+        $chemin = $id ? get_attached_file($id) : '';
+        if (!$chemin || !is_readable($chemin)) {
+            return null;
+        }
+        $cle = 'photo_' . $id . '_' . filemtime($chemin);
+        $donnees = wp_cache_get($cle, 'bayam_wa');
+        if ($donnees === false) {
+            $editeur = wp_get_image_editor($chemin);
+            if (is_wp_error($editeur)) {
+                return null;
+            }
+            $editeur->resize(720, 720, true);
+            $editeur->set_quality(72);
+            $sauve = $editeur->save(get_temp_dir() . 'bayam-' . wp_generate_password(8, false) . '.jpg', 'image/jpeg');
+            if (is_wp_error($sauve)) {
+                return null;
+            }
+            $donnees = base64_encode((string) file_get_contents($sauve['path']));
+            wp_delete_file($sauve['path']);
+            wp_cache_set($cle, $donnees, 'bayam_wa', DAY_IN_SECONDS);
+        }
+        return ['mimetype' => 'image/jpeg', 'filename' => sanitize_title($p->get_name()) . '.jpg', 'data' => $donnees];
+    }
+
+    /** Légende d'un article partagé seul : nom, prix (et ancien prix barré), tailles disponibles, une phrase, lien. */
+    public static function legende(WC_Product $p, string $lien): string
+    {
+        $prix = Bayam_WA_Outils::fcfa((float) $p->get_price());
+        $regulier = (float) ($p->is_type('variable') ? $p->get_variation_regular_price('min') : $p->get_regular_price());
+        $options = Bayam_WA_Boutique::options_disponibles($p);
+        $resume = wp_trim_words(wp_strip_all_tags($p->get_short_description() ?: $p->get_description()), 18, '…');
+        return '*' . $p->get_name() . "*\n💰 *" . ($p->is_type('variable') ? 'dès ' : '') . $prix . '*'
+            . ($regulier > (float) $p->get_price() ? ' ~' . Bayam_WA_Outils::fcfa($regulier) . '~' : '')
+            . "\n✅ " . ($options !== '' ? $options : ($p->is_in_stock() ? 'En stock' : 'Épuisé pour le moment'))
+            . ($resume !== '' ? "\n{$resume}" : '')
+            . "\n👉 Commander : {$lien}";
+    }
+
     public static function carte(WC_Product $p, string $lien, string $boutique, bool $statut = false): array
     {
         [$l, $h] = $statut ? [1080, 1920] : [1080, 1350];

@@ -338,5 +338,35 @@
   "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
   "source": "wikimedia commons",
   "foreign_landing_url": "https://commons.wikimedia.org/wiki/File:Djembe_Oblique_3rd_20231001.jpg"
+ },
+ "robe-courte-wax-2": {
+  "title": "Jeune fille habillée en robe pagne.jpg",
+  "creator": "Josué kanda batakila",
+  "creator_url": null,
+  "license": "CC BY-SA 4.0",
+  "license_version": "",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "wikimedia commons",
+  "foreign_landing_url": "https://commons.wikimedia.org/wiki/File:Jeune_fille_habill%C3%A9e_en_robe_pagne.jpg"
+ },
+ "djembe-2": {
+  "title": "Djembe Oblique 20231001.jpg",
+  "creator": "Niranjan Arminius",
+  "creator_url": null,
+  "license": "CC BY-SA 4.0",
+  "license_version": "",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "wikimedia commons",
+  "foreign_landing_url": "https://commons.wikimedia.org/wiki/File:Djembe_Oblique_20231001.jpg"
+ },
+ "djembe-3": {
+  "title": "Djembe 2 20231001.jpg",
+  "creator": "Niranjan Arminius",
+  "creator_url": null,
+  "license": "CC BY-SA 4.0",
+  "license_version": "",
+  "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
+  "source": "wikimedia commons",
+  "foreign_landing_url": "https://commons.wikimedia.org/wiki/File:Djembe_2_20231001.jpg"
  }
 }

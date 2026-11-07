@@ -154,7 +154,12 @@ def telecharger():
     (ICI / 'images').mkdir(exist_ok=True)
     fichier_credits = ICI / 'credits.json'
     credits = json.loads(fichier_credits.read_text(encoding='utf8')) if fichier_credits.exists() else {}
-    for cle, numero in choix.items():
+    # Photo principale (choix.json) puis galerie de chaque article (catalogue.json) : <clé>.jpg, <clé>-2.jpg, <clé>-3.jpg…
+    a_telecharger = dict(choix)
+    for article in ARTICLES:
+        for rang, source in enumerate(article.get('galerie', []), start=2):
+            a_telecharger[f"{article['cle']}-{rang}"] = source
+    for cle, numero in a_telecharger.items():
         source, numero = numero if isinstance(numero, list) else (cle, numero)
         c = tous[source][numero]
         image = ICI / 'images' / f'{cle}.jpg'

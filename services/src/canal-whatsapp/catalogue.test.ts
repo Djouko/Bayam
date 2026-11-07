@@ -8,10 +8,11 @@ const boutique: Boutique = {
   id: 3, nom: 'Mode Aïcha', actif: true, chat_vendeur: '237654770063@c.us', identifiants: ['237654770063@c.us'], base_publique: 'https://exemple.trycloudflare.com',
   rayons: [{ id: 60, nom: 'Robes', nombre: 4 }, { id: 61, nom: 'Pagnes et tissus', nombre: 2 }, { id: 49, nom: 'T-shirts et polos', nombre: 3 }],
   promos: 1, livraison: ['Livraison en ville : 1 000 FCFA', 'Retrait en boutique : gratuit'], paiements: ['Paiement à la livraison'],
+  conditions: 'Acompte de 50 % par MTN MoMo au 6 54 77 00 63 (Aïcha Mbarga) avant l\'envoi, le reste à la livraison.',
 };
 const article = (id: number, extra: Partial<Produit> = {}): Produit => ({
   id, nom: `Robe sirène ${id}`, prix: 18500, prix_regulier: 18500, en_stock: true, variable: false, stock: 6, options: '',
-  photo: '/wp-content/uploads/robe-768x768.jpg', lien: `https://exemple.trycloudflare.com/b/abc${id}`, resume: 'Coupée et cousue à Douala.', ...extra,
+  photo: '/wp-content/uploads/robe-768x768.jpg', galerie: [], lien: `https://exemple.trycloudflare.com/b/abc${id}`, resume: 'Coupée et cousue à Douala.', ...extra,
 });
 
 /** Toute liste respecte les limites de WhatsApp et porte la marque BAYAM en tête. */
@@ -100,6 +101,13 @@ test('article choisi : photo, prix, stock, tailles et lien personnel dans un seu
   }
 });
 
+test('article avec plusieurs photos : la première avec les détails, les autres à la suite sans texte', () => {
+  const envois = produit(boutique, article(10, { galerie: ['/wp-content/uploads/robe-2.jpg', '/wp-content/uploads/robe-3.jpg'] }), 'https://x/commander/j');
+  assert.deepEqual(envois.map((e) => e.type), ['photo', 'photo', 'photo']);
+  assert.ok(envois[0].type === 'photo' && envois[0].legende.includes('/commander/j'));
+  assert.ok(envois[1].type === 'photo' && envois[1].legende === MARQUE && envois[2].type === 'photo' && envois[2].legende === MARQUE);
+});
+
 test('article sans photo : même texte ; épuisé ou disparu : message clair', () => {
   assert.equal(produit(boutique, article(8, { photo: null }), 'https://x/commander/j')[0].type, 'texte');
   assert.equal(produit(boutique, article(9, { en_stock: false }), 'https://x')[0].type, 'texte');
@@ -115,7 +123,7 @@ test('mes commandes : liste, aucune commande, numéro illisible', () => {
 
 test('livraison et paiement : ce qui est réellement réglé, sinon « à convenir »', () => {
   const [m] = livraison(boutique);
-  assert.ok(m.type === 'texte' && m.texte.includes('Livraison en ville') && m.texte.includes('Paiement à la livraison'));
+  assert.ok(m.type === 'texte' && m.texte.includes('Livraison en ville') && m.texte.includes('Paiement à la livraison') && m.texte.includes('Acompte de 50 %'));
   const [vide] = livraison({ ...boutique, livraison: [], paiements: [] });
   assert.ok(vide.type === 'texte' && vide.texte.includes('À convenir'));
 });

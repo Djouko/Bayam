@@ -18,6 +18,8 @@ export type Produit = {
   options: string;
   /** Chemin de la photo (/wp-content/…, 768 px) servie par l'origine interne, pour la vitrine et la fiche. */
   photo: string | null;
+  /** Autres photos de l'article (trois au plus), envoyées à la suite de la première. */
+  galerie: string[];
   /** Lien court public vers la fiche (clics comptés par canal). */
   lien: string;
   resume: string;
@@ -36,6 +38,8 @@ export type Boutique = {
   promos: number;
   livraison: string[];
   paiements: string[];
+  /** Conditions de paiement de la boutique : à la livraison, acompte ou tout avant l'envoi, numéros Mobile Money. */
+  conditions: string;
 };
 export type PageRayon = { total: number; produits: Produit[] };
 export type Commande = { numero: string; total: number; statut: string; date: string };

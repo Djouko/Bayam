@@ -111,7 +111,7 @@ export function pageRayon(b: Boutique, rayon: Rayon, page: PageRayon, numero: nu
     { id: idAction({ type: 'vendeur' }), titre: 'Parler au vendeur', description: 'Une question, un prix, une taille' },
   );
   return [
-    { type: 'vitrine', titre: rayon.nom, sousTitre: `${b.nom} · ${position}`, legende: `${MARQUE}*${rayon.nom}* · ${position}`, premier: debut, produits: page.produits, infos: [...b.livraison, ...b.paiements] },
+    { type: 'vitrine', titre: rayon.nom, sousTitre: `${b.nom} · ${position}`, legende: `${MARQUE}*${rayon.nom}* · ${position}`, premier: debut, produits: page.produits, infos: [...b.livraison, b.conditions] },
     liste(rayon.nom, `Quel article vous intéresse ? Touchez *Choisir* : photo, détails et commande en un message 👇`, 'Choisir', b.nom, [
       { titre: 'Articles', lignes: page.produits.map((p, i) => ({ id: idAction({ type: 'produit', produit: p.id }), titre: `${debut + i}. ${p.nom}`, description: [prixTexte(p), p.options].filter(Boolean).join(' · ') })) },
       { titre: 'Continuer', lignes: continuer },
@@ -134,7 +134,12 @@ export function produit(b: Boutique, p: Produit | null, lien: string | null): En
     `\n🛒 *Commander* : touchez le lien, ${p.variable ? 'choisissez la taille, ' : ''}indiquez la quantité et la livraison. La suite arrive ici.`,
     `🔒 Lien personnel, valable 24 h :\n${lien}`,
   ].filter(Boolean).join('\n');
-  return [p.photo ? { type: 'photo', legende, chemin: p.photo } : { type: 'texte', texte: legende }];
+  if (!p.photo) {
+    return [{ type: 'texte', texte: legende }];
+  }
+  // La première photo porte tous les détails ; les autres suivent sans texte visible (WhatsApp les regroupe en
+  // album). Leur légende est la seule marque invisible : leur écho est reconnu comme venant de BAYAM, pas du vendeur.
+  return [{ type: 'photo', legende, chemin: p.photo }, ...p.galerie.map((chemin): Envoi => ({ type: 'photo', legende: MARQUE, chemin }))];
 }
 
 export function commandes(b: Boutique, liste: Commande[] | null): Envoi[] {
@@ -150,7 +155,7 @@ export function commandes(b: Boutique, liste: Commande[] | null): Envoi[] {
 
 export function livraison(b: Boutique): Envoi[] {
   const puces = (l: string[]) => (l.length ? l.map((x) => `• ${x}`).join('\n') : '• À convenir avec la boutique');
-  return [{ type: 'texte', texte: `${MARQUE}🚚 *Livraison*\n${puces(b.livraison)}\n\n💳 *Paiement*\n${puces(b.paiements)}\n\nUne question ? Écrivez-nous ici, *${b.nom}* vous répond.` }];
+  return [{ type: 'texte', texte: `${MARQUE}🚚 *Livraison*\n${puces(b.livraison)}\n\n💳 *Paiement*\n${puces(b.paiements)}\n${b.conditions}\n\nUne question ? Écrivez-nous ici, *${b.nom}* vous répond.` }];
 }
 
 export function vendeur(b: Boutique, nom: string, numero: string | null): Envoi[] {

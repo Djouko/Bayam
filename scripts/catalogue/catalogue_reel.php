@@ -97,7 +97,15 @@ foreach ($donnees['articles'] as $a) {
     $p->update_meta_data('_bayam_cle', $a['cle']);
     if ($image = bayam_catalogue_photo($dossier, $a, $credits)) {
         $p->set_image_id($image);
-        $p->set_gallery_image_ids([]);
+        // Galerie : autres photos du même article (images/<clé>-2.jpg, -3.jpg…).
+        $galerie = [];
+        foreach (array_keys($a['galerie'] ?? []) as $rang) {
+            $autre = bayam_catalogue_photo($dossier, ['cle' => $a['cle'] . '-' . ($rang + 2)] + $a, $credits);
+            if ($autre) {
+                $galerie[] = $autre;
+            }
+        }
+        $p->set_gallery_image_ids($galerie);
     }
     if (!$variable) {
         bayam_catalogue_prix_stock($p, $a, (int) $a['stock']);
@@ -179,12 +187,14 @@ foreach (['music', 'decor'] as $slug) {
 // --- Page « Crédits photos » (mention exigée par les licences Creative Commons) ---------------------------------------
 $lignes = [];
 foreach ($donnees['articles'] as $a) {
-    $c = $credits[$a['cle']] ?? null;
+  foreach (array_merge([$a['cle']], array_map(static fn ($r) => $a['cle'] . '-' . ($r + 2), array_keys($a['galerie'] ?? []))) as $cle_photo) {
+    $c = $credits[$cle_photo] ?? null;
     if ($c) {
         $lignes[] = sprintf('<li><strong>%s</strong> : photo de %s, licence <a href="%s" rel="nofollow">%s %s</a>, source <a href="%s" rel="nofollow">%s</a>.</li>',
             esc_html($a['nom']), esc_html($c['creator'] ?: 'auteur inconnu'), esc_url((string) $c['license_url']), esc_html(strtoupper((string) $c['license'])),
             esc_html((string) $c['license_version']), esc_url((string) $c['foreign_landing_url']), esc_html((string) $c['source']));
     }
+  }
 }
 $page = get_page_by_path('credits-photos');
 $contenu = '<p>Les photos des boutiques de démonstration sont des photos libres de droits. Merci à leurs auteurs.</p><ul>' . implode('', $lignes) . '</ul>';

@@ -268,6 +268,7 @@ TXT;
         return "Boutique : " . Bayam_WA_Outils::nom_boutique($vendeur) . "\n"
             . "Livraison : " . self::livraison() . "\n"
             . "Paiement : " . ($paiements ? implode(', ', $paiements) : 'à la livraison') . "\n"
+            . "Conditions de paiement de la boutique (à annoncer telles quelles, sans en inventer d'autres) : " . Bayam_WA_Boutique::conditions_paiement($vendeur) . "\n"
             . ($cites ? "Le client répond à une publication de la boutique sur : " . implode(', ', array_map(static fn ($p) => $p->get_name(), $cites)) . "\n" : '')
             . "Articles (stock en temps réel) :\n" . implode("\n", $lignes);
     }

@@ -37,7 +37,8 @@
     "african print dress",
     "ankara dress",
     "wax print dress"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "kaba-ngondo",
@@ -55,7 +56,8 @@
     "kaba dress",
     "african kaftan dress",
     "boubou dress"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "robe-courte-wax",
@@ -79,6 +81,12 @@
     "african print short dress",
     "ankara short dress",
     "colorful print dress"
+   ],
+   "galerie": [
+    [
+     "robe-courte-wax",
+     4
+    ]
    ]
   },
   {
@@ -97,7 +105,8 @@
     "african print skirt set",
     "ankara two piece",
     "african fashion woman"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "pagne-wax-6y",
@@ -115,7 +124,8 @@
     "wax print fabric",
     "african fabric",
     "ankara fabric"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "super-wax-6y",
@@ -133,7 +143,8 @@
     "african wax fabric colorful",
     "kente fabric",
     "printed cotton fabric africa"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "chemise-pagne-homme",
@@ -158,7 +169,8 @@
     "african print shirt man",
     "ankara shirt",
     "man wearing african shirt"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "chemise-wax-longue",
@@ -181,7 +193,8 @@
    "recherche": [
     "african print long sleeve shirt",
     "blue wax shirt"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "polo",
@@ -199,7 +212,8 @@
     "polo shirt",
     "blue polo shirt",
     "man polo shirt"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "t-shirt",
@@ -217,7 +231,8 @@
     "white t-shirt",
     "plain t-shirt",
     "cotton t-shirt"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "t-shirt-col-v",
@@ -235,7 +250,8 @@
     "v-neck t-shirt",
     "v neck shirt",
     "grey t-shirt"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "sweat-capuche",
@@ -253,7 +269,8 @@
     "hoodie",
     "red hoodie",
     "sweatshirt hood"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "casquette-brodee",
@@ -271,7 +288,8 @@
     "embroidered cap",
     "baseball cap",
     "cap embroidery"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "sac-main-cuir",
@@ -289,7 +307,8 @@
     "leather handbag",
     "brown leather bag",
     "women handbag"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "sac-dos-cuir",
@@ -307,7 +326,8 @@
     "leather backpack",
     "backpack",
     "brown backpack"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "pochette-soiree",
@@ -325,7 +345,8 @@
     "clutch bag",
     "evening clutch",
     "gold clutch"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "baskets-blanches",
@@ -351,7 +372,8 @@
     "white sneakers",
     "white shoes",
     "sneakers"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "sandales-cuir",
@@ -377,7 +399,8 @@
     "leather sandals",
     "handmade sandals",
     "brown sandals"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "escarpins-noirs",
@@ -402,7 +425,8 @@
     "black high heels",
     "black pumps",
     "high heel shoes"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "montre-homme",
@@ -420,7 +444,8 @@
     "men wrist watch",
     "steel watch",
     "wristwatch"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "montre-femme",
@@ -438,7 +463,8 @@
     "gold watch women",
     "women watch",
     "golden wristwatch"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "collier-perles",
@@ -456,7 +482,8 @@
     "african beads necklace",
     "bead necklace",
     "colorful necklace"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "bracelet-jonc",
@@ -473,7 +500,8 @@
    "recherche": [
     "gold bangle",
     "gold bracelet"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "ceinture-cuir",
@@ -491,7 +519,8 @@
     "leather belt",
     "brown belt",
     "belt buckle"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "casquette",
@@ -509,7 +538,8 @@
     "cap",
     "baseball cap plain",
     "hat cap"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "lunettes-soleil",
@@ -527,7 +557,8 @@
     "sunglasses",
     "black sunglasses",
     "sun glasses"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "enceinte-bluetooth",
@@ -545,7 +576,8 @@
     "bluetooth speaker",
     "portable speaker",
     "wireless speaker"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "ecouteurs-sans-fil",
@@ -563,7 +595,8 @@
     "wireless earbuds",
     "earbuds case",
     "bluetooth earphones"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "casque-audio",
@@ -581,7 +614,8 @@
     "headphones",
     "over ear headphones",
     "black headphones"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "micro-cravate",
@@ -599,7 +633,8 @@
     "lavalier microphone",
     "clip microphone",
     "microphone"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "chargeur-rapide",
@@ -617,7 +652,8 @@
     "phone charger",
     "usb charger",
     "charger cable"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "power-bank",
@@ -635,7 +671,8 @@
     "power bank",
     "portable battery",
     "powerbank"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "guitare-acoustique",
@@ -653,7 +690,8 @@
     "acoustic guitar",
     "guitar",
     "folk guitar"
-   ]
+   ],
+   "galerie": []
   },
   {
    "cle": "djembe",
@@ -671,6 +709,16 @@
     "djembe",
     "african drum",
     "djembe drum"
+   ],
+   "galerie": [
+    [
+     "djembe",
+     2
+    ],
+    [
+     "djembe",
+     3
+    ]
    ]
   }
  ],

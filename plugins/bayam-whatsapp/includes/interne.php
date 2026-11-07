@@ -59,6 +59,7 @@ final class Bayam_WA_Interne
             'promos' => count(self::promos($id)),
             'livraison' => Bayam_WA_Boutique::modes_livraison(),
             'paiements' => Bayam_WA_Boutique::moyens_paiement(),
+            'conditions' => Bayam_WA_Boutique::conditions_paiement($id),
         ];
     }
 
@@ -148,33 +149,6 @@ final class Bayam_WA_Interne
             'post__in' => $ids, 'meta_query' => [['key' => '_stock_status', 'value' => 'instock']]]);
     }
 
-    /** Déclinaisons encore en stock, par attribut : « Taille : S, M, XL · Couleur : Rouge ». */
-    private static function options(WC_Product $p): string
-    {
-        if (!$p->is_type('variable')) {
-            return '';
-        }
-        $valeurs = [];
-        foreach ($p->get_children() as $id) {
-            $v = wc_get_product($id);
-            if (!$v || !$v->is_in_stock() || !$v->is_purchasable()) {
-                continue;
-            }
-            foreach ($v->get_attributes() as $nom => $valeur) {
-                if ($valeur !== '') {
-                    $libelle = wc_attribute_label(str_replace('attribute_', '', $nom), $p);
-                    $terme = taxonomy_exists($nom) ? get_term_by('slug', $valeur, $nom) : null;
-                    $valeurs[$libelle][$terme ? $terme->name : $valeur] = true;
-                }
-            }
-        }
-        $morceaux = [];
-        foreach ($valeurs as $libelle => $liste) {
-            $morceaux[] = html_entity_decode($libelle, ENT_QUOTES, 'UTF-8') . ' : ' . implode(', ', array_keys($liste));
-        }
-        return implode(' · ', $morceaux);
-    }
-
     /** Pièces en stock quand le stock est suivi (somme des déclinaisons suivies), sinon null. */
     private static function stock(WC_Product $p): ?int
     {
@@ -206,10 +180,15 @@ final class Bayam_WA_Interne
             'en_stock' => $p->is_in_stock(),
             'variable' => $variable,
             'stock' => self::stock($p),
-            'options' => self::options($p),
+            'options' => Bayam_WA_Boutique::options_disponibles($p),
             // Chemin seul : le service choisit l'origine (réseau interne aujourd'hui, stockage d'objets demain).
             // Photo 768 px : assez nette pour la vitrine comme pour la fiche ; le service l'allège avant l'envoi.
             'photo' => $chemin('medium_large'),
+            // Autres photos de l'article (trois au plus), envoyées à la suite quand le client le choisit.
+            'galerie' => array_values(array_filter(array_map(static function ($image) {
+                $url = (string) wp_get_attachment_image_url((int) $image, 'medium_large');
+                return $url !== '' ? (string) wp_parse_url($url, PHP_URL_PATH) : null;
+            }, array_slice($p->get_gallery_image_ids(), 0, 3)))),
             'lien' => Bayam_WA_Liens::produit($vendeur, $p, 'catalogue'),
             'resume' => html_entity_decode(wp_trim_words(wp_strip_all_tags($p->get_short_description() ?: $p->get_description()), 24, '…'), ENT_QUOTES, 'UTF-8'),
         ];
@@ -320,7 +299,9 @@ final class Bayam_WA_Interne
             . implode("\n", $articles) . "\n"
             . 'Total : *' . Bayam_WA_Outils::fcfa((float) $commande->get_total()) . '* (' . $commande->get_payment_method_title() . ')'
             . ($adresse !== '' ? "\nLivraison : {$adresse}" : '')
-            . "\n\nLa boutique vous écrit ici pour la livraison. Merci pour votre confiance 🙏";
+            // Payée en ligne : rien à envoyer ; sinon les conditions de la boutique (acompte, avance, à la livraison).
+            . "\n\n" . ($commande->is_paid() ? 'Paiement reçu, merci.' : Bayam_WA_Boutique::conditions_paiement($vendeur, (float) $commande->get_total()))
+            . "\nLa boutique vous écrit ici pour la livraison. Merci pour votre confiance 🙏";
         $r = wp_remote_post(self::canal() . '/interne/notifications', [
             'timeout' => 3,
             'headers' => ['x-bayam-service' => (string) getenv('BAYAM_SERVICE_JETON'), 'content-type' => 'application/json'],
