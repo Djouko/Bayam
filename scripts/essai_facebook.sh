@@ -17,7 +17,7 @@ PAGE=900000000000004
 
 remettre_en_etat() {
   docker compose exec -T postgres psql -q -U bayam_admin -d bayam -c "
-    DELETE FROM canal_facebook.pages WHERE page = '$PAGE'; DELETE FROM canal_facebook.publications WHERE page = '$PAGE';
+    DELETE FROM canal_facebook.pages WHERE page IN ('$PAGE', '900000000000005'); DELETE FROM canal_facebook.publications WHERE page = '$PAGE';
     DELETE FROM canal_facebook.jetons_commande WHERE page = '$PAGE'; DELETE FROM canal_facebook.notifications WHERE page = '$PAGE';
     DELETE FROM canal_facebook.evenements_traites WHERE evt_id LIKE 'm.essai.%' OR evt_id LIKE 'm.vendeur.%' OR evt_id LIKE '%$PAGE%';" >/dev/null
   docker compose exec -T redis sh -c "for k in \$(redis-cli --scan --pattern 'fb:*$PAGE*'); do redis-cli del \"\$k\" >/dev/null; done"

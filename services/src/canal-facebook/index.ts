@@ -5,7 +5,7 @@
 // - connexion des Pages par le vendeur (Facebook Login), confirmations de commande.
 // Sans état en mémoire (bases et Redis) : autant d'instances que nécessaire, chaque discussion traitée dans l'ordre.
 
-import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import type { JsMsg } from '@nats-io/jetstream';
 import Fastify from 'fastify';
@@ -20,7 +20,7 @@ import { ordonnanceur } from '../commun/ordre.ts';
 import { PROMOS } from '../canal-whatsapp/catalogue.ts';
 import { dessinerStory } from '../canal-whatsapp/vitrine.ts';
 import { METADONNEE_BAYAM, type EvenementFacebook } from '../passerelle/facebook.ts';
-import { cleDepuis } from './coffre.ts';
+import { chiffrer, cleDepuis, dechiffrer } from './coffre.ts';
 import { Donnees, type Page } from './donnees.ts';
 import { ABONNEMENTS, ErreurGraph, Graph } from './graph.ts';
 import * as messenger from './messenger.ts';
@@ -42,7 +42,8 @@ const appliquees = await migrer(pool, 'canal_facebook', fileURLToPath(new URL('.
 if (appliquees.length) {
   log.info('migrations appliquées', { appliquees });
 }
-const donnees = new Donnees(pool, cleDepuis(exiger('FACEBOOK_CLE')));
+const cleCoffre = cleDepuis(exiger('FACEBOOK_CLE'));
+const donnees = new Donnees(pool, cleCoffre);
 const redis: RedisClientType = createClient({ url: lire('REDIS_URL', 'redis://redis:6379') });
 redis.on('error', (e: unknown) => log.erreur('Redis', { erreur: texteErreur(e) }));
 await redis.connect();
@@ -274,13 +275,20 @@ function etatValide(v: string, e: string, s: string): number | null {
  * Pages de l'utilisateur Facebook rattachées au vendeur : enregistrées avec les autorisations accordées, abonnées,
  * bouton Démarrer et menu permanent réglés. Une autorisation décochée est expliquée au vendeur (ce qui ne marchera pas).
  */
-async function connecterPages(vendeur: number, jetonUtilisateur: string): Promise<{ noms: string[]; manquent: string[] }> {
+async function connecterPages(vendeur: number, jetonUtilisateur: string, choisies: string[] | null = null): Promise<{ noms: string[]; manquent: string[] }> {
   const b = await commerce.boutique(vendeur);
   if (!b) {
     throw new Error('boutique inconnue');
   }
   const accordees = await graph.autorisations(jetonUtilisateur);
-  const pages = (await graph.pages(jetonUtilisateur)).filter((p) => !p.tasks || p.tasks.includes('MESSAGING'));
+  const gerees = await pagesGerees(jetonUtilisateur);
+  const pages = choisies ? gerees.filter((p) => choisies.includes(p.id)) : gerees;
+  // Pages de ce compte Facebook reliées auparavant et décochées cette fois : le vendeur n'en veut plus dans BAYAM.
+  const avant = await donnees.pagesDuVendeur(vendeur);
+  for (const p of gerees.filter((g) => choisies && !choisies.includes(g.id) && avant.some((a) => a.page === g.id))) {
+    await graph.retirer(p.id, p.access_token).catch((e: unknown) => log.alerte('retrait chez Meta incomplet', { page: p.id, erreur: texteErreur(e) }));
+    await donnees.supprimerPage(p.id);
+  }
   for (const p of pages) {
     await donnees.enregistrerPage({ page: p.id, vendeur, nom: p.name, jeton: p.access_token, permissions: accordees });
     await graph.abonner(p.id, p.access_token);
@@ -299,11 +307,30 @@ async function connecterPages(vendeur: number, jetonUtilisateur: string): Promis
   return { noms: pages.map((p) => p.name), manquent };
 }
 
+/** Pages que ce compte Facebook peut gérer dans Messenger. */
+async function pagesGerees(jetonUtilisateur: string) {
+  return (await graph.pages(jetonUtilisateur)).filter((p) => !p.tasks || p.tasks.includes('MESSAGING'));
+}
+
 const echapper = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+const STYLE = 'body{margin:0;font-family:system-ui,sans-serif;background:#F7FAF9;color:#0B2545;display:grid;place-items:center;min-height:100vh}'
+  + 'main{max-width:420px;margin:24px;padding:32px;background:#fff;border-radius:24px;box-shadow:0 8px 32px rgba(11,37,69,.1)}h1{font-size:1.4rem;color:#0A7A55}p{line-height:1.5}'
+  + 'label{display:flex;align-items:center;gap:14px;padding:16px;margin:10px 0;border:2px solid #E2E8F0;border-radius:16px;font-size:1.05rem;cursor:pointer}'
+  + 'label:has(input:checked){border-color:#0E9F6E;background:#E6F7F0}input{width:24px;height:24px;accent-color:#0E9F6E}'
+  + 'button{width:100%;margin-top:16px;padding:16px;border:0;border-radius:16px;background:#0E9F6E;color:#fff;font-size:1.05rem;font-weight:600}';
+
 function pageHtml(titre: string, texte: string): string {
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${echapper(titre)}</title>
-<style>body{margin:0;font-family:system-ui,sans-serif;background:#F7FAF9;color:#0B2545;display:grid;place-items:center;min-height:100vh}main{max-width:420px;margin:24px;padding:32px;background:#fff;border-radius:24px;box-shadow:0 8px 32px rgba(11,37,69,.1)}h1{font-size:1.4rem;color:#0A7A55}p{line-height:1.5}</style></head>
-<body><main><h1>${echapper(titre)}</h1><p>${echapper(texte)}</p></main></body></html>`;
+<style>${STYLE}</style></head><body><main><h1>${echapper(titre)}</h1><p>${echapper(texte)}</p></main></body></html>`;
+}
+
+/** Choix des Pages à relier, quand le compte Facebook en gère plusieurs : celles déjà reliées sont cochées. */
+function pageChoix(cle: string, pages: { id: string; name: string }[], reliees: string[]): string {
+  const cases = pages.map((p) => `<label><input type="checkbox" name="page" value="${echapper(p.id)}"${reliees.includes(p.id) ? ' checked' : ''}>${echapper(p.name)}</label>`).join('');
+  return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Vos Pages</title>
+<style>${STYLE}</style></head><body><main><h1>Quelles Pages relier à BAYAM ?</h1>
+<p>Cochez la ou les Pages de votre boutique. BAYAM répondra à leurs clients dans Messenger et sous leurs publications ; les autres ne sont pas touchées.</p>
+<form method="get" action="/facebook/choisir"><input type="hidden" name="c" value="${echapper(cle)}">${cases}<button type="submit">Relier les Pages cochées</button></form></main></body></html>`;
 }
 
 // --- Files : publications, confirmations ------------------------------------------------------------------------
@@ -417,16 +444,48 @@ app.get<{ Querystring: { code?: string; state?: string; error?: string } }>('/fa
     return reply.code(req.query.error ? 200 : 403).type('text/html').send(pageHtml('Connexion annulée', 'Aucune Page n\'a été reliée. Écrivez « bayam facebook » sur WhatsApp pour recommencer.'));
   }
   try {
-    const { noms, manquent } = await connecterPages(vendeur, await graph.jetonUtilisateur(req.query.code, `${await adressePublique()}/facebook/retour`));
-    const reserve = manquent.length ? ` Attention : sans toutes les autorisations, BAYAM ne pourra pas ${manquent.map((a) => messenger.AUTORISATIONS[a]).join(', ')}.` : '';
-    return reply.type('text/html').send(noms.length
-      ? pageHtml('Page reliée à BAYAM ✅', `${noms.join(', ')} : vos clients ont maintenant votre catalogue dans Messenger.${reserve} Vous pouvez fermer cette page.`)
-      : pageHtml('Aucune Page choisie', 'Relancez la connexion et cochez la Page de votre boutique (il faut en être administrateur).'));
+    const jeton = await graph.jetonUtilisateur(req.query.code, `${await adressePublique()}/facebook/retour`);
+    const gerees = await pagesGerees(jeton);
+    if (gerees.length > 1) {
+      // Jeton gardé chiffré 15 minutes, le temps de cocher ; seule la clé aléatoire passe par le navigateur.
+      const cle = randomBytes(18).toString('base64url');
+      await redis.set(`fb:choix:${cle}`, chiffrer(JSON.stringify({ vendeur, jeton }), cleCoffre), { expiration: { type: 'EX', value: 900 } });
+      const reliees = (await donnees.pagesDuVendeur(vendeur)).map((p) => p.page);
+      return reply.type('text/html').send(pageChoix(cle, gerees, reliees));
+    }
+    return reply.type('text/html').send(await resultatConnexion(vendeur, jeton, null));
   } catch (x) {
     log.erreur('connexion Facebook impossible', { vendeur, erreur: texteErreur(x) });
     return reply.code(502).type('text/html').send(pageHtml('Connexion impossible', 'Facebook n\'a pas répondu comme prévu. Réessayez dans quelques minutes.'));
   }
 });
+app.get<{ Querystring: { c?: string; page?: string | string[] } }>('/facebook/choisir', async (req, reply) => {
+  const cle = String(req.query.c ?? '');
+  const brut = /^[\w-]{24}$/.test(cle) ? await redis.getDel(`fb:choix:${cle}`) : null;
+  if (!brut) {
+    return reply.code(403).type('text/html').send(pageHtml('Lien expiré', 'Ce choix a expiré. Écrivez « bayam facebook » sur WhatsApp pour recommencer.'));
+  }
+  const { vendeur, jeton } = JSON.parse(dechiffrer(brut, cleCoffre)) as { vendeur: number; jeton: string };
+  const choisies = ([] as string[]).concat(req.query.page ?? []).filter((p) => /^\d{1,20}$/.test(p));
+  if (!choisies.length) {
+    return reply.type('text/html').send(pageHtml('Aucune Page cochée', 'Aucune Page n\'a été reliée. Écrivez « bayam facebook » sur WhatsApp pour recommencer et cochez la Page de votre boutique.'));
+  }
+  try {
+    return reply.type('text/html').send(await resultatConnexion(vendeur, jeton, choisies));
+  } catch (x) {
+    log.erreur('connexion Facebook impossible', { vendeur, erreur: texteErreur(x) });
+    return reply.code(502).type('text/html').send(pageHtml('Connexion impossible', 'Facebook n\'a pas répondu comme prévu. Réessayez dans quelques minutes.'));
+  }
+});
+
+/** Pages reliées, et la page de résultat pour le navigateur du vendeur. */
+async function resultatConnexion(vendeur: number, jeton: string, choisies: string[] | null): Promise<string> {
+  const { noms, manquent } = await connecterPages(vendeur, jeton, choisies);
+  const reserve = manquent.length ? ` Attention : sans toutes les autorisations, BAYAM ne pourra pas ${manquent.map((a) => messenger.AUTORISATIONS[a]).join(', ')}.` : '';
+  return noms.length
+    ? pageHtml('Page reliée à BAYAM ✅', `${noms.join(', ')} : vos clients ont maintenant votre catalogue dans Messenger.${reserve} Vous pouvez fermer cette page.`)
+    : pageHtml('Aucune Page choisie', 'Relancez la connexion et cochez la Page de votre boutique (il faut en être administrateur).');
+}
 
 app.get<{ Params: { id: string } }>('/interne/vendeurs/:id/pages', async (req) => donnees.pagesDuVendeur(Number(req.params.id)));
 // Page retirée par le vendeur (« bayam facebook retirer … ») : désabonnée chez Meta, accueil effacé, jeton supprimé.
@@ -442,11 +501,11 @@ app.delete<{ Params: { id: string; page: string } }>('/interne/vendeurs/:id/page
   return { retiree: p.nom };
 });
 // Connexion par un jeton utilisateur collé à la main (essais, assistance) : même suite que la fenêtre Facebook.
-app.post<{ Params: { id: string }; Body: { jeton?: string } }>('/interne/vendeurs/:id/pages', async (req, reply) => {
+app.post<{ Params: { id: string }; Body: { jeton?: string; pages?: string[] } }>('/interne/vendeurs/:id/pages', async (req, reply) => {
   if (!configure || !req.body?.jeton) {
     return reply.code(400).send({ erreur: configure ? 'jeton manquant' : 'Facebook non configuré' });
   }
-  const { noms, manquent } = await connecterPages(Number(req.params.id), await graph.jetonLongue(req.body.jeton));
+  const { noms, manquent } = await connecterPages(Number(req.params.id), await graph.jetonLongue(req.body.jeton), Array.isArray(req.body.pages) ? req.body.pages.map(String) : null);
   return { pages: noms, manquent };
 });
 app.post<{ Body: { vendeur?: number; produits?: number[]; type?: string } }>('/interne/publications', async (req, reply) => {

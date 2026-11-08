@@ -38,7 +38,10 @@ createServer((req, res) => {
     if (chemin.endsWith('/subscriptions')) return envoyer(200, req.method === 'GET' ? { data: [] } : { success: true });
     if (chemin === '/debug_token') return envoyer(200, { data: { scopes: ['pages_show_list', 'business_management', 'pages_messaging', 'pages_manage_metadata', 'pages_read_engagement', 'pages_manage_engagement', 'pages_manage_posts'] } });
     if (chemin === '/oauth/access_token') return envoyer(200, { access_token: url.searchParams.get('code') ? 'COURT' : 'LONG-UTILISATEUR', token_type: 'bearer' });
-    if (chemin === '/me/accounts') return envoyer(200, { data: [{ id: PAGE, name: 'Accessoires Akwa Douala', access_token: 'JETON-PAGE-ESSAI', tasks: ['MESSAGING', 'CREATE_CONTENT', 'MODERATE'] }] });
+    if (chemin === '/me/accounts') return envoyer(200, { data: [
+      { id: PAGE, name: 'Accessoires Akwa Douala', access_token: 'JETON-PAGE-ESSAI', tasks: ['MESSAGING', 'CREATE_CONTENT', 'MODERATE'] },
+      { id: '900000000000005', name: 'Page perso du vendeur', access_token: 'JETON-AUTRE-PAGE', tasks: ['MESSAGING', 'CREATE_CONTENT'] },
+    ] });
     if (chemin.endsWith('/subscribed_apps')) return envoyer(200, { success: true });
     if (chemin === '/me/messenger_profile') return envoyer(200, { result: 'success' });
     if (chemin.endsWith('/messages')) return envoyer(200, { recipient_id: corps?.recipient?.id ?? '', message_id: `m.faux.${n}` });

@@ -371,7 +371,7 @@ services:
     labels:
       traefik.enable: "true"
       traefik.http.services.canal-facebook.loadbalancer.server.port: "8092"
-      traefik.http.routers.facebook-connexion.rule: Path(`/facebook/connexion`) || Path(`/facebook/retour`)
+      traefik.http.routers.facebook-connexion.rule: Path(`/facebook/connexion`) || Path(`/facebook/retour`) || Path(`/facebook/choisir`)
       traefik.http.routers.facebook-connexion.priority: "100"
       traefik.http.routers.facebook-connexion.entrypoints: web
       traefik.http.routers.facebook-connexion.service: canal-facebook

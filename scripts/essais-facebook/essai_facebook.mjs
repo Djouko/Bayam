@@ -64,7 +64,7 @@ verifier('l\'entrée WhatsApp de la passerelle n\'est pas publique', r.status !=
 
 console.log('\nConnexion de la Page (jeton collé, comme par l\'assistance)');
 await vider();
-r = await fetch('http://canal-facebook:8092/interne/vendeurs/4/pages', { method: 'POST', headers: service, body: JSON.stringify({ jeton: 'jeton-court-essai' }) });
+r = await fetch('http://canal-facebook:8092/interne/vendeurs/4/pages', { method: 'POST', headers: service, body: JSON.stringify({ jeton: 'jeton-court-essai', pages: [PAGE] }) });
 const connexion = await r.json();
 verifier('Page connectée', r.status === 200 && connexion.pages?.[0] === 'Accessoires Akwa Douala', connexion);
 const a0 = await appels();
@@ -78,6 +78,20 @@ verifier('Page listée pour WordPress, sans son jeton, avec les autorisations ac
   listees.length === 1 && listees[0].nom === 'Accessoires Akwa Douala' && !('jeton' in listees[0]) && listees[0].permissions.includes('pages_manage_posts'), listees);
 r = await fetch('http://canal-facebook:8092/interne/vendeurs/4/pages', { headers: { 'x-bayam-service': 'faux' } });
 verifier('API interne sans le jeton de service : refusée (401)', r.status === 401);
+
+console.log('\nConnexion par la fenêtre Facebook : le vendeur coche ses Pages');
+const echeance = Math.floor(Date.now() / 1000) + 600;
+const etat = `4.${echeance}.${createHmac('sha256', JETON_SERVICE).update(`facebook:4.${echeance}`).digest('hex')}`;
+r = await fetch(`http://traefik/facebook/retour?code=CODE-ESSAI&state=${etat}`, { headers: ENTETES_PUBLICS });
+const choix = await r.text();
+const cle = /name="c" value="([\w-]{24})"/.exec(choix)?.[1];
+verifier('compte qui gère deux Pages : le vendeur choisit, la Page déjà reliée est cochée, l\'autre non',
+  r.status === 200 && choix.includes('Quelles Pages relier') && /value="900000000000004" checked/.test(choix) && /value="900000000000005">/.test(choix) && Boolean(cle), choix.slice(0, 300));
+r = await fetch(`http://traefik/facebook/choisir?c=${cle}&page=${PAGE}`, { headers: ENTETES_PUBLICS });
+const reliees = await (await fetch('http://canal-facebook:8092/interne/vendeurs/4/pages', { headers: service })).json();
+verifier('seule la Page cochée est reliée ; le lien de choix ne sert qu\'une fois',
+  (await r.text()).includes('Page reliée à BAYAM') && reliees.map((p) => p.page).join() === PAGE
+  && (await fetch(`http://traefik/facebook/choisir?c=${cle}&page=900000000000005`, { headers: ENTETES_PUBLICS })).status === 403, reliees);
 
 console.log('\nMessenger : un client écrit à la Page');
 await vider();
