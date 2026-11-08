@@ -25,10 +25,15 @@ test('lien m.me partagé dans une publication : l’article directement, aussi a
   assert.deepEqual(actionDuLien('n-importe-quoi'), { type: 'menu' });
 });
 
-test('salutations et demandes de catalogue tapées : le menu ; le reste : question pour le vendeur', () => {
-  for (const t of ['Bonjour', 'Bsr', 'slt la boutique', 'Prix svp', 'Hello', 'bayam', 'Vous avez quoi comme robes ?']) {
+test('demande de la boutique tapée (« bayam », « menu », « catalogue ») : le menu ; numéro : réponse à la dernière liste ; le reste : message libre', () => {
+  for (const t of ['bayam', 'Menu', 'catalogue ?', 'Vous avez quoi ?', 'BAYAM menu']) {
     assert.deepEqual(action(message({ message: { mid: 'm', text: t } })), [{ type: 'menu' }, true], t);
   }
+  for (const [t, n] of [['2', 2], ['le 3', 3], ['N°4', 4], ['#1', 1], ['12.', 12]] as const) {
+    assert.deepEqual(action(message({ message: { mid: 'm', text: t } })), [{ type: 'numero', numero: n }, true], t);
+  }
+  // Une salutation n'ouvre pas le menu à elle seule : le service le montre au premier message ou après plusieurs jours.
+  assert.deepEqual(action(message({ message: { mid: 'm', text: 'Bonsoir' } })), [{ type: 'question', extrait: 'Bonsoir' }, true]);
   assert.deepEqual(action(message({ message: { mid: 'm', text: 'Vous livrez à Kribi ?' } })), [{ type: 'question', extrait: 'Vous livrez à Kribi ?' }, true]);
   assert.deepEqual(action(message({ message: { mid: 'm', attachments: [{ type: 'image' }] } })), [{ type: 'question', extrait: '📷 (photo ou fichier envoyé)' }, true]);
 });

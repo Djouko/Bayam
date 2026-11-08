@@ -24,7 +24,7 @@ import { chiffrer, cleDepuis, dechiffrer } from './coffre.ts';
 import { Donnees, type Page } from './donnees.ts';
 import { ABONNEMENTS, ErreurGraph, Graph } from './graph.ts';
 import * as messenger from './messenger.ts';
-import { decider, type Decision } from './routeur.ts';
+import { decider, lireActionFacebook, type Decision } from './routeur.ts';
 
 const log = journal('canal-facebook');
 const jetonService = exiger('BAYAM_SERVICE_JETON');
@@ -50,6 +50,7 @@ await redis.connect();
 const commerce = new CommerceWordpress(`${urlWordpress}/wp-json/bayam/v1/interne`, jetonService, redis);
 
 const REPRISE_S = 2 * 3600; // le vendeur a répondu lui-même : le service se tait 2 h dans cette discussion
+const RETOUR_S = 3 * 86_400; // client qui revient après 3 jours sans écrire : il retrouve le menu de la boutique
 const ALERTE_S = 30 * 60; // un message libre du client prévient le vendeur au plus une fois par demi-heure
 
 const empreinte = (texte: string) => createHash('sha1').update(texte).digest('hex').slice(0, 24);
@@ -85,10 +86,19 @@ async function erreurDePage(e: unknown, p: Page, b: Boutique | null): Promise<ne
   throw e;
 }
 
+/** Dernière liste numérotée envoyée à ce client : sa réponse « 2 » la désigne (24 h, comme la fenêtre de Meta). */
+async function retenirChoix(page: string, client: string, ids: string[]): Promise<void> {
+  await redis.set(`fb:choix:${page}:${client}`, JSON.stringify(ids), { expiration: { type: 'EX', value: 86_400 } });
+}
+
 async function envoyer(p: Page, b: Boutique, client: string, envois: messenger.Envoi[], cle: string): Promise<void> {
   for (const [i, e] of envois.entries()) {
     if (e.type === 'au_vendeur') {
       await alerteVendeur(b, e.texte, `${cle}-${i}`);
+      continue;
+    }
+    if (e.type === 'choix') {
+      await retenirChoix(p.page, client, e.ids);
       continue;
     }
     await graph.envoyer(p.page, p.jeton, { id: client }, { ...e.message, metadata: METADONNEE_BAYAM }).catch((x: unknown) => erreurDePage(x, p, b));
@@ -110,8 +120,18 @@ async function pourClient(d: Extract<Decision, { route: 'client' }>, evt: string
   if (d.libre && (!b.actif || (await redis.exists(`fb:reprise:${d.page}:${d.client}`)))) {
     return;
   }
+  // Dernière venue du client : premier message, ou retour après plusieurs jours, lui montre la boutique.
+  const vu = await redis.getSet(`fb:vu:${d.page}:${d.client}`, String(Math.floor(Date.now() / 1000)));
+  await redis.expire(`fb:vu:${d.page}:${d.client}`, 60 * 86_400);
+  const nouveau = !vu || Date.now() / 1000 - Number(vu) > RETOUR_S;
   const base = (await adressePublique()) || b.base_publique;
-  const a = d.action;
+  let a = d.action;
+  if (a.type === 'numero') {
+    const ids = JSON.parse((await redis.get(`fb:choix:${d.page}:${d.client}`)) ?? '[]') as string[];
+    const choisie = ids[a.numero - 1] ? lireActionFacebook(ids[a.numero - 1]) : null;
+    // Numéro sans liste en mémoire (trop ancienne, ou un chiffre dans la conversation) : un message comme un autre.
+    a = choisie ?? { type: 'question', extrait: String(a.numero) };
+  }
   let envois: messenger.Envoi[];
   switch (a.type) {
     case 'menu':
@@ -149,11 +169,21 @@ async function pourClient(d: Extract<Decision, { route: 'client' }>, evt: string
       envois = messenger.vendeur(b, p.nom);
       break;
     case 'question': {
-      // Plusieurs messages à la suite : un seul accusé de réception et une seule alerte par demi-heure.
-      const premier = await redis.set(`fb:alerte:${d.page}:${d.client}`, '1', { condition: 'NX', expiration: { type: 'EX', value: ALERTE_S } });
-      envois = premier ? messenger.question(b, p.nom, a.extrait) : [];
+      const banal = messenger.banal(a.extrait);
+      if (nouveau) {
+        // Premier message ou retour après plusieurs jours : la boutique, et le vendeur prévenu s'il y a une vraie question.
+        envois = [...messenger.menu(b, base), ...(banal ? [] : [messenger.alerteQuestion(p.nom, a.extrait)])];
+        break;
+      }
+      // Conversation en cours : « merci », « ok » n'appellent rien ; une vraie question prévient le vendeur, avec un
+      // seul accusé de réception et une seule alerte par demi-heure.
+      const premier = !banal && (await redis.set(`fb:alerte:${d.page}:${d.client}`, '1', { condition: 'NX', expiration: { type: 'EX', value: ALERTE_S } }));
+      envois = premier ? [messenger.accuse(b), messenger.alerteQuestion(p.nom, a.extrait)] : [];
       break;
     }
+    case 'numero':
+      envois = [];
+      break;
   }
   await envoyer(p, b, d.client, envois, evt);
   log.info('messenger', { page: d.page, action: a.type, envois: envois.length });
@@ -175,7 +205,11 @@ async function pourCommentaire(d: Extract<Decision, { route: 'commentaire' }>): 
   const designe = messenger.articleDesigne(c.message ?? '', produits);
   const nom = String(c.from?.name ?? '');
   try {
-    await graph.envoyer(p.page, p.jeton, { comment_id: String(c.comment_id) }, { ...messenger.reponsePrivee(b, nom, produits, designe, pub?.id ?? null), metadata: METADONNEE_BAYAM });
+    const reponse = messenger.reponsePrivee(b, nom, produits, designe);
+    const envoi = await graph.envoyer(p.page, p.jeton, { comment_id: String(c.comment_id) }, { ...reponse.message, metadata: METADONNEE_BAYAM });
+    if (envoi.recipient_id) {
+      await retenirChoix(p.page, envoi.recipient_id, reponse.choix); // sa réponse « 1 » suit la liste de la réponse privée
+    }
   } catch (e) {
     if (e instanceof ErreurGraph && e.definitive && !e.jetonInvalide) {
       // Déjà répondu, commentaire supprimé ou trop ancien : pas de réponse publique qui annoncerait un message absent.

@@ -28,8 +28,8 @@ async function fauxGraph(reponse: (a: Appel) => [number, unknown]): Promise<{ gr
 
 test('envoi Messenger : jeton de Page et preuve du secret joints, réponse au client (RESPONSE)', async () => {
   const f = await fauxGraph(() => [200, { recipient_id: '7001', message_id: 'm.99' }]);
-  const id = await f.graph.envoyer('555', 'JETON-PAGE', { id: '7001' }, { text: 'Bonjour', metadata: 'bayam' });
-  assert.equal(id, 'm.99');
+  const r = await f.graph.envoyer('555', 'JETON-PAGE', { id: '7001' }, { text: 'Bonjour', metadata: 'bayam' });
+  assert.deepEqual(r, { recipient_id: '7001', message_id: 'm.99' });
   const [a] = f.appels;
   assert.equal(a.chemin, '/555/messages');
   assert.equal(a.requete.get('access_token'), 'JETON-PAGE');

@@ -14,6 +14,8 @@ export type ActionFacebook =
   | Action
   | { type: 'photos'; produit: number }
   | { type: 'publication'; publication: number }
+  /** Réponse par un numéro à la dernière liste envoyée (« 2 », « le 3 ») : retrouvée dans la mémoire du service. */
+  | { type: 'numero'; numero: number }
   /** Message libre (ou photo envoyée par le client) que le service ne sait pas traiter : le vendeur est prévenu. */
   | { type: 'question'; extrait: string };
 
@@ -50,8 +52,10 @@ export function actionDuLien(ref: string): ActionFacebook {
   return { type: 'menu' };
 }
 
-// Premiers mots d'un client sur Messenger : il ne tape pas « bayam », il salue ou demande ce qu'il y a.
-const SALUTATION = /^(bonjour|bonsoir|bjr|bsr|slt|salut|hello|hi|hey|cc|coucou|yo|menu|catalogue|rayons?|boutique|articles?|produits?|prix|dispo|disponible|vous avez quoi|qu'?est[- ]ce que vous (avez|vendez))\b/;
+// Le client demande la boutique lui-même : « bayam » comme sur WhatsApp, ou simplement « menu », « catalogue »…
+// (Un « bonjour » n'ouvre le menu qu'au premier message ou après plusieurs jours : décidé par le service.)
+const DEMANDE_MENU = /^(menu|le menu|catalogue|boutique|rayons?|articles?|produits?|vos articles|vous avez quoi|qu'?est[- ]ce que vous (avez|vendez))\s*[?!.]*$/;
+const NUMERO = /^(?:n°|no|num[eé]ro|#|le|la|les)?\s*(\d{1,2})\s*[.)!]?$/i;
 
 export function decider(e: EvenementFacebook, maintenant: number): Decision {
   if (maintenant - e.horodatage > FRAICHEUR) {
@@ -84,8 +88,12 @@ export function decider(e: EvenementFacebook, maintenant: number): Decision {
   if (reference) {
     return choisi({ type: 'produit', produit: Number(reference[1]) }, true);
   }
-  if (texte && (demandeMenu(texte) || SALUTATION.test(sansAccents(texte.toLowerCase())))) {
+  if (texte && (demandeMenu(texte) || DEMANDE_MENU.test(sansAccents(texte.toLowerCase())))) {
     return choisi({ type: 'menu' }, true);
+  }
+  const numero = NUMERO.exec(texte);
+  if (numero) {
+    return choisi({ type: 'numero', numero: Number(numero[1]) }, true);
   }
   return choisi({ type: 'question', extrait: texte || '📷 (photo ou fichier envoyé)' }, true);
 }

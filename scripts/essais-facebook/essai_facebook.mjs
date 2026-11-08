@@ -97,9 +97,19 @@ console.log('\nMessenger : un client écrit à la Page');
 await vider();
 let t0 = Date.now();
 await texte('Bonsoir');
-let e = await recus(envoisAuClient);
+let e = await recus(envoisAuClient, 2);
 const delaiMenu = e[0] ? e[0].t - t0 : null;
-verifier(`« Bonsoir » : menu avec les rayons en réponses rapides (${delaiMenu} ms)`, e[0]?.corps.message.quick_replies?.some((q) => q.payload === 'bayam:rayon:72:1') && e[0].corps.message.metadata === 'bayam' && e[0].corps.messaging_type === 'RESPONSE', e[0]?.corps);
+verifier(`premier message (« Bonsoir ») : carrousel des rayons, puis la même liste numérotée en texte (${delaiMenu} ms)`,
+  e[0]?.corps.message.attachment?.payload.elements?.some((x) => x.buttons?.[0]?.payload === 'bayam:rayon:72:1') && e[0].corps.message.metadata === 'bayam' && e[0].corps.messaging_type === 'RESPONSE'
+  && /Bienvenue chez Accessoires Akwa[\s\S]*\n1\. /.test(e[1]?.corps.message.text ?? ''), e.map((x) => x.corps.message));
+await vider();
+await texte('Merci');
+await attendre(1500);
+verifier('« Merci » en cours de conversation : rien (ni menu ni accusé)', (await appels()).filter(envoisAuClient).length === 0);
+await texte('le 1');
+e = await recus(envoisAuClient, 2);
+verifier('réponse « le 1 » (messagerie de Facebook, sans cartes) : le premier rayon de la liste, en cartes et en texte',
+  Boolean(e[0]?.corps.message.attachment?.payload.elements?.length) && /\n1\. .+FCFA/.test(e[1]?.corps.message.text ?? ''), e.map((x) => x.corps.message));
 await vider();
 await message({ message: { mid: `m.essai.${PASSAGE}.${++sequence}`, text: 'Montres et bijoux', quick_reply: { payload: 'bayam:rayon:72:1' } } });
 e = await recus(envoisAuClient, 2);
@@ -110,7 +120,8 @@ await vider();
 await message({ postback: { mid: `m.essai.${PASSAGE}.${++sequence}`, title: '🛒 Commander', payload: 'bayam:produit:1036' } });
 e = await recus(envoisAuClient, 2);
 const bouton = e[0]?.corps.message.attachment?.payload.elements?.[0]?.buttons?.[0];
-verifier('« Commander » : carte de l\'article avec le bouton vers le lien personnel', bouton?.type === 'web_url' && /\/commander\/[A-Za-z0-9_-]{24}$/.test(bouton.url), e[0]?.corps.message);
+verifier('« Commander » : carte avec le bouton vers le lien personnel, et le même lien en texte (lisible partout)',
+  bouton?.type === 'web_url' && /\/commander\/[A-Za-z0-9_-]{24}$/.test(bouton.url) && (e[1]?.corps.message.text ?? '').includes(bouton.url), e.map((x) => x.corps.message));
 const jeton = bouton?.url?.split('/').pop();
 r = await fetch(`http://traefik/commander/${jeton}`, { headers: ENTETES_PUBLICS, redirect: 'manual' });
 verifier('lien personnel ouvert : le site le reconnaît (lien Messenger) et mène à la commande', r.status === 302 && /checkout|commande|product|bracelet/i.test(r.headers.get('location') ?? ''), `${r.status} ${r.headers.get('location')}`);
@@ -156,14 +167,20 @@ t0 = Date.now();
 await meta({ changes: [{ field: 'feed', value: { item: 'comment', verb: 'add', comment_id: `${post}_c1`, post_id: post, from: { id: '7000000000000002', name: 'Nadège Ewane' }, message: 'Prix svp ?', created_time: Math.floor(Date.now() / 1000) } }] });
 e = await recus((a) => a.chemin === `/${PAGE}/messages` && a.corps?.recipient?.comment_id === `${post}_c1`);
 const publique = await recus((a) => a.chemin === `/${post}_c1/comments`);
-const texteReponse = e[0]?.corps.message.attachment?.payload.text ?? '';
-verifier(`réponse privée au commentaire avec l'article et son prix (${e[0] ? e[0].t - t0 : '?'} ms)`, texteReponse.startsWith('Bonjour Nadège 👋') && texteReponse.includes('Montre femme argentée') && texteReponse.includes('FCFA') && e[0].corps.message.attachment.payload.buttons[0].payload === 'bayam:produit:1032', e[0]?.corps);
+const texteReponse = e[0]?.corps.message.text ?? '';
+verifier(`réponse privée au commentaire : l'article, son prix et des choix numérotés en texte (${e[0] ? e[0].t - t0 : '?'} ms)`,
+  texteReponse.startsWith('Bonjour Nadège 👋') && texteReponse.includes('Montre femme argentée') && texteReponse.includes('FCFA') && texteReponse.includes('1. 🛒 La photo et votre lien de commande'), e[0]?.corps);
 verifier('réponse publique courte sous le commentaire', /Nadège.*📩|📩/.test(publique[0]?.corps?.message ?? ''), publique[0]?.corps);
 await vider();
 await meta({ changes: [{ field: 'feed', value: { item: 'comment', verb: 'add', comment_id: `${post}_c2`, post_id: post, from: { id: '7000000000000002', name: 'Nadège Ewane' }, message: 'Dispo ?', created_time: Math.floor(Date.now() / 1000) } }] });
 await meta({ changes: [{ field: 'feed', value: { item: 'comment', verb: 'add', comment_id: `${post}_c3`, post_id: post, from: { id: '7000000000000003', name: 'Paul' }, message: 'Ma sœur Clarisse Ngo', created_time: Math.floor(Date.now() / 1000) } }] });
 await attendre(1500);
 verifier('même personne sous la même publication : pas de deuxième réponse ; simple mention d\'une amie : rien', (await appels()).length === 0, (await appels()).map((a) => a.chemin));
+await vider();
+await meta({ messaging: [{ sender: { id: '7000000000000002' }, recipient: { id: PAGE }, timestamp: Date.now(), message: { mid: `m.essai.${PASSAGE}.${++sequence}`, text: '1' } }] });
+e = await recus((a) => a.chemin === `/${PAGE}/messages` && a.corps?.recipient?.id === '7000000000000002', 2);
+verifier('la personne qui a commenté répond « 1 » dans Messenger : la photo et son lien de commande',
+  e[0]?.corps.message.attachment?.payload.elements?.[0]?.title === 'Montre femme argentée' && /\/commander\//.test(e[1]?.corps.message.text ?? ''), e.map((x) => x.corps.message));
 
 console.log('\nAlbum de plusieurs articles, story, confirmation de commande');
 await vider();

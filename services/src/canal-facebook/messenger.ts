@@ -1,6 +1,7 @@
-// Messages de la boutique dans Messenger, avec ce que Messenger fait de mieux : carrousel d'articles qu'on fait
-// défiler (photo, prix, boutons), réponses rapides au-dessus du clavier, bouton « Commander » qui ouvre le lien
-// personnel. Mêmes règles qu'en WhatsApp : prix et stock du moment, peu de messages, rien d'inutile à télécharger.
+// Messages de la boutique dans Messenger et dans la messagerie de Facebook (application et site). Messenger affiche
+// les cartes (carrousel d'articles avec photo, prix, boutons) ; la messagerie de Facebook n'affiche ni cartes ni
+// boutons, seulement le texte et les images. Chaque envoi a donc son texte numéroté, lisible partout : le client
+// touche une carte ou répond par le numéro. Mêmes règles qu'en WhatsApp : prix et stock du moment, peu de messages.
 // Fonctions pures (aucun envoi ici).
 
 import type { Boutique, PageRayon, Produit, Rayon } from '../commun/commerce.ts';
@@ -10,40 +11,36 @@ import { idAction } from '../canal-whatsapp/routeur.ts';
 
 /** Objet « message » de l'API d'envoi de Messenger. */
 export type MessageMessenger = Record<string, unknown>;
-export type Envoi = { type: 'message'; message: MessageMessenger } | { type: 'au_vendeur'; texte: string };
+/** choix : identifiants des lignes numérotées envoyées, gardés pour comprendre la réponse « 2 » du client. */
+export type Envoi = { type: 'message'; message: MessageMessenger } | { type: 'au_vendeur'; texte: string } | { type: 'choix'; ids: string[] };
 
 /** Limites de Messenger (documentation de la plateforme). */
-export const LIMITES = { elements: 10, titreElement: 80, sousTitre: 80, boutons: 3, titreBouton: 20, texteBoutons: 640, texte: 2000 };
+export const LIMITES = { elements: 10, titreElement: 80, sousTitre: 80, boutons: 3, titreBouton: 20, texte: 2000 };
 export const PAR_PAGE = 10;
 
 type Bouton = { type: 'postback'; title: string; payload: string } | { type: 'web_url'; title: string; url: string; webview_height_ratio: 'full' };
+/** Ligne d'une liste numérotée : libellé et identifiant de l'action. */
+type Ligne = [string, string];
 
 const choix = (title: string, payload: string): Bouton => ({ type: 'postback', title: couper(title, LIMITES.titreBouton), payload });
-const boutonArticles = choix('🛍️ Nos articles', idAction({ type: 'menu' }));
-const boutonVendeur = choix('🙋 Le vendeur', idAction({ type: 'vendeur' }));
+const ARTICLES: Ligne = ['🛍️ Voir nos articles', idAction({ type: 'menu' })];
+const VENDEUR: Ligne = ['🙋 Parler au vendeur', idAction({ type: 'vendeur' })];
+const LIVRAISON: Ligne = ['🚚 Livraison et paiement', idAction({ type: 'livraison' })];
 
 export const idPhotos = (produit: number) => `bayam:photos:${produit}`;
 export const idPublication = (publication: number) => `bayam:publication:${publication}`;
 
 const nombreArticles = (n: number) => (n === 1 ? '1 article' : `${n} articles`);
 
-function boutons(t: string, liste: Bouton[]): MessageMessenger {
-  return { attachment: { type: 'template', payload: { template_type: 'button', text: couper(t, LIMITES.texteBoutons), buttons: liste.slice(0, LIMITES.boutons) } } };
+/** Texte simple : seul format affiché partout (Messenger, Facebook sur téléphone et sur ordinateur). */
+function texte(t: string): Envoi {
+  return { type: 'message', message: { text: couper(t, LIMITES.texte) } };
 }
 
-/**
- * Texte, avec trois boutons au plus sous le message. Les boutons s'affichent dans toutes les versions de Messenger
- * (application, site, Facebook dans le navigateur), contrairement aux réponses rapides, invisibles sur certaines.
- * Au-delà de 640 caractères (limite d'un message à boutons), le texte part seul et les boutons suivent.
- */
-function texte(t: string, liste: Bouton[] = []): Envoi[] {
-  if (!liste.length) {
-    return [{ type: 'message', message: { text: couper(t, LIMITES.texte) } }];
-  }
-  if ([...t].length <= LIMITES.texteBoutons) {
-    return [{ type: 'message', message: boutons(t, liste) }];
-  }
-  return [{ type: 'message', message: { text: couper(t, LIMITES.texte) } }, { type: 'message', message: boutons('Et maintenant ? 👇', liste) }];
+/** Texte suivi de choix numérotés ; le client répond par le numéro. */
+function liste(intro: string, lignes: Ligne[]): Envoi[] {
+  const numeros = lignes.map(([libelle], i) => `${i + 1}. ${libelle}`).join('\n');
+  return [texte(`${intro}\n${numeros}`), { type: 'choix', ids: lignes.map(([, id]) => id) }];
 }
 
 function carrousel(elements: Record<string, unknown>[]): Envoi {
@@ -59,112 +56,144 @@ const image = (base: string, chemin: string | null | undefined) => (chemin ? { i
 
 /** Carte d'un article dans un carrousel : photo carrée, nom, prix et disponibilité, boutons. */
 function carte(p: Produit, base: string): Record<string, unknown> {
-  const liste = [choix('🛒 Commander', idAction({ type: 'produit', produit: p.id }))];
+  const boutons = [choix('🛒 Commander', idAction({ type: 'produit', produit: p.id }))];
   if (p.galerie.length) {
-    liste.push(choix('📷 Plus de photos', idPhotos(p.id)));
+    boutons.push(choix('📷 Plus de photos', idPhotos(p.id)));
   }
-  liste.push(choix('🙋 Une question', idAction({ type: 'vendeur' })));
+  boutons.push(choix('🙋 Une question', idAction({ type: 'vendeur' })));
   return {
     title: couper(p.nom, LIMITES.titreElement),
     subtitle: couper([prixTexte(p), dispo(p), p.options].filter(Boolean).join(' · '), LIMITES.sousTitre),
     ...image(base, p.photo),
-    buttons: liste,
+    buttons: boutons,
   };
 }
 
+/** Ligne d'un article dans une liste numérotée : nom, prix, alerte de stock. */
+const ligneArticle = (p: Produit): Ligne => [`${p.nom} : ${prixTexte(p)}${peuDeStock(p) ? ` (${dispo(p).replace(/^\S+ /, '').toLowerCase()})` : ''}`, idAction({ type: 'produit', produit: p.id })];
+
 /**
- * La boutique en un carrousel de rayons à faire glisser : promotions d'abord, une photo par rayon, puis une carte
- * pour la livraison et le vendeur. Le client touche, il n'a rien à taper ni à retenir.
+ * La boutique : un carrousel de rayons à faire glisser (une photo par rayon, promotions d'abord) pour Messenger, et
+ * la même chose en liste numérotée pour la messagerie de Facebook. Le client touche ou répond par le numéro.
  */
 export function menu(b: Boutique, base: string): Envoi[] {
   if (!b.rayons.length) {
-    return texte(`Bonjour 👋 ${b.nom} met à jour son catalogue. Dites-nous ce que vous cherchez : la boutique vous répond ici.`, [boutonVendeur]);
+    return liste(`Bonjour 👋 ${b.nom} met à jour son catalogue. Dites-nous ce que vous cherchez : la boutique vous répond ici.`, [VENDEUR]);
   }
+  const lignes: Ligne[] = [];
   const cartes: Record<string, unknown>[] = [];
   if (b.promos > 0) {
-    cartes.push({ title: `🔥 ${PROMOS}`, subtitle: `${nombreArticles(b.promos)} en promotion`, buttons: [choix('Voir les promos', idAction({ type: 'rayon', rayon: 0, page: 1 }))] });
+    const id = idAction({ type: 'rayon', rayon: 0, page: 1 });
+    lignes.push([`🔥 ${PROMOS} (${nombreArticles(b.promos)})`, id]);
+    cartes.push({ title: `🔥 ${PROMOS}`, subtitle: `${nombreArticles(b.promos)} en promotion`, buttons: [choix('Voir les promos', id)] });
   }
   for (const r of b.rayons.slice(0, LIMITES.elements - cartes.length - 1)) {
-    cartes.push({ title: couper(r.nom, LIMITES.titreElement), subtitle: nombreArticles(r.nombre), ...image(base, r.photo), buttons: [choix('Voir le rayon', idAction({ type: 'rayon', rayon: r.id, page: 1 }))] });
+    const id = idAction({ type: 'rayon', rayon: r.id, page: 1 });
+    lignes.push([`${r.nom} (${nombreArticles(r.nombre)})`, id]);
+    cartes.push({ title: couper(r.nom, LIMITES.titreElement), subtitle: nombreArticles(r.nombre), ...image(base, r.photo), buttons: [choix('Voir le rayon', id)] });
   }
-  cartes.push({ title: couper(b.nom, LIMITES.titreElement), subtitle: 'Livraison, paiement, une question', buttons: [choix('🚚 Livraison', idAction({ type: 'livraison' })), boutonVendeur] });
-  return [{ type: 'message', message: { text: `Bonjour 👋 Bienvenue chez ${b.nom} ! Faites glisser et touchez un rayon 👇` } }, carrousel(cartes)];
+  cartes.push({ title: couper(b.nom, LIMITES.titreElement), subtitle: 'Livraison, paiement, une question', buttons: [choix('🚚 Livraison', LIVRAISON[1]), choix('🙋 Le vendeur', VENDEUR[1])] });
+  return [carrousel(cartes), ...liste(`Bonjour 👋 Bienvenue chez ${b.nom} ! Touchez un rayon, ou répondez par son numéro :`, [...lignes, LIVRAISON, VENDEUR])];
 }
 
-/** Page d'un rayon : dix articles au plus à faire défiler, puis la suite et les autres choix. */
+/** Page d'un rayon : dix articles au plus, en cartes et en liste numérotée, puis la suite et les autres choix. */
 export function pageRayon(rayon: Rayon, page: PageRayon, numero: number, base: string): Envoi[] {
   if (!page.produits.length) {
-    return texte(`Plus rien de disponible dans « ${rayon.nom} » pour le moment.`, [boutonArticles, boutonVendeur]);
+    return liste(`Plus rien de disponible dans « ${rayon.nom} » pour le moment.`, [ARTICLES, VENDEUR]);
   }
   const debut = (numero - 1) * PAR_PAGE + 1;
   const fin = debut + page.produits.length - 1;
   const reste = Math.max(0, page.total - fin);
-  const suite = reste > 0 ? [choix(`➡️ Voir ${reste} de plus`, idAction({ type: 'rayon', rayon: rayon.id, page: numero + 1 }))] : [];
+  const suite: Ligne[] = reste > 0 ? [[`➡️ Voir ${nombreArticles(reste)} de plus`, idAction({ type: 'rayon', rayon: rayon.id, page: numero + 1 })]] : [];
   const position = debut === fin ? `article ${debut} sur ${page.total}` : `articles ${debut} à ${fin} sur ${page.total}`;
   return [
     carrousel(page.produits.map((p) => carte(p, base))),
-    ...texte(`${rayon.nom} · ${position}. Faites glisser pour tout voir, puis touchez « Commander ».`, [...suite, boutonArticles, boutonVendeur]),
+    ...liste(`${rayon.nom} · ${position}. Touchez « Commander », ou répondez par le numéro de l'article :`, [...page.produits.map(ligneArticle), ...suite, ['🛍️ Autres rayons', ARTICLES[1]], VENDEUR]),
   ];
 }
 
-/** Article choisi : sa carte avec le bouton qui ouvre le lien personnel de commande, puis sa description. */
+/**
+ * Article choisi : sa carte (bouton « Commander » vers le lien personnel) pour Messenger ; pour tous, sa photo puis
+ * ses détails et le lien de commande en texte, et les choix suivants.
+ */
 export function produit(b: Boutique, p: Produit | null, lien: string | null, base: string): Envoi[] {
   if (!p || !p.en_stock || !lien) {
-    return texte(`Désolé, ${p ? `« ${p.nom} » vient d'être épuisé` : 'cet article n\'est plus disponible'} chez ${b.nom}. Voyez nos autres articles 👇`, [boutonArticles, boutonVendeur]);
+    return liste(`Désolé, ${p ? `« ${p.nom} » vient d'être épuisé` : 'cet article n\'est plus disponible'} chez ${b.nom}.`, [ARTICLES, VENDEUR]);
   }
-  const liste: Bouton[] = [{ type: 'web_url', title: '🛒 Commander', url: lien, webview_height_ratio: 'full' }];
+  const boutons: Bouton[] = [{ type: 'web_url', title: '🛒 Commander', url: lien, webview_height_ratio: 'full' }];
   if (p.galerie.length) {
-    liste.push(choix('📷 Plus de photos', idPhotos(p.id)));
+    boutons.push(choix('📷 Plus de photos', idPhotos(p.id)));
   }
-  liste.push(choix('🛍️ Autres articles', idAction({ type: 'menu' })));
-  const element = { ...carte(p, base), buttons: liste };
-  const consigne = `🛒 Touchez « Commander » : ${p.variable ? 'choisissez la taille, ' : ''}indiquez la quantité et la livraison. La confirmation arrive ici. Lien personnel, valable 24 h.`;
-  return [carrousel([element]), ...texte([p.resume, consigne].filter(Boolean).join('\n\n'), [boutonVendeur])];
+  boutons.push(choix('🛍️ Autres articles', idAction({ type: 'menu' })));
+  const details = [
+    p.nom,
+    `💰 ${prixTexte(p)}`,
+    [dispo(p), p.options].filter(Boolean).join(' · '),
+    ...(p.resume ? ['', p.resume] : []),
+    '',
+    `🛒 Pour commander, ouvrez votre lien personnel (valable 24 h) : ${p.variable ? 'choisissez la taille, ' : ''}indiquez la quantité et la livraison, la confirmation arrive ici.`,
+    lien,
+    '',
+    'Ensuite :',
+  ].join('\n');
+  const suite: Ligne[] = [...(p.galerie.length ? [['📷 Plus de photos', idPhotos(p.id)] as Ligne] : []), ['🛍️ Autres articles', ARTICLES[1]], VENDEUR];
+  return [carrousel([{ ...carte(p, base), buttons: boutons }]), ...liste(details, suite)];
 }
 
-/** Les autres photos de l'article, puis de quoi commander. */
+/** Les autres photos de l'article (images : affichées partout), puis de quoi commander. */
 export function photos(p: Produit | null, base: string): Envoi[] {
   if (!p) {
-    return texte('Cet article n\'est plus disponible.', [boutonArticles]);
+    return liste('Cet article n\'est plus disponible.', [ARTICLES]);
   }
-  const commander = choix('🛒 Commander', idAction({ type: 'produit', produit: p.id }));
+  const lignes: Ligne[] = [['🛒 Commander', idAction({ type: 'produit', produit: p.id })], ['🛍️ Autres articles', ARTICLES[1]], VENDEUR];
   if (!p.galerie.length) {
-    return texte(`Pas d'autre photo pour « ${p.nom} ». Une question ? La boutique vous répond ici.`, [commander, boutonArticles, boutonVendeur]);
+    return liste(`Pas d'autre photo pour « ${p.nom} ». Une question ? La boutique vous répond ici.`, lignes);
   }
   return [
     ...p.galerie.map((chemin): Envoi => ({ type: 'message', message: { attachment: { type: 'image', payload: { url: `${base}${chemin}`, is_reusable: true } } } })),
-    ...texte(`${p.nom} : ${prixTexte(p)}`, [commander, boutonArticles, boutonVendeur]),
+    ...liste(`${p.nom} : ${prixTexte(p)}`, lignes),
   ];
 }
 
-/** Articles d'une publication de la Page (le client a touché « Voir ces articles » sous un commentaire). */
+/** Articles d'une publication de la Page (choisis depuis une réponse à un commentaire). */
 export function articlesPublication(produits: Produit[], base: string): Envoi[] {
   const dispos = produits.filter((p) => p.en_stock);
   if (!dispos.length) {
-    return texte('Les articles de cette publication sont épuisés 😔 Voyez ce qui reste en boutique 👇', [boutonArticles, boutonVendeur]);
+    return liste('Les articles de cette publication sont épuisés 😔', [ARTICLES, VENDEUR]);
   }
-  return [carrousel(dispos.map((p) => carte(p, base)))];
+  return [carrousel(dispos.map((p) => carte(p, base))), ...liste('Répondez par le numéro de l\'article (ou touchez « Commander ») :', [...dispos.map(ligneArticle), ['🛍️ Autres rayons', ARTICLES[1]], VENDEUR])];
 }
 
 export function livraison(b: Boutique): Envoi[] {
   const puces = (l: string[]) => (l.length ? l.map((x) => `• ${x}`).join('\n') : '• À convenir avec la boutique');
-  return texte(`🚚 Livraison\n${puces(b.livraison)}\n\n💳 Paiement\n${puces(b.paiements)}\n${b.conditions}`, [boutonArticles, boutonVendeur]);
+  return liste(`🚚 Livraison\n${puces(b.livraison)}\n\n💳 Paiement\n${puces(b.paiements)}\n${b.conditions}\n`, [ARTICLES, VENDEUR]);
 }
 
 /** Le client veut parler au vendeur : on le rassure ici, et le vendeur est prévenu sur son WhatsApp. */
 export function vendeur(b: Boutique, nomPage: string): Envoi[] {
   return [
-    ...texte(`C'est noté 👍 ${b.nom} vous répond ici très vite. En attendant, vous pouvez voir nos articles 👇`, [boutonArticles]),
+    ...liste(`C'est noté 👍 ${b.nom} vous répond ici très vite. En attendant :`, [ARTICLES]),
     { type: 'au_vendeur', texte: `🙋 *Un client veut vous parler sur Messenger* (Page ${nomPage}).\nRépondez-lui depuis la messagerie de votre Page : application Facebook, Messenger ou Meta Business Suite.` },
   ];
 }
 
-/** Message libre que le service ne sait pas traiter : accusé de réception, boutons vers la boutique, vendeur prévenu. */
-export function question(b: Boutique, nomPage: string, extrait: string): Envoi[] {
-  return [
-    ...texte(`Merci 🙏 ${b.nom} a bien reçu votre message et vous répond ici. En attendant, voyez nos articles 👇`, [boutonArticles, choix('🚚 Livraison', idAction({ type: 'livraison' }))]),
-    { type: 'au_vendeur', texte: `💬 *Nouveau message sur Messenger* (Page ${nomPage}) :\n« ${couper(extrait, 300)} »\nRépondez depuis la messagerie de votre Page.` },
-  ];
+/** Alerte au vendeur sur WhatsApp pour un message que BAYAM ne sait pas traiter. */
+export function alerteQuestion(nomPage: string, extrait: string): Envoi {
+  return { type: 'au_vendeur', texte: `💬 *Nouveau message sur Messenger* (Page ${nomPage}) :\n« ${couper(extrait, 300)} »\nRépondez depuis la messagerie de votre Page.` };
+}
+
+/** Accusé de réception d'un message en cours de conversation : rassure, et rappelle le mot pour revoir la boutique. */
+export function accuse(b: Boutique): Envoi {
+  return texte(`Merci 🙏 ${b.nom} a bien reçu votre message et vous répond ici. Pour revoir nos articles à tout moment, écrivez « menu ».`);
+}
+
+// Messages qui n'appellent pas de réponse en cours de conversation : salutations, remerciements, accords, émojis.
+const BANAL = /^(bonjour|bonsoir|bjr|bsr|slt|salut|hello|hi|hey|cc|coucou|merci|mrc|thanks|ok|okay|oki|d'?accord|dac|daccord|super|cool|top|parfait|bien recu|recu|vu|amen|bonne (nuit|journee|soiree))\b[\s!.,]*$/;
+
+/** Le message ne demande rien (« merci », « ok », « 👍 ») : pas d'alerte au vendeur, pas d'accusé de réception. */
+export function banal(message: string): boolean {
+  const t = sansAccents(message.toLowerCase()).trim();
+  return !t || BANAL.test(t) || !/\p{L}|\d/u.test(t);
 }
 
 // --- Commentaires sous les publications ------------------------------------------------------------------------
@@ -199,26 +228,25 @@ const prenom = (nom: string) => nom.trim().split(/\s+/)[0] ?? '';
 
 /**
  * Réponse privée au commentaire (un seul message permis par Meta, dans les 7 jours) : l'article, son prix, et des
- * boutons. Le client qui touche un bouton ouvre la discussion : la suite (photo, lien de commande) part tout de suite.
+ * choix numérotés en texte simple, lisibles partout. La réponse du client (« 1 ») ouvre la suite : photo et lien.
  */
-export function reponsePrivee(b: Boutique, nom: string, produits: Produit[], designe: Produit | null, publication: number | null): MessageMessenger {
+export function reponsePrivee(b: Boutique, nom: string, produits: Produit[], designe: Produit | null): { message: MessageMessenger; choix: string[] } {
   const qui = prenom(nom);
   const bonjour = `Bonjour${qui ? ` ${qui}` : ''} 👋 Merci pour votre commentaire !`;
-  const catalogue = choix('🛍️ Tout le catalogue', idAction({ type: 'menu' }));
-  const questionBouton = choix('🙋 Une question', idAction({ type: 'vendeur' }));
+  let envois: Envoi[];
   if (designe && designe.en_stock) {
     const etat = dispo(designe).replace(/^\S+ /, '').toLowerCase();
-    return boutons(`${bonjour}\n${designe.nom} : ${prixTexte(designe)}, ${etat}${designe.options ? ` (${designe.options})` : ''}.\nTouchez « Voir et commander » pour la photo et votre lien de commande 👇`,
-      [choix('🛒 Voir et commander', idAction({ type: 'produit', produit: designe.id })), catalogue, questionBouton]);
+    envois = liste(`${bonjour}\n${designe.nom} : ${prixTexte(designe)}, ${etat}${designe.options ? ` (${designe.options})` : ''}.\nRépondez par un numéro :`,
+      [['🛒 La photo et votre lien de commande', idAction({ type: 'produit', produit: designe.id })], ['🛍️ Tout le catalogue', ARTICLES[1]], VENDEUR]);
+  } else if (designe) {
+    envois = liste(`${bonjour}\n${designe.nom} vient d'être épuisé 😔 Répondez par un numéro :`, [['🛍️ Voir ce qui reste en boutique', ARTICLES[1]], VENDEUR]);
+  } else if (produits.length) {
+    envois = liste(`${bonjour}\nRépondez par le numéro de l'article pour sa photo et votre lien de commande :`, [...produits.map((p) => (p.en_stock ? ligneArticle(p) : [`${p.nom} : épuisé`, ARTICLES[1]] as Ligne)), ['🛍️ Tout le catalogue', ARTICLES[1]], VENDEUR]);
+  } else {
+    envois = liste(`${bonjour}\nBienvenue chez ${b.nom}. Répondez par un numéro :`, [['🛍️ Voir nos articles, prix et tailles', ARTICLES[1]], VENDEUR]);
   }
-  if (designe) {
-    return boutons(`${bonjour}\n${designe.nom} vient d'être épuisé 😔 Voyez ce qui reste en boutique 👇`, [catalogue, questionBouton]);
-  }
-  if (produits.length && publication !== null) {
-    const liste = produits.map((p, i) => `${i + 1}. ${p.nom} : ${p.en_stock ? prixTexte(p) : 'épuisé'}`).join('\n');
-    return boutons(`${bonjour}\n${liste}\nTouchez « Voir ces articles » 👇`, [choix('🛍️ Voir ces articles', idPublication(publication)), catalogue, questionBouton]);
-  }
-  return boutons(`${bonjour}\nVoici la boutique ${b.nom} : prix, tailles et commande en un geste 👇`, [catalogue, questionBouton]);
+  const [message, liens] = envois as [{ type: 'message'; message: MessageMessenger }, { type: 'choix'; ids: string[] }];
+  return { message: message.message, choix: liens.ids };
 }
 
 const PUBLIQUES = [

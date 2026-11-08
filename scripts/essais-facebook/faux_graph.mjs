@@ -44,7 +44,8 @@ createServer((req, res) => {
     ] });
     if (chemin.endsWith('/subscribed_apps')) return envoyer(200, { success: true });
     if (chemin === '/me/messenger_profile') return envoyer(200, { result: 'success' });
-    if (chemin.endsWith('/messages')) return envoyer(200, { recipient_id: corps?.recipient?.id ?? '', message_id: `m.faux.${n}` });
+    // Réponse privée à un commentaire : Meta renvoie l'identifiant Messenger de la personne qui a commenté.
+    if (chemin.endsWith('/messages')) return envoyer(200, { recipient_id: corps?.recipient?.id ?? (corps?.recipient?.comment_id ? '7000000000000002' : ''), message_id: `m.faux.${n}` });
     if (chemin.endsWith('/comments')) return envoyer(200, { id: `reponse_${n}` });
     if (chemin.endsWith('/photos')) return envoyer(200, corps?.published === 'true' ? { id: `ph${n}`, post_id: `${PAGE}_70${n}` } : { id: `ph${n}` });
     if (chemin.endsWith('/feed')) return envoyer(200, { id: `${PAGE}_80${n}` });

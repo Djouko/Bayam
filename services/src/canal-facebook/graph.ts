@@ -122,10 +122,12 @@ export class Graph {
     await this.appel('DELETE', '/me/messenger_profile', jeton, { fields: ['get_started', 'persistent_menu'] });
   }
 
-  /** Message Messenger (réponse au client, ou réponse privée à un commentaire) ; renvoie son identifiant. */
-  async envoyer(page: string, jeton: string, destinataire: Destinataire, message: Record<string, unknown>): Promise<string> {
-    const r = await this.appel<{ message_id?: string }>('POST', `/${page}/messages`, jeton, { recipient: destinataire, messaging_type: 'RESPONSE', message });
-    return r.message_id ?? '';
+  /**
+   * Message Messenger (réponse au client, ou réponse privée à un commentaire) ; renvoie son identifiant et celui du
+   * destinataire dans la Page (pour une réponse privée, c'est ainsi qu'on apprend qui a commenté).
+   */
+  async envoyer(page: string, jeton: string, destinataire: Destinataire, message: Record<string, unknown>): Promise<{ message_id?: string; recipient_id?: string }> {
+    return this.appel('POST', `/${page}/messages`, jeton, { recipient: destinataire, messaging_type: 'RESPONSE', message });
   }
 
   /** Réponse publique sous un commentaire. */
