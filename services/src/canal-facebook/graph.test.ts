@@ -88,3 +88,12 @@ test('adresse des événements déclarée avec le jeton d’application (identif
   assert.deepEqual(JSON.parse(f.appels[1].corps), { object: 'page', callback_url: 'https://nouvelle/webhooks/facebook', verify_token: 'jeton-verif', fields: 'messages,messaging_postbacks,messaging_referrals,message_echoes,feed' });
   f.serveur.close();
 });
+
+test('fenêtre de connexion : identifiant de configuration (Facebook Login for Business) à la place des permissions', () => {
+  const avec = new URL(new Graph('http://graph', '1234', 's', '987654').urlConnexion('https://bayam.cm/facebook/retour', 'e'));
+  assert.equal(avec.searchParams.get('config_id'), '987654');
+  assert.equal(avec.searchParams.get('scope'), null);
+  const sans = new URL(new Graph('http://graph', '1234', 's').urlConnexion('https://bayam.cm/facebook/retour', 'e'));
+  assert.equal(sans.searchParams.get('config_id'), null);
+  assert.ok(sans.searchParams.get('scope')?.includes('pages_manage_posts'));
+});

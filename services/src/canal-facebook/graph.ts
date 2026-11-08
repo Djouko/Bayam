@@ -43,16 +43,27 @@ export class Graph {
   private readonly base: string;
   private readonly appId: string;
   private readonly secret: string;
+  private readonly configuration: string;
 
-  constructor(base: string, appId: string, secret: string) {
+  /**
+   * configuration : identifiant de configuration de « Facebook Login for Business » (applications créées avec un cas
+   * d'usage Messenger ou Page) ; il remplace la liste des permissions dans la fenêtre de connexion.
+   */
+  constructor(base: string, appId: string, secret: string, configuration = '') {
     this.base = base.replace(/\/$/, '');
     this.appId = appId;
     this.secret = secret;
+    this.configuration = configuration;
   }
 
   /** Adresse de la fenêtre de connexion Facebook où le vendeur choisit ses Pages. */
   urlConnexion(redirection: string, etat: string): string {
-    const q = new URLSearchParams({ client_id: this.appId, redirect_uri: redirection, state: etat, scope: PERMISSIONS.join(','), response_type: 'code' });
+    const q = new URLSearchParams({ client_id: this.appId, redirect_uri: redirection, state: etat, response_type: 'code' });
+    if (this.configuration) {
+      q.set('config_id', this.configuration);
+    } else {
+      q.set('scope', PERMISSIONS.join(','));
+    }
     return `https://www.facebook.com/${VERSION_GRAPH}/dialog/oauth?${q}`;
   }
 

@@ -340,6 +340,8 @@ services:
       CANAL_FACEBOOK_BASE: postgres://canal_facebook:${CANAL_FACEBOOK_DB_PASSWORD}@postgres:5432/bayam
       FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      # Configuration de « Facebook Login for Business » (fenêtre de connexion des Pages par les vendeurs).
+      FACEBOOK_CONFIG_ID: ${FACEBOOK_CONFIG_ID:-}
       # Jeton que Meta renvoie en vérifiant l'adresse des événements, déclarée par le service lui-même.
       FACEBOOK_JETON_VERIFICATION: ${FACEBOOK_JETON_VERIFICATION:-}
       # Clé de chiffrement des jetons de Page en base (32 octets en base64).

@@ -35,7 +35,7 @@ const appId = lire('FACEBOOK_APP_ID', '');
 const secretApp = lire('FACEBOOK_APP_SECRET', '');
 const configure = Boolean(appId && secretApp);
 const jetonVerification = lire('FACEBOOK_JETON_VERIFICATION', '');
-const graph = new Graph(lire('FACEBOOK_GRAPH_URL', 'https://graph.facebook.com/v27.0'), appId, secretApp);
+const graph = new Graph(lire('FACEBOOK_GRAPH_URL', 'https://graph.facebook.com/v27.0'), appId, secretApp, lire('FACEBOOK_CONFIG_ID', ''));
 
 const pool = creerPool(exiger('CANAL_FACEBOOK_BASE'));
 const appliquees = await migrer(pool, 'canal_facebook', fileURLToPath(new URL('./migrations', import.meta.url)));
