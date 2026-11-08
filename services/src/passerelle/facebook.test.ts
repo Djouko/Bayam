@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { evenementsFacebook, METADONNEE_BAYAM, signatureMetaValide } from './facebook.ts';
+import { evenementsFacebook, METADONNEE_BAYAM, resumeFacebook, signatureMetaValide } from './facebook.ts';
 
 const PAGE = '1029384756';
 const page = (champs: Record<string, unknown>) => ({ object: 'page', entry: [{ id: PAGE, time: 1, ...champs }] });
@@ -51,4 +51,18 @@ test('nouveau commentaire d’un client gardé ; commentaire de la Page, modific
 test('autre objet que Page, ou Page sans identifiant valable : rien', () => {
   assert.equal(evenementsFacebook({ object: 'instagram', entry: [] }).length, 0);
   assert.equal(evenementsFacebook({ object: 'page', entry: [{ id: '../x', messaging: [message({ message: { mid: 'm' } })] }] }).length, 0);
+});
+
+test('commentaire sans auteur (Meta le cache parfois) : gardé, la réponse privée n’en a pas besoin', () => {
+  const sansAuteur = { field: 'feed', value: { item: 'comment', verb: 'add', comment_id: 'c9', post_id: `${PAGE}_9`, message: 'le 2', created_time: 1_762_500_000 } };
+  assert.deepEqual(evenementsFacebook(page({ changes: [sansAuteur] })).map((e) => e.id), ['commentaire-c9']);
+});
+
+test('résumé pour le journal : la nature des événements, jamais leur contenu', () => {
+  const r = resumeFacebook(page({
+    messaging: [message({ message: { mid: 'm', text: 'Mon numéro est le 690000000' } }), message({ read: { watermark: 1 } })],
+    changes: [{ field: 'feed', value: { item: 'comment', verb: 'add', message: 'secret', from: { id: '7001' } } }],
+  }));
+  assert.deepEqual(r, ['messagerie:message', 'messagerie:read', 'feed:comment:add:auteur']);
+  assert.ok(!JSON.stringify(r).includes('690000000') && !JSON.stringify(r).includes('secret'));
 });

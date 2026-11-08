@@ -135,7 +135,12 @@ final class Bayam_WA_Interne
         $defaut = (int) get_option('default_product_cat');
         $rayons = [];
         foreach (wp_get_object_terms($ids, 'product_cat', ['fields' => 'all_with_object_id']) as $t) {
-            $rayons[$t->term_id] ??= ['id' => (int) $t->term_id, 'nom' => (int) $t->term_id === $defaut ? 'Autres articles' : html_entity_decode($t->name, ENT_QUOTES, 'UTF-8'), 'nombre' => 0];
+            $rayons[$t->term_id] ??= ['id' => (int) $t->term_id, 'nom' => (int) $t->term_id === $defaut ? 'Autres articles' : html_entity_decode($t->name, ENT_QUOTES, 'UTF-8'), 'nombre' => 0, 'photo' => null];
+            // Photo du rayon (carte dans Messenger) : celle du premier de ses articles qui en a une.
+            if ($rayons[$t->term_id]['photo'] === null && ($image = get_post_thumbnail_id((int) $t->object_id))) {
+                $url = (string) wp_get_attachment_image_url($image, 'medium_large');
+                $rayons[$t->term_id]['photo'] = $url !== '' ? (string) wp_parse_url($url, PHP_URL_PATH) : null;
+            }
             $rayons[$t->term_id]['nombre']++;
         }
         usort($rayons, static fn ($a, $b) => [$a['id'] === $defaut, -$a['nombre'], $a['nom']] <=> [$b['id'] === $defaut, -$b['nombre'], $b['nom']]);

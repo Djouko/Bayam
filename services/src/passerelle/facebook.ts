@@ -36,6 +36,24 @@ export type Commentaire = {
 };
 type Corps = { object?: string; entry?: { id?: string; messaging?: Messagerie[]; changes?: { field?: string; value?: Commentaire }[] }[] };
 
+/**
+ * Résumé d'un appel de Meta pour le journal, sans aucun contenu : la nature de chaque événement (message, écho,
+ * choix, lecture, commentaire ajouté…) et si l'auteur est connu. Sert à voir ce que Meta envoie vraiment.
+ */
+export function resumeFacebook(corps: Corps): string[] {
+  const natures: string[] = [];
+  for (const entree of corps.entry ?? []) {
+    for (const m of entree.messaging ?? []) {
+      const nature = m.message?.is_echo ? 'echo' : (['message', 'postback', 'referral', 'read', 'delivery', 'reaction'].find((k) => k in m) ?? 'autre');
+      natures.push(`messagerie:${nature}`);
+    }
+    for (const c of entree.changes ?? []) {
+      natures.push(`${c.field}:${c.value?.item ?? '?'}:${c.value?.verb ?? '?'}${c.value?.from?.id ? (c.value.from.id === entree.id ? ':page' : ':auteur') : ':sans-auteur'}`);
+    }
+  }
+  return natures;
+}
+
 /** Ce qui entre dans le bus : un événement d'une Page, sous sa forme d'origine (donnees). */
 export type EvenementFacebook =
   | { id: string; page: string; type: 'messagerie'; horodatage: number; donnees: Messagerie }
@@ -70,7 +88,8 @@ export function evenementsFacebook(corps: Corps): EvenementFacebook[] {
     }
     for (const c of entree.changes ?? []) {
       const v = c.value ?? {};
-      if (c.field === 'feed' && v.item === 'comment' && v.verb === 'add' && v.comment_id && v.post_id && v.from?.id && v.from.id !== page) {
+      // Meta ne donne pas toujours l'auteur d'un commentaire (« from ») : la réponse privée n'en a pas besoin.
+      if (c.field === 'feed' && v.item === 'comment' && v.verb === 'add' && v.comment_id && v.post_id && v.from?.id !== page) {
         sortie.push({ id: `commentaire-${v.comment_id}`, page, type: 'commentaire', horodatage: Number(v.created_time ?? 0), donnees: v });
       }
     }

@@ -115,7 +115,7 @@ async function pourClient(d: Extract<Decision, { route: 'client' }>, evt: string
   let envois: messenger.Envoi[];
   switch (a.type) {
     case 'menu':
-      envois = messenger.menu(b);
+      envois = messenger.menu(b, base);
       break;
     case 'rayon': {
       const rayon = a.rayon === 0
@@ -164,7 +164,8 @@ async function pourCommentaire(d: Extract<Decision, { route: 'commentaire' }>): 
   const p = await donnees.page(d.page);
   const b = p ? await commerce.boutique(p.vendeur) : null;
   const c = d.commentaire;
-  const auteur = String(c.from?.id ?? '');
+  // Auteur inconnu (Meta le cache parfois) : chaque commentaire compte alors pour lui-même.
+  const auteur = String(c.from?.id ?? `commentaire-${c.comment_id}`);
   const deja = `fb:commentaire:${c.post_id}:${auteur}`;
   if (!p || !b || !b.actif || (await redis.exists(deja))) {
     return; // une seule réponse par personne et par publication en 24 h
@@ -231,7 +232,7 @@ function cleDiscussion(msg: JsMsg): string {
   try {
     const e = JSON.parse(new TextDecoder().decode(msg.data)) as EvenementFacebook;
     if (e.type === 'commentaire') {
-      return `${e.page}|${e.donnees.post_id}|${e.donnees.from?.id}`;
+      return `${e.page}|${e.donnees.post_id}|${e.donnees.from?.id ?? e.donnees.comment_id}`;
     }
     return `${e.page}|${e.donnees.message?.is_echo ? e.donnees.recipient?.id : e.donnees.sender?.id}`;
   } catch {

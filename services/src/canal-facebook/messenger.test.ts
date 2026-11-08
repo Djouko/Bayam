@@ -14,38 +14,44 @@ const article = (id: number, extra: Partial<Produit> = {}): Produit => ({
   photo: '/wp-content/uploads/robe-768x768.jpg', galerie: [], lien: `https://exemple.trycloudflare.com/b/abc${id}`, resume: 'Coupée et cousue à Douala.', ...extra,
 });
 const BASE = 'https://exemple.trycloudflare.com';
-type Message = { text?: string; quick_replies?: { title: string; payload: string }[]; attachment?: { type: string; payload: Record<string, unknown> & { elements?: Element[]; buttons?: Bouton[]; text?: string } } };
+type Message = { text?: string; quick_replies?: unknown[]; attachment?: { type: string; payload: Record<string, unknown> & { elements?: Element[]; buttons?: Bouton[]; text?: string } } };
 type Bouton = { type: string; title: string; payload?: string; url?: string };
 type Element = { title: string; subtitle: string; image_url?: string; buttons: Bouton[] };
 const messages = (envois: m.Envoi[]) => envois.filter((e) => e.type === 'message').map((e) => (e as { message: Message }).message);
+/** Boutons sous un message (modèle à boutons) : texte et identifiants. */
+const sous = (msg: Message) => ({ texte: msg.attachment?.payload.text ?? msg.text ?? '', choix: (msg.attachment?.payload.buttons ?? []).map((b) => b.payload ?? b.url) });
 
-/** Tout message respecte les limites de Messenger (sinon Meta le refuse entier). */
+/** Tout message respecte les limites de Messenger (sinon Meta le refuse entier), et aucun ne compte sur les réponses rapides. */
 function verifier(envois: m.Envoi[]): void {
   for (const msg of messages(envois)) {
-    assert.ok(!msg.quick_replies || msg.quick_replies.length <= m.LIMITES.reponsesRapides);
-    for (const r of msg.quick_replies ?? []) {
-      assert.ok([...r.title].length <= m.LIMITES.titreReponse, r.title);
-    }
+    assert.equal(msg.quick_replies, undefined, 'réponses rapides : invisibles sur certaines versions de Messenger');
     for (const e of msg.attachment?.payload.elements ?? []) {
       assert.ok([...e.title].length <= m.LIMITES.titreElement && [...e.subtitle].length <= m.LIMITES.sousTitre, e.subtitle);
       assert.ok(e.buttons.length <= m.LIMITES.boutons && e.buttons.every((b) => [...b.title].length <= m.LIMITES.titreBouton));
     }
+    const boutons = msg.attachment?.payload.buttons ?? [];
+    assert.ok(boutons.length <= m.LIMITES.boutons && boutons.every((b) => [...b.title].length <= m.LIMITES.titreBouton));
+    assert.ok(!msg.attachment?.payload.text || [...msg.attachment.payload.text].length <= m.LIMITES.texteBoutons);
     assert.ok((msg.attachment?.payload.elements?.length ?? 0) <= m.LIMITES.elements);
     assert.ok(!msg.text || msg.text.length <= m.LIMITES.texte);
   }
 }
 
-test('menu : promos d’abord, rayons, puis livraison et vendeur ; treize réponses rapides au plus', () => {
-  const envois = m.menu(boutique);
+test('menu : carrousel des rayons à faire glisser (promos d’abord, photo par rayon), puis livraison et vendeur', () => {
+  const avecPhotos = { ...boutique, rayons: boutique.rayons.map((r, i) => (i === 0 ? { ...r, photo: '/wp-content/uploads/robe-768x768.jpg' } : r)) };
+  const envois = m.menu(avecPhotos, BASE);
   verifier(envois);
-  const [menu] = messages(envois);
-  assert.equal(menu.quick_replies?.length, 13);
-  assert.equal(menu.quick_replies?.[0].payload, 'bayam:rayon:0:1');
-  assert.deepEqual(menu.quick_replies?.slice(-2).map((r) => r.payload), ['bayam:livraison', 'bayam:vendeur']);
-  assert.ok(menu.quick_replies?.[1].title.endsWith('…'));
+  const [accueil, carrousel] = messages(envois);
+  assert.ok(accueil.text?.startsWith('Bonjour 👋 Bienvenue chez Mode Aïcha'));
+  const cartes = carrousel.attachment?.payload.elements ?? [];
+  assert.equal(cartes.length, 10);
+  assert.equal(cartes[0].buttons[0].payload, 'bayam:rayon:0:1');
+  assert.equal(cartes[1].image_url, `${BASE}/wp-content/uploads/robe-768x768.jpg`);
+  assert.equal(cartes[1].subtitle, '3 articles');
+  assert.deepEqual(cartes.at(-1)?.buttons.map((b) => b.payload), ['bayam:livraison', 'bayam:vendeur']);
 });
 
-test('rayon : carrousel de 10 articles au plus (photo carrée en adresse publique, prix, boutons), puis la suite', () => {
+test('rayon : carrousel de 10 articles au plus (photo carrée en adresse publique, prix, boutons), puis la suite en boutons', () => {
   const page = { total: 23, produits: Array.from({ length: 10 }, (_, i) => article(i + 1, i === 0 ? { galerie: ['/a.jpg'], prix: 15000, prix_regulier: 18500, stock: 2 } : {})) };
   const envois = m.pageRayon({ id: 60, nom: 'Robes', nombre: 23 }, page, 2, BASE);
   verifier(envois);
@@ -57,8 +63,8 @@ test('rayon : carrousel de 10 articles au plus (photo carrée en adresse publiqu
   assert.ok(elements[0].subtitle.startsWith(`${fcfa(15000)} au lieu de ${fcfa(18500)}`) && elements[0].subtitle.includes('Plus que 2'));
   assert.deepEqual(elements[0].buttons.map((b) => b.payload), ['bayam:produit:1', 'bayam:photos:1', 'bayam:vendeur']);
   assert.deepEqual(elements[1].buttons.map((b) => b.payload), ['bayam:produit:2', 'bayam:vendeur']);
-  assert.ok(suite.text?.includes('articles 11 à 20 sur 23'));
-  assert.equal(suite.quick_replies?.[0].payload, 'bayam:rayon:60:3');
+  assert.ok(sous(suite).texte.includes('articles 11 à 20 sur 23'));
+  assert.deepEqual(sous(suite).choix, ['bayam:rayon:60:3', 'bayam:menu', 'bayam:vendeur']);
 });
 
 test('article choisi : bouton « Commander » vers le lien personnel, puis description et consigne', () => {
@@ -68,31 +74,39 @@ test('article choisi : bouton « Commander » vers le lien personnel, puis descr
   const [bouton, photos] = carte.attachment?.payload.elements?.[0].buttons ?? [];
   assert.deepEqual([bouton.type, bouton.url], ['web_url', `${BASE}/commander/abcdefghijklmnopqrstuvwx`]);
   assert.equal(photos.payload, 'bayam:photos:25');
-  assert.ok(consigne.text?.startsWith('Coupée et cousue à Douala.') && consigne.text.includes('choisissez la taille'));
+  assert.ok(sous(consigne).texte.startsWith('Coupée et cousue à Douala.') && sous(consigne).texte.includes('choisissez la taille'));
 });
 
 test('article épuisé ou sans lien : on le dit, et on propose le reste', () => {
   const [msg] = messages(m.produit(boutique, article(25, { en_stock: false }), null, BASE));
-  assert.ok(msg.text?.includes('vient d\'être épuisé'));
-  assert.equal(msg.quick_replies?.[0].payload, 'bayam:menu');
+  assert.ok(sous(msg).texte.includes('vient d\'être épuisé'));
+  assert.equal(sous(msg).choix[0], 'bayam:menu');
 });
 
 test('plus de photos : chaque photo de la galerie en image, puis de quoi commander', () => {
   const envois = m.photos(article(25, { galerie: ['/p1.jpg', '/p2.jpg'] }), BASE);
   const msgs = messages(envois);
   assert.deepEqual(msgs.slice(0, 2).map((x) => x.attachment?.payload.url), [`${BASE}/p1.jpg`, `${BASE}/p2.jpg`]);
-  assert.equal(msgs[2].quick_replies?.[0].payload, 'bayam:produit:25');
+  assert.equal(sous(msgs[2]).choix[0], 'bayam:produit:25');
 });
 
-test('message libre : accusé au client avec les rayons, alerte au vendeur sur WhatsApp', () => {
+test('message libre : accusé au client avec des boutons, alerte au vendeur sur WhatsApp', () => {
   const envois = m.question(boutique, 'Mode Aïcha Douala', 'Vous livrez à Bafoussam ?');
   assert.equal(envois.length, 2);
-  assert.ok(messages(envois)[0].quick_replies?.length);
+  assert.deepEqual(sous(messages(envois)[0]).choix, ['bayam:menu', 'bayam:livraison']);
   assert.ok(envois[1].type === 'au_vendeur' && envois[1].texte.includes('« Vous livrez à Bafoussam ? »'));
 });
 
+test('texte trop long pour un message à boutons (640 caractères) : le texte part seul, les boutons suivent', () => {
+  const envois = m.livraison({ ...boutique, conditions: 'Conditions. '.repeat(70) });
+  verifier(envois);
+  const [long, suite] = messages(envois);
+  assert.ok(long.text && long.text.length > 640);
+  assert.deepEqual(sous(suite).choix, ['bayam:menu', 'bayam:vendeur']);
+});
+
 test('commentaire intéressé reconnu, comme on l’écrit vraiment ; le reste ignoré', () => {
-  for (const c of ['Prix ?', 'cb', 'Dispo en 42 ?', 'IB svp', 'Mp', 'je prends', 'Interested', 'How much', '2', 'Vous livrez à Yaoundé', 'Taille L']) {
+  for (const c of ['Prix ?', 'cb', 'Dispo en 42 ?', 'IB svp', 'Mp', 'je prends', 'Interested', 'How much', '2', 'le 2', 'La 3 svp', '#4', 'Vous livrez à Yaoundé', 'Taille L', 'Salut', 'Bsr', 'Bonjour la boutique']) {
     assert.ok(m.interesse(c), c);
   }
   for (const c of ['Amen', 'Paul Nkoulou', '😍😍😍', 'Très jolie ma sœur', 'Félicitations']) {

@@ -9,7 +9,7 @@ import { jetstream } from '@nats-io/jetstream';
 import { assurerFluxFacebook, assurerFluxWhatsapp, connecterBus, SUJET_FACEBOOK, SUJET_WHATSAPP } from '../commun/bus.ts';
 import { exiger, lire, nombre } from '../commun/config.ts';
 import { journal, texteErreur } from '../commun/journal.ts';
-import { evenementsFacebook, signatureMetaValide, type EvenementFacebook } from './facebook.ts';
+import { evenementsFacebook, resumeFacebook, signatureMetaValide, type EvenementFacebook } from './facebook.ts';
 import { signatureValide, utile } from './filtre.ts';
 
 const log = journal('passerelle');
@@ -139,7 +139,9 @@ async function facebook(req: IncomingMessage, res: ServerResponse, adresse: URL,
   }
   let evenements: EvenementFacebook[];
   try {
-    evenements = evenementsFacebook(JSON.parse(corps.toString('utf8')));
+    const recu = JSON.parse(corps.toString('utf8'));
+    evenements = evenementsFacebook(recu);
+    log.info('facebook', { natures: resumeFacebook(recu), gardes: evenements.length });
   } catch {
     repondre(400);
     return;

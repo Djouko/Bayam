@@ -4,7 +4,8 @@
 import type { RedisClientType } from 'redis';
 import { texteErreur } from '../commun/journal.ts';
 
-export type Rayon = { id: number; nom: string; nombre: number };
+/** photo : chemin de la photo d'un de ses articles (carte du rayon dans Messenger), si elle existe. */
+export type Rayon = { id: number; nom: string; nombre: number; photo?: string | null };
 export type Produit = {
   id: number;
   nom: string;
