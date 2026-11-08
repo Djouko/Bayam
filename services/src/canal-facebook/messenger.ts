@@ -271,7 +271,8 @@ export function menuPermanent(): Record<string, unknown>[] {
 /** Autorisations utiles et ce qu'elles permettent, dit au vendeur quand il en a refusé une. */
 export const AUTORISATIONS: Record<string, string> = {
   pages_messaging: 'répondre à vos clients dans Messenger',
-  pages_read_engagement: 'lire les commentaires sous vos publications',
+  pages_read_engagement: 'voir les commentaires sous vos publications',
+  pages_read_user_content: 'lire ce qu\'écrivent vos clients en commentaire',
   pages_manage_engagement: 'répondre en public sous les commentaires',
   pages_manage_posts: 'publier sur votre Page (publications et stories)',
 };

@@ -148,6 +148,6 @@ test('menu permanent de Messenger : la boutique toujours à portée, titres de 3
 });
 
 test('autorisations refusées : expliquées au vendeur en mots simples', () => {
-  assert.deepEqual(m.autorisationsManquantes(['pages_messaging', 'pages_read_engagement']), ['pages_manage_engagement', 'pages_manage_posts']);
+  assert.deepEqual(m.autorisationsManquantes(['pages_messaging', 'pages_read_engagement']), ['pages_read_user_content', 'pages_manage_engagement', 'pages_manage_posts']);
   assert.ok(m.AUTORISATIONS.pages_manage_posts.includes('publier'));
 });

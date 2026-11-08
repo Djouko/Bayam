@@ -714,7 +714,7 @@ final class Bayam_WA_Copilote
         $actives = array_filter($pages, static fn ($p) => !empty($p['actif']));
         $coupees = array_filter($pages, static fn ($p) => empty($p['actif']));
         // Autorisations refusées à la connexion : on dit ce qui ne marche pas encore, et le lien sert à les accorder.
-        $besoins = ['pages_messaging' => 'répondre dans Messenger', 'pages_read_engagement' => 'lire les commentaires', 'pages_manage_engagement' => 'répondre en public sous les commentaires', 'pages_manage_posts' => 'publier sur la Page'];
+        $besoins = ['pages_messaging' => 'répondre dans Messenger', 'pages_read_engagement' => 'voir les commentaires', 'pages_read_user_content' => 'lire ce que vos clients écrivent en commentaire', 'pages_manage_engagement' => 'répondre en public sous les commentaires', 'pages_manage_posts' => 'publier sur la Page'];
         $manques = [];
         foreach ($actives as $p) {
             $absentes = array_diff_key($besoins, array_flip((array) ($p['permissions'] ?? [])));

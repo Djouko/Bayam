@@ -7,7 +7,9 @@ import { createHmac } from 'node:crypto';
 export const VERSION_GRAPH = 'v27.0';
 
 /** Permissions demandées au vendeur : lire ses Pages, répondre dans Messenger et aux commentaires, publier. */
-export const PERMISSIONS = ['pages_show_list', 'pages_messaging', 'pages_manage_metadata', 'pages_read_engagement', 'pages_manage_engagement', 'pages_manage_posts'];
+// pages_read_user_content : exigée par Meta avec pages_manage_engagement (sinon « Invalid Scopes ») ;
+// business_management : Pages gérées dans un portefeuille business, absentes de /me/accounts sans elle.
+export const PERMISSIONS = ['pages_show_list', 'business_management', 'pages_messaging', 'pages_manage_metadata', 'pages_read_engagement', 'pages_read_user_content', 'pages_manage_engagement', 'pages_manage_posts'];
 
 /** Événements reçus pour chaque Page connectée. */
 export const ABONNEMENTS = ['messages', 'messaging_postbacks', 'messaging_referrals', 'message_echoes', 'feed'];
