@@ -713,16 +713,19 @@ final class Bayam_WA_Copilote
         $noms = static fn (array $liste) => implode(', ', array_map(static fn ($p) => '« ' . $p['nom'] . ' »', $liste));
         $actives = array_filter($pages, static fn ($p) => !empty($p['actif']));
         $coupees = array_filter($pages, static fn ($p) => empty($p['actif']));
-        $etat = ($actives ? '✅ Reliée(s) : ' . $noms($actives) . "
-" : '') . ($coupees ? '⚠️ À reconnecter : ' . $noms($coupees) . "
-" : '');
+        // Autorisations refusées à la connexion : on dit ce qui ne marche pas encore, et le lien sert à les accorder.
+        $besoins = ['pages_messaging' => 'répondre dans Messenger', 'pages_read_engagement' => 'lire les commentaires', 'pages_manage_engagement' => 'répondre en public sous les commentaires', 'pages_manage_posts' => 'publier sur la Page'];
+        $manques = [];
+        foreach ($actives as $p) {
+            $absentes = array_diff_key($besoins, array_flip((array) ($p['permissions'] ?? [])));
+            if ($absentes) {
+                $manques[] = '⚠️ « ' . $p['nom'] . ' » : BAYAM ne peut pas encore ' . implode(', ', $absentes) . '.';
+            }
+        }
+        $etat = ($actives ? '✅ Reliée(s) : ' . $noms($actives) . "\n" : '') . ($coupees ? '⚠️ À reconnecter : ' . $noms($coupees) . "\n" : '') . ($manques ? implode("\n", $manques) . "\n" : '');
+        $action = $manques ? 'Pour tout activer' : ($actives ? 'Pour relier une autre Page' : 'Reliez la Page Facebook de votre boutique en une minute');
         $lien = Bayam_WA_Facebook::lien_connexion($this->vendeur);
-        return [['texte' => "📘 *Facebook*
-{$etat}" . ($actives ? 'Pour relier une autre Page' : 'Reliez la Page Facebook de votre boutique en une minute')
-            . " : touchez ce lien (valable 30 min), connectez-vous à Facebook et cochez votre Page.
-{$lien}
-
-"
+        return [['texte' => "📘 *Facebook*\n{$etat}{$action} : touchez ce lien (valable 30 min), connectez-vous à Facebook, acceptez toutes les autorisations et cochez la Page de votre boutique.\n{$lien}\n\n"
             . "Ensuite, tout seul : votre catalogue dans Messenger, une réponse privée à chaque « prix ? » sous vos publications, les commandes confirmées dans Messenger. Pour publier : *bayam publier robes facebook*, ou *… story*."
             . ($pages ? "\nUne Page en trop : *bayam facebook retirer " . end($pages)['nom'] . '*' : '')]];
     }
