@@ -382,9 +382,11 @@ async function publier(l: { id: string; vendeur: number; page: string; type: 'pu
   } catch (e) {
     return erreurDePage(e, p, b);
   }
+  // Lien officiel de la publication (celui que Facebook affiche) ; à défaut, l'adresse par identifiant.
+  const lien = l.type === 'story' ? null : await graph.permalien(publication, p.jeton).catch(() => null);
   await alerteVendeur(b, l.type === 'story'
     ? `✅ ${produits.length} story(s) publiée(s) sur votre Page « ${p.nom} », visibles 24 h.`
-    : `✅ Publié sur votre Page « ${p.nom} » : https://www.facebook.com/${publication}\nChaque commentaire « prix ? » reçoit une réponse privée avec l'article.`, `publication-${l.id}`);
+    : `✅ Publié sur votre Page « ${p.nom} » : ${lien ?? `https://www.facebook.com/${publication}`}\nChaque commentaire « prix ? » reçoit une réponse privée avec l'article.`, `publication-${l.id}`);
   return { statut: 'publie', publication, publie: new Date() };
 }
 

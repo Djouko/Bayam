@@ -150,6 +150,12 @@ export class Graph {
     return r.id;
   }
 
+  /** Adresse publique d'une publication, telle que Facebook l'affiche. */
+  async permalien(publication: string, jeton: string): Promise<string | null> {
+    const r = await this.appel<{ permalink_url?: string }>('GET', `/${publication}`, jeton, undefined, { fields: 'permalink_url' });
+    return r.permalink_url ?? null;
+  }
+
   async story(page: string, jeton: string, photo: string): Promise<string> {
     const r = await this.appel<{ post_id: string | number }>('POST', `/${page}/photo_stories`, jeton, { photo_id: photo });
     return String(r.post_id);
