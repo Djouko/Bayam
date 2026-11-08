@@ -94,6 +94,20 @@ if (get_option('bayam_wa_essais_debut')) {
     bayam_supprimer_produits_essai($vendeur, get_option('bayam_wa_essais_debut'));
 }
 Bayam_WA_Waha::remplacer($faux);
+// Service Facebook simulé : les essais ne publient jamais sur une vraie Page. $pages_fb décide des Pages « reliées ».
+$pages_fb = [];
+$appels_fb = [];
+Bayam_WA_Facebook::remplacer(static function (string $methode, string $chemin, ?array $corps) use (&$pages_fb, &$appels_fb) {
+    $appels_fb[] = [$methode, $chemin, $corps];
+    if ($methode === 'GET' && str_ends_with($chemin, '/pages')) {
+        return $pages_fb;
+    }
+    if ($methode === 'DELETE') {
+        return ['retiree' => 'ok'];
+    }
+    return $methode === 'POST' && $chemin === '/interne/publications' ? ['pages' => count($pages_fb)] : null;
+});
+wp_cache_delete("bayam_fb_pages_{$vendeur}", 'bayam');
 // Modèle de langage simulé : aucun appel réel pendant les essais ; par défaut il ne comprend rien.
 $ia_ne_comprend_pas = static fn () => ['comprise' => false, 'commande' => '', 'explication' => ''];
 Bayam_WA_IA::remplacer($ia_ne_comprend_pas);
@@ -573,6 +587,25 @@ $r = bayam_dire('bayam facebook');
 preg_match('#/facebook/connexion\?v=(\d+)&e=(\d+)&s=([0-9a-f]{64})#', $joint($r), $lien_fb);
 bayam_verifier('« bayam facebook » : lien de connexion signé, valable 30 min', $lien_fb && (int) $lien_fb[1] === 3 && abs((int) $lien_fb[2] - time() - 1800) < 60
     && hash_equals(hash_hmac('sha256', "facebook:3.{$lien_fb[2]}", (string) getenv('BAYAM_SERVICE_JETON')), $lien_fb[3]), $r);
+// Page reliée (simulée) : publication et story demandées au service, avec le bon article ; retrait d'une Page.
+$pages_fb = [['page' => '110675147863315', 'vendeur' => 3, 'nom' => 'Kratos Learn', 'actif' => true, 'permissions' => ['pages_manage_posts']]];
+wp_cache_delete("bayam_fb_pages_{$vendeur}", 'bayam');
+$appels_fb = [];
+$r = bayam_dire('bayam publier polo facebook');
+$demande_fb = array_values(array_filter($appels_fb, static fn ($a) => $a[1] === '/interne/publications'))[0][2] ?? null;
+bayam_verifier('Page reliée : « publier polo facebook » demande la publication du polo, rien sur WhatsApp',
+    str_contains($joint($r), 'Publication en préparation sur « Kratos Learn »') && $demande_fb === ['vendeur' => 3, 'produits' => [25], 'type' => 'publication'] && !str_contains($joint($r), 'publication(s) :'), [$r, $appels_fb]);
+$appels_fb = [];
+$r = bayam_dire('bayam publier polo story');
+bayam_verifier('« publier polo story » : une story demandée', (array_values(array_filter($appels_fb, static fn ($a) => $a[1] === '/interne/publications'))[0][2]['type'] ?? '') === 'story', [$r, $appels_fb]);
+$r = bayam_dire('bayam facebook');
+bayam_verifier('« bayam facebook » avec une Page reliée : son nom, et comment en retirer une', str_contains($joint($r), 'Reliée(s) : « Kratos Learn »') && str_contains($joint($r), 'bayam facebook retirer Kratos Learn'), $r);
+$appels_fb = [];
+$r = bayam_dire('bayam facebook retirer kratos');
+bayam_verifier('« bayam facebook retirer kratos » : la Page désignée par une partie de son nom est retirée',
+    str_contains($joint($r), 'Page « Kratos Learn » retirée') && array_filter($appels_fb, static fn ($a) => $a[0] === 'DELETE' && str_ends_with((string) $a[1], '/pages/110675147863315')), [$r, $appels_fb]);
+$pages_fb = [];
+wp_cache_delete("bayam_fb_pages_{$vendeur}", 'bayam');
 $r = bayam_dire('bayam aide facebook');
 bayam_verifier('« bayam aide facebook » : ce que fait la Page reliée', str_contains($joint($r), 'Relier votre Page Facebook') && str_contains($joint($r), 'Messenger'), $r);
 $r = bayam_dire('bayam Robe wax 15000 M:2 publier partout', photo: true);
@@ -688,6 +721,8 @@ delete_option('bayam_wa_essais_debut');
 Bayam_WA_Waha::remplacer(null);
 Bayam_WA_IA::remplacer(null);
 delete_transient("bayam_wa_chaines_{$vendeur}");
+Bayam_WA_Facebook::remplacer(null);
+wp_cache_delete("bayam_fb_pages_{$vendeur}", 'bayam'); // les vraies Pages reliées sont relues au prochain besoin
 delete_option('bayam_wa_essais_jusqua');
 echo "  données de démonstration restaurées\n";
 

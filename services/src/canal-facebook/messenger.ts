@@ -255,7 +255,27 @@ export const detailsStory = (p: Produit) => ({
   peuDeStock: peuDeStock(p),
 });
 
-/** Accueil de la Page dans Messenger, avant le bouton « Démarrer » (160 caractères au plus). Messenger remplace {{user_first_name}}. */
-export function salutation(b: Boutique): string {
-  return `Bonjour {{user_first_name}} 👋 Bienvenue chez ${couper(b.nom, 50)} ! Touchez « Démarrer » : articles, prix et commande.`;
+/** Menu permanent de la discussion (bouton menu de Messenger) : la boutique toujours à portée, rien à retenir. */
+export function menuPermanent(): Record<string, unknown>[] {
+  return [{
+    locale: 'default',
+    composer_input_disabled: false,
+    call_to_actions: [
+      { type: 'postback', title: '🛍️ Voir les articles', payload: idAction({ type: 'menu' }) },
+      { type: 'postback', title: '🚚 Livraison et paiement', payload: idAction({ type: 'livraison' }) },
+      { type: 'postback', title: '🙋 Parler au vendeur', payload: idAction({ type: 'vendeur' }) },
+    ],
+  }];
+}
+
+/** Autorisations utiles et ce qu'elles permettent, dit au vendeur quand il en a refusé une. */
+export const AUTORISATIONS: Record<string, string> = {
+  pages_messaging: 'répondre à vos clients dans Messenger',
+  pages_read_engagement: 'lire les commentaires sous vos publications',
+  pages_manage_engagement: 'répondre en public sous les commentaires',
+  pages_manage_posts: 'publier sur votre Page (publications et stories)',
+};
+
+export function autorisationsManquantes(accordees: string[]): string[] {
+  return Object.keys(AUTORISATIONS).filter((a) => !accordees.includes(a));
 }

@@ -70,10 +70,12 @@ verifier('Page connectée', r.status === 200 && connexion.pages?.[0] === 'Access
 const a0 = await appels();
 verifier('jeton longue durée demandé, Page abonnée aux 5 événements utiles, bouton Démarrer et accueil réglés',
   a0.some((a) => a.requete.fb_exchange_token) && a0.some((a) => a.chemin === `/${PAGE}/subscribed_apps` && a.corps?.subscribed_fields === 'messages,messaging_postbacks,messaging_referrals,message_echoes,feed')
-  && a0.some((a) => a.chemin === '/me/messenger_profile' && a.corps?.get_started?.payload === 'bayam:menu' && a.corps.greeting[0].text.includes('{{user_first_name}}')), a0.map((a) => a.chemin));
+  && a0.some((a) => a.chemin === '/me/messenger_profile' && a.corps?.get_started?.payload === 'bayam:menu' && a.corps.persistent_menu?.[0]?.call_to_actions?.length === 3), a0.map((a) => a.chemin));
 verifier('chaque appel porte la preuve du secret de l\'application', a0.filter((a) => a.jeton).every((a) => a.preuve === true));
 r = await fetch('http://canal-facebook:8092/interne/vendeurs/4/pages', { headers: service });
-verifier('Page listée pour WordPress, sans son jeton', JSON.stringify(await r.json()) === JSON.stringify([{ page: PAGE, vendeur: 4, nom: 'Accessoires Akwa Douala', actif: true }]));
+const listees = await r.json();
+verifier('Page listée pour WordPress, sans son jeton, avec les autorisations accordées',
+  listees.length === 1 && listees[0].nom === 'Accessoires Akwa Douala' && !('jeton' in listees[0]) && listees[0].permissions.includes('pages_manage_posts'), listees);
 r = await fetch('http://canal-facebook:8092/interne/vendeurs/4/pages', { headers: { 'x-bayam-service': 'faux' } });
 verifier('API interne sans le jeton de service : refusée (401)', r.status === 401);
 

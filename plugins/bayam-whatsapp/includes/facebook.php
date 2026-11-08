@@ -14,6 +14,15 @@ final class Bayam_WA_Facebook
     /** Validité du lien de connexion envoyé au vendeur. */
     private const VALIDITE_CONNEXION = 30 * MINUTE_IN_SECONDS;
 
+    /** Service simulé pendant les essais automatiques : aucune requête ne part vers une vraie Page. */
+    private static $simulation = null;
+
+    /** @param callable|null $simulation fn(string $methode, string $chemin, ?array $corps): ?array */
+    public static function remplacer(?callable $simulation): void
+    {
+        self::$simulation = $simulation;
+    }
+
     /** Lien signé (jeton de service) qui ouvre la fenêtre Facebook où le vendeur choisit sa Page. */
     public static function lien_connexion(int $vendeur): string
     {
@@ -64,6 +73,20 @@ final class Bayam_WA_Facebook
                 . ". Chaque commentaire « prix ? » recevra une réponse privée. Je vous envoie le lien dès que c'est en ligne.";
     }
 
+    /** Retire une Page de BAYAM (choisie par son nom, sans tenir compte des accents ni des majuscules) ; message pour le vendeur. */
+    public static function retirer(int $vendeur, string $nom): string
+    {
+        $voulu = Bayam_WA_Outils::normaliser($nom);
+        $trouvees = array_values(array_filter(self::pages($vendeur) ?? [], static fn ($p) => $voulu !== '' && str_contains(Bayam_WA_Outils::normaliser((string) $p['nom']), $voulu)));
+        if (count($trouvees) !== 1) {
+            $noms = implode(', ', array_map(static fn ($p) => '« ' . $p['nom'] . ' »', self::pages($vendeur) ?? []));
+            return $trouvees ? "Plusieurs Pages correspondent à « {$nom} » : précisez le nom ({$noms})." : "Aucune Page reliée ne s'appelle « {$nom} »." . ($noms ? " Pages reliées : {$noms}." : '');
+        }
+        $r = self::appel('DELETE', "/interne/vendeurs/{$vendeur}/pages/" . rawurlencode((string) $trouvees[0]['page']));
+        wp_cache_delete("bayam_fb_pages_{$vendeur}", 'bayam');
+        return is_array($r) ? "✅ Page « {$trouvees[0]['nom']} » retirée de BAYAM : plus aucune réponse automatique sur cette Page, et son message d'accueil Messenger est effacé." : '📘 Facebook ne répond pas pour le moment : réessayez dans quelques minutes.';
+    }
+
     /** Lien personnel de commande créé dans Messenger : même forme que ceux du canal WhatsApp, plus le canal et la Page. */
     public static function jeton(string $jeton): ?array
     {
@@ -80,10 +103,14 @@ final class Bayam_WA_Facebook
     /** Réponse JSON décodée, ou null (service injoignable, refus) avec une trace dans le journal. */
     private static function appel(string $methode, string $chemin, ?array $corps = null, int $delai = 5): ?array
     {
+        if (self::$simulation) {
+            return (self::$simulation)($methode, $chemin, $corps);
+        }
         $r = wp_remote_request(rtrim((string) (getenv('BAYAM_CANAL_FACEBOOK_URL') ?: 'http://canal-facebook:8092'), '/') . $chemin, [
             'method' => $methode,
             'timeout' => $delai,
-            'headers' => ['x-bayam-service' => (string) getenv('BAYAM_SERVICE_JETON'), 'content-type' => 'application/json'],
+            // Type JSON annoncé seulement avec un corps : le service refuse un corps JSON vide (GET, DELETE).
+            'headers' => ['x-bayam-service' => (string) getenv('BAYAM_SERVICE_JETON')] + ($corps === null ? [] : ['content-type' => 'application/json']),
             'body' => $corps === null ? null : wp_json_encode($corps),
         ]);
         $statut = is_wp_error($r) ? 0 : wp_remote_retrieve_response_code($r);

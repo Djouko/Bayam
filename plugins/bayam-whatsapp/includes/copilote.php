@@ -144,7 +144,7 @@ final class Bayam_WA_Copilote
             'cartes' => $this->cartes($reste, false),
             'statut' => $this->cartes($reste, true),
             'publier' => $this->publier($reste),
-            'facebook' => $this->facebook(),
+            'facebook' => $this->facebook($avec_accents),
             'partager' => $this->partager($reste),
             'envoie' => $this->envoyer_collection($reste),
             'stock' => $this->stock($reste),
@@ -697,11 +697,17 @@ final class Bayam_WA_Copilote
         return $reponses;
     }
 
-    /** « bayam facebook » : Pages reliées, et le lien qui relie une Page en une minute (propriétaire seulement). */
-    private function facebook(): array
+    /**
+     * « bayam facebook » : Pages reliées, et le lien qui relie une Page en une minute ; « bayam facebook retirer
+     * KekotTech » retire une Page cochée par erreur (propriétaire seulement).
+     */
+    private function facebook(string $reste): array
     {
         if ($this->equipe) {
-            return [['texte' => 'Seul le propriétaire de la boutique peut relier une Page Facebook.']];
+            return [['texte' => 'Seul le propriétaire de la boutique peut relier ou retirer une Page Facebook.']];
+        }
+        if (preg_match('/^(?:retirer|retire|enlever|enleve|supprimer|deconnecter)\s+(.+)$/u', remove_accents($reste), $m)) {
+            return [['texte' => Bayam_WA_Facebook::retirer($this->vendeur, trim(mb_substr($reste, mb_strlen($reste) - mb_strlen($m[1]))))]];
         }
         $pages = Bayam_WA_Facebook::pages($this->vendeur) ?? [];
         $noms = static fn (array $liste) => implode(', ', array_map(static fn ($p) => '« ' . $p['nom'] . ' »', $liste));
@@ -717,7 +723,8 @@ final class Bayam_WA_Copilote
 {$lien}
 
 "
-            . "Ensuite, tout seul : votre catalogue dans Messenger, une réponse privée à chaque « prix ? » sous vos publications, les commandes confirmées dans Messenger. Pour publier : *bayam publier robes facebook*, ou *… story*."]];
+            . "Ensuite, tout seul : votre catalogue dans Messenger, une réponse privée à chaque « prix ? » sous vos publications, les commandes confirmées dans Messenger. Pour publier : *bayam publier robes facebook*, ou *… story*."
+            . ($pages ? "\nUne Page en trop : *bayam facebook retirer " . end($pages)['nom'] . '*' : '')]];
     }
 
     private function envoyer_collection(string $reste): array

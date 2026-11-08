@@ -140,7 +140,14 @@ test('texte de publication : prix clairs, lien m.me direct vers l’article, num
   assert.ok(plusieurs.includes(`2. Robe sirène 2 : ${fcfa(9000)} au lieu de ${fcfa(12000)} 🔥`) && plusieurs.includes('ref=menu'));
 });
 
-test('accueil Messenger : prénom du client placé par Messenger, 160 caractères au plus', () => {
-  const s = m.salutation({ ...boutique, nom: 'B'.repeat(200) });
-  assert.ok(s.includes('{{user_first_name}}') && s.length <= 160, String(s.length));
+test('menu permanent de Messenger : la boutique toujours à portée, titres de 30 caractères au plus', () => {
+  const [menu] = m.menuPermanent() as { locale: string; call_to_actions: { title: string; payload: string }[] }[];
+  assert.equal(menu.locale, 'default');
+  assert.deepEqual(menu.call_to_actions.map((c) => c.payload), ['bayam:menu', 'bayam:livraison', 'bayam:vendeur']);
+  assert.ok(menu.call_to_actions.every((c) => [...c.title].length <= 30));
+});
+
+test('autorisations refusées : expliquées au vendeur en mots simples', () => {
+  assert.deepEqual(m.autorisationsManquantes(['pages_messaging', 'pages_read_engagement']), ['pages_manage_engagement', 'pages_manage_posts']);
+  assert.ok(m.AUTORISATIONS.pages_manage_posts.includes('publier'));
 });

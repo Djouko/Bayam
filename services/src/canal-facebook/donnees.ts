@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import type pg from 'pg';
 import { chiffrer, dechiffrer } from './coffre.ts';
 
-export type Page = { page: string; vendeur: number; nom: string; jeton: string; actif: boolean };
+export type Page = { page: string; vendeur: number; nom: string; jeton: string; actif: boolean; permissions: string[] };
 
 export class Donnees {
   private readonly pool: pg.Pool;
@@ -21,9 +21,9 @@ export class Donnees {
 
   async enregistrerPage(p: Omit<Page, 'actif'>): Promise<void> {
     await this.pool.query(
-      `INSERT INTO canal_facebook.pages (page, vendeur, nom, jeton) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (page) DO UPDATE SET vendeur = EXCLUDED.vendeur, nom = EXCLUDED.nom, jeton = EXCLUDED.jeton, actif = true, connectee = now()`,
-      [p.page, p.vendeur, p.nom, chiffrer(p.jeton, this.cle)],
+      `INSERT INTO canal_facebook.pages (page, vendeur, nom, jeton, permissions) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (page) DO UPDATE SET vendeur = EXCLUDED.vendeur, nom = EXCLUDED.nom, jeton = EXCLUDED.jeton, permissions = EXCLUDED.permissions, actif = true, connectee = now()`,
+      [p.page, p.vendeur, p.nom, chiffrer(p.jeton, this.cle), p.permissions],
     );
     this.memoire.delete(p.page);
   }
@@ -34,15 +34,21 @@ export class Donnees {
     if (connue && Date.now() - connue.lue < 60_000) {
       return connue.page;
     }
-    const r = await this.pool.query<Page>('SELECT page, vendeur, nom, jeton, actif FROM canal_facebook.pages WHERE page = $1 AND actif', [id]);
+    const r = await this.pool.query<Page>('SELECT page, vendeur, nom, jeton, actif, permissions FROM canal_facebook.pages WHERE page = $1 AND actif', [id]);
     const page = r.rows[0] ? { ...r.rows[0], jeton: dechiffrer(r.rows[0].jeton, this.cle) } : null;
     this.memoire.set(id, { page, lue: Date.now() });
     return page;
   }
 
   async pagesDuVendeur(vendeur: number): Promise<Omit<Page, 'jeton'>[]> {
-    const r = await this.pool.query<Omit<Page, 'jeton'>>('SELECT page, vendeur, nom, actif FROM canal_facebook.pages WHERE vendeur = $1 ORDER BY connectee', [vendeur]);
+    const r = await this.pool.query<Omit<Page, 'jeton'>>('SELECT page, vendeur, nom, actif, permissions FROM canal_facebook.pages WHERE vendeur = $1 ORDER BY connectee', [vendeur]);
     return r.rows;
+  }
+
+  /** Page retirée par le vendeur : la ligne et son jeton sont effacés (les publications passées restent). */
+  async supprimerPage(id: string): Promise<void> {
+    await this.pool.query('DELETE FROM canal_facebook.pages WHERE page = $1', [id]);
+    this.memoire.delete(id);
   }
 
   /** Jeton refusé par Meta (mot de passe changé, application retirée) : la Page attend une nouvelle connexion. */

@@ -183,6 +183,10 @@ async function pourCommentaire(d: Extract<Decision, { route: 'commentaire' }>): 
     await erreurDePage(e, p, b);
   }
   await redis.set(deja, '1', { expiration: { type: 'EX', value: 86_400 } });
+  if (!p.permissions.includes('pages_manage_engagement')) {
+    log.info('commentaire', { page: p.page, article: designe?.id ?? null, publique: 'autorisation absente' });
+    return; // réponse privée envoyée ; la réponse publique attend que le vendeur accorde l'autorisation
+  }
   await graph.repondreCommentaire(String(c.comment_id), p.jeton, messenger.reponsePublique(nom, String(c.comment_id)))
     .catch((e: unknown) => log.alerte('réponse publique impossible', { page: p.page, erreur: texteErreur(e) }));
   log.info('commentaire', { page: p.page, article: designe?.id ?? null, publication: pub?.id ?? null });
@@ -266,24 +270,33 @@ function etatValide(v: string, e: string, s: string): number | null {
   return attendue.length === s.length && timingSafeEqual(Buffer.from(attendue), Buffer.from(s)) ? Number(v) : null;
 }
 
-/** Pages de l'utilisateur Facebook rattachées au vendeur : enregistrées, abonnées, accueil Messenger réglé. */
-async function connecterPages(vendeur: number, jetonUtilisateur: string): Promise<string[]> {
+/**
+ * Pages de l'utilisateur Facebook rattachées au vendeur : enregistrées avec les autorisations accordées, abonnées,
+ * bouton Démarrer et menu permanent réglés. Une autorisation décochée est expliquée au vendeur (ce qui ne marchera pas).
+ */
+async function connecterPages(vendeur: number, jetonUtilisateur: string): Promise<{ noms: string[]; manquent: string[] }> {
   const b = await commerce.boutique(vendeur);
   if (!b) {
     throw new Error('boutique inconnue');
   }
+  const accordees = await graph.autorisations(jetonUtilisateur);
   const pages = (await graph.pages(jetonUtilisateur)).filter((p) => !p.tasks || p.tasks.includes('MESSAGING'));
   for (const p of pages) {
-    await donnees.enregistrerPage({ page: p.id, vendeur, nom: p.name, jeton: p.access_token });
+    await donnees.enregistrerPage({ page: p.id, vendeur, nom: p.name, jeton: p.access_token, permissions: accordees });
     await graph.abonner(p.id, p.access_token);
-    await graph.accueil(p.access_token, messenger.salutation(b));
+    await graph.accueil(p.access_token, messenger.menuPermanent());
   }
+  const manquent = messenger.autorisationsManquantes(accordees);
   if (pages.length) {
     const noms = pages.map((p) => `« ${p.name} »`).join(', ');
-    await alerteVendeur(b, `✅ *Facebook relié à BAYAM* : ${noms}.\nVos clients ont maintenant le catalogue dans Messenger, une réponse privée à chaque commentaire « prix ? », et vous pouvez publier : *bayam publier robes facebook*.`, `connexion-${vendeur}-${Date.now()}`);
+    const enTrop = pages.length > 1 ? `\nUne Page qui n'est pas celle de la boutique ? *bayam facebook retirer ${pages[pages.length - 1].name}*` : '';
+    const avertissement = manquent.length
+      ? `\n⚠️ Facebook n'a pas autorisé BAYAM à ${manquent.map((a) => messenger.AUTORISATIONS[a]).join(', ')}. Pour tout activer : *bayam facebook*, puis acceptez toutes les autorisations demandées.`
+      : '';
+    await alerteVendeur(b, `✅ *Facebook relié à BAYAM* : ${noms}.\nVos clients ont maintenant le catalogue dans Messenger (menu toujours visible), une réponse privée à chaque commentaire « prix ? », et vous pouvez publier : *bayam publier robes facebook*.${avertissement}${enTrop}`, `connexion-${vendeur}-${Date.now()}`);
   }
-  log.info('Pages connectées', { vendeur, pages: pages.length });
-  return pages.map((p) => p.name);
+  log.info('Pages connectées', { vendeur, pages: pages.length, manquent });
+  return { noms: pages.map((p) => p.name), manquent };
 }
 
 const echapper = (t: string) => t.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -301,6 +314,10 @@ async function publier(l: { id: string; vendeur: number; page: string; type: 'pu
   const b = await commerce.boutique(l.vendeur);
   if (!p || !b) {
     throw Object.assign(new Error('Page déconnectée ou boutique inconnue'), { definitive: true });
+  }
+  if (!p.permissions.includes('pages_manage_posts')) {
+    await alerteVendeur(b, `⚠️ Facebook n'a pas autorisé BAYAM à publier sur votre Page « ${p.nom} ». Écrivez *bayam facebook*, touchez le lien et acceptez toutes les autorisations demandées.`, `publication-refusee-${l.id}`);
+    throw Object.assign(new Error('autorisation de publier absente'), { definitive: true });
   }
   const produits = (await produitsDe(l.vendeur, l.produits)).filter((x) => x.en_stock && x.photo).slice(0, 10);
   if (!produits.length) {
@@ -400,9 +417,10 @@ app.get<{ Querystring: { code?: string; state?: string; error?: string } }>('/fa
     return reply.code(req.query.error ? 200 : 403).type('text/html').send(pageHtml('Connexion annulée', 'Aucune Page n\'a été reliée. Écrivez « bayam facebook » sur WhatsApp pour recommencer.'));
   }
   try {
-    const noms = await connecterPages(vendeur, await graph.jetonUtilisateur(req.query.code, `${await adressePublique()}/facebook/retour`));
+    const { noms, manquent } = await connecterPages(vendeur, await graph.jetonUtilisateur(req.query.code, `${await adressePublique()}/facebook/retour`));
+    const reserve = manquent.length ? ` Attention : sans toutes les autorisations, BAYAM ne pourra pas ${manquent.map((a) => messenger.AUTORISATIONS[a]).join(', ')}.` : '';
     return reply.type('text/html').send(noms.length
-      ? pageHtml('Page reliée à BAYAM ✅', `${noms.join(', ')} : vos clients ont maintenant votre catalogue dans Messenger. Vous pouvez fermer cette page.`)
+      ? pageHtml('Page reliée à BAYAM ✅', `${noms.join(', ')} : vos clients ont maintenant votre catalogue dans Messenger.${reserve} Vous pouvez fermer cette page.`)
       : pageHtml('Aucune Page choisie', 'Relancez la connexion et cochez la Page de votre boutique (il faut en être administrateur).'));
   } catch (x) {
     log.erreur('connexion Facebook impossible', { vendeur, erreur: texteErreur(x) });
@@ -411,12 +429,25 @@ app.get<{ Querystring: { code?: string; state?: string; error?: string } }>('/fa
 });
 
 app.get<{ Params: { id: string } }>('/interne/vendeurs/:id/pages', async (req) => donnees.pagesDuVendeur(Number(req.params.id)));
+// Page retirée par le vendeur (« bayam facebook retirer … ») : désabonnée chez Meta, accueil effacé, jeton supprimé.
+app.delete<{ Params: { id: string; page: string } }>('/interne/vendeurs/:id/pages/:page', async (req, reply) => {
+  const p = await donnees.page(req.params.page);
+  if (!p || p.vendeur !== Number(req.params.id)) {
+    return reply.code(404).send({ erreur: 'Page inconnue pour cette boutique' });
+  }
+  // Meta injoignable ou jeton déjà révoqué : la Page est retirée de BAYAM quand même, l'écart est noté.
+  await graph.retirer(p.page, p.jeton).catch((e: unknown) => log.alerte('retrait chez Meta incomplet', { page: p.page, erreur: texteErreur(e) }));
+  await donnees.supprimerPage(p.page);
+  log.info('Page retirée', { vendeur: p.vendeur, page: p.page });
+  return { retiree: p.nom };
+});
 // Connexion par un jeton utilisateur collé à la main (essais, assistance) : même suite que la fenêtre Facebook.
 app.post<{ Params: { id: string }; Body: { jeton?: string } }>('/interne/vendeurs/:id/pages', async (req, reply) => {
   if (!configure || !req.body?.jeton) {
     return reply.code(400).send({ erreur: configure ? 'jeton manquant' : 'Facebook non configuré' });
   }
-  return { pages: await connecterPages(Number(req.params.id), await graph.jetonLongue(req.body.jeton)) };
+  const { noms, manquent } = await connecterPages(Number(req.params.id), await graph.jetonLongue(req.body.jeton));
+  return { pages: noms, manquent };
 });
 app.post<{ Body: { vendeur?: number; produits?: number[]; type?: string } }>('/interne/publications', async (req, reply) => {
   const { vendeur, produits, type = 'publication' } = req.body ?? {};

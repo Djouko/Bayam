@@ -97,3 +97,12 @@ test('fenêtre de connexion : identifiant de configuration (Facebook Login for B
   assert.equal(sans.searchParams.get('config_id'), null);
   assert.ok(sans.searchParams.get('scope')?.includes('pages_manage_posts'));
 });
+
+test('autorisations accordées lues avec le jeton d’application (debug_token)', async () => {
+  const f = await fauxGraph(() => [200, { data: { scopes: ['pages_messaging', 'pages_show_list'] } }]);
+  assert.deepEqual(await f.graph.autorisations('JETON-UTILISATEUR'), ['pages_messaging', 'pages_show_list']);
+  assert.equal(f.appels[0].chemin, '/debug_token');
+  assert.equal(f.appels[0].requete.get('input_token'), 'JETON-UTILISATEUR');
+  assert.equal(f.appels[0].requete.get('access_token'), '1234|secret-app');
+  f.serveur.close();
+});

@@ -100,9 +100,24 @@ export class Graph {
     await this.appel('POST', `/${this.appId}/subscriptions`, this.jetonApplication(), { object: 'page', callback_url: adresse, verify_token: jetonVerification, fields: ABONNEMENTS.join(',') });
   }
 
-  /** Bouton « Démarrer » et message d'accueil de la Page dans Messenger. */
-  async accueil(jeton: string, salutation: string): Promise<void> {
-    await this.appel('POST', '/me/messenger_profile', jeton, { get_started: { payload: 'bayam:menu' }, greeting: [{ locale: 'default', text: salutation }] });
+  /**
+   * Bouton « Démarrer » et menu permanent de la Page dans Messenger. (Le message d'accueil « greeting » n'est plus
+   * accepté par Meta : refusé seul, ignoré sans erreur quand il accompagne un autre réglage.)
+   */
+  async accueil(jeton: string, menu: Record<string, unknown>[]): Promise<void> {
+    await this.appel('POST', '/me/messenger_profile', jeton, { get_started: { payload: 'bayam:menu' }, persistent_menu: menu });
+  }
+
+  /** Autorisations réellement accordées par le vendeur avec ce jeton (il peut en décocher dans la fenêtre Facebook). */
+  async autorisations(jeton: string): Promise<string[]> {
+    const r = await this.appel<{ data?: { scopes?: string[] } }>('GET', '/debug_token', this.jetonApplication(), undefined, { input_token: jeton });
+    return r.data?.scopes ?? [];
+  }
+
+  /** Page retirée de BAYAM par le vendeur : plus d'événements, et l'accueil Messenger posé par BAYAM effacé. */
+  async retirer(page: string, jeton: string): Promise<void> {
+    await this.appel('DELETE', `/${page}/subscribed_apps`, jeton);
+    await this.appel('DELETE', '/me/messenger_profile', jeton, { fields: ['get_started', 'persistent_menu'] });
   }
 
   /** Message Messenger (réponse au client, ou réponse privée à un commentaire) ; renvoie son identifiant. */
@@ -143,7 +158,7 @@ export class Graph {
     return `${this.appId}|${this.secret}`;
   }
 
-  private async appel<T>(methode: 'GET' | 'POST', chemin: string, jeton: string | null, corps?: Record<string, unknown> | FormData, requete: Record<string, string> = {}): Promise<T> {
+  private async appel<T>(methode: 'GET' | 'POST' | 'DELETE', chemin: string, jeton: string | null, corps?: Record<string, unknown> | FormData, requete: Record<string, string> = {}): Promise<T> {
     const q = new URLSearchParams(requete);
     if (jeton) {
       q.set('access_token', jeton);
