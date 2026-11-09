@@ -13,12 +13,16 @@ import { createClient, type RedisClientType } from 'redis';
 import { adressePublique } from '../commun/adresse.ts';
 import { creerPool, migrer } from '../commun/base.ts';
 import { assurerFluxFacebook, connecterBus, consommer, FLUX_FACEBOOK, SUJET_FACEBOOK } from '../commun/bus.ts';
-import { CommerceWordpress, type Boutique, type Produit } from '../commun/commerce.ts';
+import { CommerceWordpress, type Boutique, type Produit, type ReponseCopilote } from '../commun/commerce.ts';
 import { exiger, lire, nombre } from '../commun/config.ts';
+import { Fonctions, messageFonction } from '../commun/fonctions.ts';
 import { journal, texteErreur } from '../commun/journal.ts';
 import { ordonnanceur } from '../commun/ordre.ts';
-import { PROMOS } from '../canal-whatsapp/catalogue.ts';
+import { appel } from '../canal-whatsapp/appel.ts';
+import { PROMOS, type EnvoiPret } from '../canal-whatsapp/catalogue.ts';
+import * as menuVendeur from '../canal-whatsapp/menu-vendeur.ts';
 import { dessinerStory } from '../canal-whatsapp/vitrine.ts';
+import { MARQUE } from '../passerelle/filtre.ts';
 import { METADONNEE_BAYAM, type EvenementFacebook } from '../passerelle/facebook.ts';
 import { chiffrer, cleDepuis, dechiffrer } from './coffre.ts';
 import { Donnees, type Page } from './donnees.ts';
@@ -47,6 +51,7 @@ const donnees = new Donnees(pool, cleCoffre);
 const redis: RedisClientType = createClient({ url: lire('REDIS_URL', 'redis://redis:6379') });
 redis.on('error', (e: unknown) => log.erreur('Redis', { erreur: texteErreur(e) }));
 await redis.connect();
+const fonctions = new Fonctions(redis);
 const commerce = new CommerceWordpress(`${urlWordpress}/wp-json/bayam/v1/interne`, jetonService, redis);
 
 const REPRISE_S = 2 * 3600; // le vendeur a répondu lui-même : le service se tait 2 h dans cette discussion
@@ -101,6 +106,10 @@ async function envoyer(p: Page, b: Boutique, client: string, envois: messenger.E
       await retenirChoix(p.page, client, e.ids);
       continue;
     }
+    if (e.type === 'fichier') {
+      await graph.envoyerImage(p.page, p.jeton, { id: client }, Buffer.from(e.donnees, 'base64'), e.mimetype, METADONNEE_BAYAM).catch((x: unknown) => erreurDePage(x, p, b));
+      continue;
+    }
     await graph.envoyer(p.page, p.jeton, { id: client }, { ...e.message, metadata: METADONNEE_BAYAM }).catch((x: unknown) => erreurDePage(x, p, b));
   }
 }
@@ -118,6 +127,14 @@ async function pourClient(d: Extract<Decision, { route: 'client' }>, evt: string
   }
   // Message tapé : rien si le vendeur a désactivé les réponses automatiques ou vient de répondre lui-même.
   if (d.libre && (!b.actif || (await redis.exists(`fb:reprise:${d.page}:${d.client}`)))) {
+    return;
+  }
+  // Messenger en maintenance : un message clair, une fois par heure et par client ; signaler un souci reste possible.
+  const etat = await fonctions.etat('facebook.messenger', b.id);
+  if (etat.etat !== 'actif' && d.action.type !== 'signaler') {
+    if (await redis.set(`fb:maintenance:${d.page}:${d.client}`, '1', { condition: 'NX', expiration: { type: 'EX', value: 3600 } })) {
+      await envoyer(p, b, d.client, [messenger.texteSimple(messageFonction(etat))], evt);
+    }
     return;
   }
   // Dernière venue du client : premier message, ou retour après plusieurs jours, lui montre la boutique.
@@ -184,6 +201,12 @@ async function pourClient(d: Extract<Decision, { route: 'client' }>, evt: string
     case 'numero':
       envois = [];
       break;
+    case 'aide':
+      envois = messenger.aide(b);
+      break;
+    case 'signaler':
+      envois = [messenger.texteSimple(await commerce.retour({ type: a.genre, texte: a.texte || '(sans détail)', canal: 'messenger', auteur: `client ${d.client}`, vendeur: b.id }))];
+      break;
   }
   await envoyer(p, b, d.client, envois, evt);
   log.info('messenger', { page: d.page, action: a.type, envois: envois.length });
@@ -245,10 +268,17 @@ async function traiter(msg: JsMsg): Promise<void> {
   try {
     if (d.route === 'reprise') {
       await redis.set(`fb:reprise:${d.page}:${d.client}`, '1', { expiration: { type: 'EX', value: REPRISE_S } });
+    } else if (d.route === 'liaison') {
+      await lierVendeur(d);
     } else if (d.route === 'commentaire') {
+      if ((await fonctions.etat('facebook.commentaires')).etat !== 'actif') {
+        msg.nak(300_000); // réponses aux commentaires en maintenance : le commentaire attend la réouverture (7 jours permis)
+        return;
+      }
       await pourCommentaire(d);
     } else {
-      await pourClient(d, e.id);
+      const vendeur = await donnees.vendeurDe(d.page, d.client);
+      await (vendeur ? pourVendeur(d, vendeur, e.id) : pourClient(d, e.id));
     }
   } catch (x) {
     if (!(x instanceof ErreurGraph && x.definitive)) {
@@ -259,6 +289,124 @@ async function traiter(msg: JsMsg): Promise<void> {
   }
   await donnees.marquerTraite(e.id);
   msg.ack();
+}
+
+// --- Espace vendeur dans Messenger : le même menu et les mêmes commandes que sur WhatsApp ---------------------------
+
+const signatureEspace = (vendeur: number, echeance: number) => createHmac('sha256', jetonService).update(`fbvendeur:${vendeur}.${echeance}`).digest('hex').slice(0, 32);
+
+/** Lien (7 jours) qui fait du compte Messenger qui l'ouvre l'espace vendeur sur cette Page. */
+function lienEspace(vendeur: number, page: string): string {
+  const echeance = Math.floor(Date.now() / 1000) + 7 * 86_400;
+  return `https://m.me/${page}?ref=vendeur-${vendeur}-${echeance}-${signatureEspace(vendeur, echeance)}`;
+}
+
+async function lierVendeur(d: Extract<Decision, { route: 'liaison' }>): Promise<void> {
+  const p = await donnees.page(d.page);
+  const b = p ? await commerce.boutique(p.vendeur) : null;
+  const m = /^vendeur-(\d{1,10})-(\d{1,12})-([0-9a-f]{32})$/.exec(d.ref);
+  if (!p || !b) {
+    return;
+  }
+  const attendue = m ? signatureEspace(Number(m[1]), Number(m[2])) : '';
+  const valide = m && Number(m[1]) === p.vendeur && Number(m[2]) > Date.now() / 1000 && timingSafeEqual(Buffer.from(attendue), Buffer.from(m[3]));
+  if (!valide) {
+    await envoyer(p, b, d.client, [messenger.texteSimple('Ce lien d\'espace vendeur a expiré ou n\'est pas le vôtre. Le propriétaire de la boutique en reçoit un nouveau avec « bayam facebook ».')], d.ref);
+    return;
+  }
+  await donnees.lierVendeur(p.page, d.client, p.vendeur);
+  log.info('espace vendeur relié', { page: p.page, vendeur: p.vendeur });
+  await envoyer(p, b, d.client, [messenger.texteSimple(`✅ Votre espace vendeur BAYAM est prêt ici, pour ${b.nom}.\nÉcrivez « bayam » pour votre menu (stock, ventes, publications, bilan…), ou « bayam aide » pour toutes les commandes. Vos clients voient toujours la boutique normalement.`)], d.ref);
+}
+
+/** Messages du menu (écrits pour WhatsApp) et réponses du Copilote, mis en forme pour Messenger. */
+function pourMessenger(envois: EnvoiPret[], reponses: ReponseCopilote[]): messenger.Envoi[] {
+  const propre = (t: string) => t.replaceAll(MARQUE, '').replace(/\*([^*\n]+)\*/g, '$1').replace('Touchez Choisir, ou répondez par le numéro.', 'Répondez par le numéro.');
+  const sortie: messenger.Envoi[] = [];
+  for (const e of envois) {
+    if (e.type === 'texte') {
+      sortie.push(messenger.texteSimple(propre(e.texte)));
+    } else if (e.type === 'liste') {
+      const lignes = e.sections.flatMap((s) => s.lignes.map((l) => `${l.titre}${l.description ? ` (${l.description})` : ''}`));
+      sortie.push(messenger.texteSimple(propre(`${e.titre}\n${e.texte}\n\n${lignes.join('\n')}`)));
+    } else if (e.type === 'image') {
+      sortie.push({ type: 'fichier', donnees: e.donnees, mimetype: 'image/jpeg' }, ...(e.legende.replaceAll(MARQUE, '').trim() ? [messenger.texteSimple(propre(e.legende))] : []));
+    }
+  }
+  for (const r of reponses) {
+    if (r.image) {
+      sortie.push({ type: 'fichier', donnees: r.image, mimetype: r.type || 'image/jpeg' }, ...(r.legende?.trim() ? [messenger.texteSimple(propre(r.legende))] : []));
+    } else if (r.texte) {
+      sortie.push(messenger.texteSimple(propre(r.texte)));
+    }
+  }
+  return sortie;
+}
+
+/** Photo envoyée par le vendeur dans Messenger (nouvel article), téléchargée pour WordPress. */
+async function photoMessenger(url: string): Promise<string> {
+  const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+  const octets = Buffer.from(await r.arrayBuffer());
+  if (!r.ok || octets.length > 8 * 1024 * 1024) {
+    throw new Error(`photo Messenger illisible (${r.status})`);
+  }
+  return octets.toString('base64');
+}
+
+/**
+ * Le vendeur écrit à sa Page depuis son compte relié : « bayam » ouvre son menu (mêmes parcours que sur WhatsApp,
+ * réponses par numéro), « bayam … » exécute une commande du Copilote, une photo crée un article pendant le parcours.
+ */
+async function pourVendeur(d: Extract<Decision, { route: 'client' }>, vendeur: number, evt: string): Promise<void> {
+  const p = await donnees.page(d.page);
+  const b = p ? await commerce.boutique(vendeur) : null;
+  if (!p || !b) {
+    return;
+  }
+  const cle = `fb:menu-vendeur:${vendeur}`;
+  const brutEtat = await redis.get(cle);
+  const etat = brutEtat ? (JSON.parse(brutEtat) as menuVendeur.Etat) : null;
+  const demande = appel(d.brut.texte);
+  const outils = { articles: (recherche: string, page: number) => commerce.articles(vendeur, recherche, page, 8), destinations: () => commerce.destinations(vendeur) };
+  const menuDemande = d.brut.choix?.startsWith('bayam:v:') || (demande !== null && /^(menu)?$/i.test(demande)) || (etat && demande === null);
+  const etatMenu = await fonctions.etat('whatsapp.menu', vendeur);
+  if (menuDemande && etatMenu.etat !== 'actif') {
+    await redis.del(cle);
+    await envoyer(p, b, d.client, [messenger.texteSimple(messageFonction(etatMenu))], evt);
+    return;
+  }
+  let pas: menuVendeur.Pas | null = null;
+  let reponses: ReponseCopilote[] = [];
+  try {
+    if (d.brut.choix?.startsWith('bayam:v:')) {
+      pas = await menuVendeur.avancer(etat ?? { etape: 'menu', options: [] }, { type: 'choix', id: d.brut.choix }, outils);
+    } else if (demande !== null && /^(menu)?$/i.test(demande)) {
+      pas = menuVendeur.menu();
+    } else if (demande !== null) {
+      await redis.del(cle); // commande tapée en entier : le parcours en cours s'arrête
+      reponses = await commerce.copilote(vendeur, demande, { retour: true });
+    } else if (etat) {
+      pas = await menuVendeur.avancer(etat, d.brut.photo ? { type: 'photo', url: d.brut.photo } : { type: 'texte', texte: d.brut.texte }, outils);
+    } else {
+      reponses = [{ texte: 'Écrivez « bayam » pour votre menu, ou « bayam aide » pour toutes les commandes.' }];
+    }
+    if (pas) {
+      await (pas.etat ? redis.set(cle, JSON.stringify(pas.etat), { expiration: { type: 'EX', value: 900 } }) : redis.del(cle));
+      const c = pas.commande;
+      if (c) {
+        // Jamais rejouée automatiquement (une vente ne doit pas compter deux fois).
+        reponses = 'publication' in c
+          ? await commerce.publier(vendeur, c.publication, true)
+          : await commerce.copilote(vendeur, c.texte, { retour: true, photoBase64: c.photo ? await photoMessenger(c.photo) : undefined });
+      }
+    }
+  } catch (x) {
+    log.erreur('commande du vendeur dans Messenger non exécutée', { vendeur, erreur: texteErreur(x) });
+    reponses = [{ texte: '⚠️ L\'action n\'a pas pu se faire. Réessayez dans un instant (écrivez « bayam »).' }];
+  }
+  const envois = pourMessenger(pas?.envois ?? [], reponses);
+  await envoyer(p, b, d.client, envois, evt);
+  log.info('espace vendeur', { page: d.page, vendeur, envois: envois.length });
 }
 
 /** Discussion d'un événement : un client d'une Page, ou une personne qui commente une publication. */
@@ -354,9 +502,10 @@ const STYLE = 'body{margin:0;font-family:system-ui,sans-serif;background:#F7FAF9
   + 'label:has(input:checked){border-color:#0E9F6E;background:#E6F7F0}input{width:24px;height:24px;accent-color:#0E9F6E}'
   + 'button{width:100%;margin-top:16px;padding:16px;border:0;border-radius:16px;background:#0E9F6E;color:#fff;font-size:1.05rem;font-weight:600}';
 
-function pageHtml(titre: string, texte: string): string {
+function pageHtml(titre: string, texte: string, lien?: { adresse: string; libelle: string }): string {
+  const bouton = lien ? `<a href="${echapper(lien.adresse)}"><button type="button">${echapper(lien.libelle)}</button></a>` : '';
   return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${echapper(titre)}</title>
-<style>${STYLE}</style></head><body><main><h1>${echapper(titre)}</h1><p>${echapper(texte)}</p></main></body></html>`;
+<style>${STYLE}</style></head><body><main><h1>${echapper(titre)}</h1><p>${echapper(texte)}</p>${bouton}</main></body></html>`;
 }
 
 /** Choix des Pages à relier, quand le compte Facebook en gère plusieurs : celles déjà reliées sont cochées. */
@@ -469,6 +618,10 @@ app.get<{ Querystring: { v?: string; e?: string; s?: string } }>('/facebook/conn
   if (!configure || !base) {
     return reply.code(503).type('text/html').send(pageHtml('Bientôt disponible', 'La connexion Facebook n\'est pas encore ouverte sur BAYAM. Réessayez plus tard.'));
   }
+  const etatConnexion = await fonctions.etat('facebook.connexion');
+  if (etatConnexion.etat !== 'actif') {
+    return reply.code(503).type('text/html').send(pageHtml('Maintenance', messageFonction(etatConnexion)));
+  }
   if (etatValide(v, e, s) === null) {
     return reply.code(403).type('text/html').send(pageHtml('Lien expiré', 'Ce lien de connexion a expiré. Écrivez « bayam facebook » sur WhatsApp pour en recevoir un nouveau.'));
   }
@@ -519,8 +672,10 @@ app.get<{ Querystring: { c?: string; page?: string | string[] } }>('/facebook/ch
 async function resultatConnexion(vendeur: number, jeton: string, choisies: string[] | null): Promise<string> {
   const { noms, manquent } = await connecterPages(vendeur, jeton, choisies);
   const reserve = manquent.length ? ` Attention : sans toutes les autorisations, BAYAM ne pourra pas ${manquent.map((a) => messenger.AUTORISATIONS[a]).join(', ')}.` : '';
+  const premiere = (await donnees.pagesDuVendeur(vendeur)).find((x) => x.actif);
   return noms.length
-    ? pageHtml('Page reliée à BAYAM ✅', `${noms.join(', ')} : vos clients ont maintenant votre catalogue dans Messenger.${reserve} Vous pouvez fermer cette page.`)
+    ? pageHtml('Page reliée à BAYAM ✅', `${noms.join(', ')} : vos clients ont maintenant votre catalogue dans Messenger.${reserve} Votre menu BAYAM (stock, ventes, publications) est aussi dans Messenger : touchez le bouton depuis votre compte Facebook.`,
+      premiere ? { adresse: lienEspace(vendeur, premiere.page), libelle: '📱 Mon menu BAYAM dans Messenger' } : undefined)
     : pageHtml('Aucune Page choisie', 'Relancez la connexion et cochez la Page de votre boutique (il faut en être administrateur).');
 }
 
@@ -585,7 +740,8 @@ const files = setInterval(() => {
   const echec = (nature: string) => (l: { id: string }, essais: number, definitif: boolean, e: unknown) =>
     log[definitif ? 'erreur' : 'alerte'](`${nature} en échec`, { id: l.id, essais, definitif, erreur: texteErreur(e) });
   void Promise.all([
-    donnees.file('publications', 'vendeur, page, type, produits', publier, 6, echec('publication')),
+    // Publications en maintenance : elles attendent dans la file et partent à la réouverture.
+    fonctions.etat('facebook.publications').then((e) => (e.etat === 'actif' ? donnees.file('publications', 'vendeur, page, type, produits', publier, 6, echec('publication')) : 0)),
     donnees.file('notifications', 'page, client, texte', confirmer, 8, echec('confirmation')),
   ])
     .catch((e: unknown) => log.erreur('files', { erreur: texteErreur(e) }))

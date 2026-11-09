@@ -12,11 +12,12 @@ import { creerPool, migrer } from '../commun/base.ts';
 import { MARQUE } from '../passerelle/filtre.ts';
 import { assurerFluxWhatsapp, connecterBus, consommer, FLUX_WHATSAPP, SUJET_WHATSAPP } from '../commun/bus.ts';
 import { exiger, lire, nombre } from '../commun/config.ts';
+import { Fonctions, messageFonction } from '../commun/fonctions.ts';
 import { journal, texteErreur } from '../commun/journal.ts';
 import { ordonnanceur } from '../commun/ordre.ts';
 import { appel } from './appel.ts';
 import * as catalogue from './catalogue.ts';
-import { CommerceWordpress, type Boutique } from '../commun/commerce.ts';
+import { CommerceWordpress, type Boutique, type ReponseCopilote } from '../commun/commerce.ts';
 import { Expediteur } from './expediteur.ts';
 import { creerJeton, nettoyer, ouvrirJeton } from './jetons.ts';
 import { LotWordpress } from './lot.ts';
@@ -40,6 +41,7 @@ const redis: RedisClientType = createClient({ url: lire('REDIS_URL', 'redis://re
 redis.on('error', (e: unknown) => log.erreur('Redis', { erreur: texteErreur(e) }));
 await redis.connect();
 
+const fonctions = new Fonctions(redis);
 const commerce = new CommerceWordpress(`${urlWordpress}/wp-json/bayam/v1/interne`, jetonService, redis);
 const waha = new Waha(lire('WAHA_URL', 'http://waha:3000'), exiger('WAHA_API_KEY'));
 const expediteur = new Expediteur(waha, redis, pool, log, {
@@ -62,11 +64,27 @@ async function repondre(d: Extract<Decision, { route: 'catalogue' }>): Promise<'
     return 'heritage';
   }
   const a = d.action;
+  // Catalogue en maintenance : un message clair (une fois par heure et par discussion), le reste de WhatsApp continue.
+  const etat = await fonctions.etat('whatsapp.catalogue', b.id);
+  if (etat.etat !== 'actif' && a.type !== 'signaler') {
+    if (await redis.set(`canal:maintenance:${m.session}:${m.chat}`, '1', { condition: 'NX', expiration: { type: 'EX', value: 3600 } })) {
+      await expediteur.envoyer(m.session, m.chat, b.chat_vendeur, [{ type: 'texte', texte: MARQUE + messageFonction(etat) }]);
+    }
+    return 'fait';
+  }
   let envois: catalogue.Envoi[];
   switch (a.type) {
     case 'menu':
       envois = catalogue.menu(b);
       break;
+    case 'aide':
+      envois = catalogue.aideClient(b);
+      break;
+    case 'signaler': {
+      const merci = await commerce.retour({ type: a.genre, texte: a.texte || '(sans détail)', canal: 'whatsapp', auteur: m.numero ?? m.nom, vendeur: b.id });
+      envois = [{ type: 'texte', texte: MARQUE + merci }];
+      break;
+    }
     case 'rayon': {
       const rayon = a.rayon === 0
         ? { id: 0, nom: catalogue.PROMOS, nombre: b.promos }
@@ -153,14 +171,20 @@ async function pourLeVendeur(m: MessageWhatsapp, b: Boutique): Promise<boolean> 
   const brut = await redis.get(cle);
   const etat = brut ? (JSON.parse(brut) as menuVendeur.Etat) : null;
   const demande = appel(m.texte);
-  const source = (recherche: string, page: number) => commerce.articles(b.id, recherche, page, 8);
+  const outils = { articles: (recherche: string, page: number) => commerce.articles(b.id, recherche, page, 8), destinations: () => commerce.destinations(b.id) };
+  const etatMenu = await fonctions.etat('whatsapp.menu', b.id);
+  if (etatMenu.etat !== 'actif' && (m.choixListe?.startsWith('bayam:v:') || (demande !== null && /^(menu)?$/i.test(demande)) || etat)) {
+    await redis.del(cle);
+    await expediteur.envoyer(m.session, m.chat, b.chat_vendeur, [{ type: 'texte', texte: MARQUE + messageFonction(etatMenu) }], true);
+    return true;
+  }
   let pas: menuVendeur.Pas;
   if (m.choixListe?.startsWith('bayam:v:')) {
-    pas = await menuVendeur.avancer(etat ?? { etape: 'menu', options: [] }, { type: 'choix', id: m.choixListe }, source);
+    pas = await menuVendeur.avancer(etat ?? { etape: 'menu', options: [] }, { type: 'choix', id: m.choixListe }, outils);
   } else if (demande !== null && /^(menu)?$/i.test(demande)) {
     pas = menuVendeur.menu();
   } else if (etat && demande === null) {
-    pas = await menuVendeur.avancer(etat, m.photo ? { type: 'photo', url: m.photo } : { type: 'texte', texte: m.texte }, source);
+    pas = await menuVendeur.avancer(etat, m.photo ? { type: 'photo', url: m.photo } : { type: 'texte', texte: m.texte }, outils);
   } else {
     if (etat) {
       await redis.del(cle); // commande tapée en entier : le parcours s'arrête, WordPress la traite
@@ -177,7 +201,9 @@ async function pourLeVendeur(m: MessageWhatsapp, b: Boutique): Promise<boolean> 
   }
   if (pas.commande) {
     // Jamais rejouée automatiquement (une vente ne doit pas compter deux fois) : en cas d'échec, le vendeur est prévenu.
-    await commerce.copilote(b.id, pas.commande.texte, pas.commande.photo).catch(async (e: unknown) => {
+    const c = pas.commande;
+    const action: Promise<ReponseCopilote[]> = 'publication' in c ? commerce.publier(b.id, c.publication) : commerce.copilote(b.id, c.texte, { photo: c.photo });
+    await action.catch(async (e: unknown) => {
       log.erreur('commande du menu non exécutée', { vendeur: b.id, erreur: texteErreur(e) });
       await expediteur.envoyer(m.session, m.chat, b.chat_vendeur, [{ type: 'texte', texte: `${MARQUE}⚠️ L'action n'a pas pu se faire. Réessayez dans un instant (tapez *bayam*).` }], true);
     });

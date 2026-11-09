@@ -25,8 +25,9 @@ final class Bayam_WA_Diffusion
      *
      * @param string $ou « groupes », « statut », « chaine », plusieurs reliés par « + » (« statut+chaine »), ou « partout »
      * @param array|null $groupes groupes visés [id => nom], sinon ceux choisis dans l'espace vendeur
+     * @param array|null $chaines chaînes visées [id => nom], sinon toutes celles du vendeur
      */
-    public static function programmer(int $vendeur, array $produits, string $ou = 'groupes', ?array $groupes = null): string
+    public static function programmer(int $vendeur, array $produits, string $ou = 'groupes', ?array $groupes = null, ?array $chaines = null): string
     {
         global $wpdb;
         if (get_user_meta($vendeur, 'bayam_wa_statut', true) !== 'WORKING') {
@@ -34,7 +35,7 @@ final class Bayam_WA_Diffusion
         }
         $cibles = $ou === 'partout' ? ['groupes', 'statut', 'chaine'] : explode('+', $ou);
         $groupes = in_array('groupes', $cibles, true) ? ($groupes ?? Bayam_WA_Stockage::reglages($vendeur)['groupes']) : [];
-        $chaines = in_array('chaine', $cibles, true) ? self::chaines($vendeur) : [];
+        $chaines = in_array('chaine', $cibles, true) ? ($chaines ?? self::chaines($vendeur)) : [];
         if ($cibles === ['groupes'] && !$groupes) {
             return "Choisissez d'abord vos groupes de publication dans votre espace vendeur BAYAM, rubrique WhatsApp. En attendant : *bayam publier … statut*, ou *bayam cartes …* pour les transférer vous-même.";
         }
@@ -141,6 +142,11 @@ final class Bayam_WA_Diffusion
             }
             $vendeur = (int) $d->vendeur;
             $p = wc_get_product((int) $d->produit);
+            if (!Bayam_WA_Fonctions::disponible('whatsapp.publication', $vendeur)) {
+                // Publication en maintenance : remise en attente, elle partira à la réouverture.
+                $wpdb->update($table, ['statut' => 'attente', 'prevu' => wp_date('Y-m-d H:i:s', time() + 120)], ['id' => $d->id]);
+                continue;
+            }
             $erreur = null;
             if (!$p || !$p->is_in_stock()) {
                 $erreur = 'Article épuisé ou supprimé entre-temps.';

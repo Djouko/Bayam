@@ -159,6 +159,11 @@ export function livraison(b: Boutique): Envoi[] {
   return [{ type: 'texte', texte: `${MARQUE}🚚 *Livraison*\n${puces(b.livraison)}\n\n💳 *Paiement*\n${puces(b.paiements)}\n${b.conditions}\n\nUne question ? Écrivez-nous ici, *${b.nom}* vous répond.` }];
 }
 
+/** « bayam aide » d'un client : comment voir les articles, commander, parler au vendeur, signaler un souci. */
+export function aideClient(b: Boutique): Envoi[] {
+  return [{ type: 'texte', texte: `${MARQUE}ℹ️ *Comment acheter chez ${b.nom}*\n• Écrivez *bayam* : nos rayons s'affichent, touchez celui qui vous intéresse.\n• Choisissez un article : vous recevez sa photo, son prix et votre lien de commande personnel.\n• Touchez *Parler au vendeur* dans la liste, ou écrivez simplement votre question : la boutique vous répond ici.\n• Un souci ou une idée ? *bayam signaler* suivi de votre message : l'équipe BAYAM le reçoit.` }];
+}
+
 export function vendeur(b: Boutique, nom: string, numero: string | null): Envoi[] {
   const qui = [nom, numero ? numeroLisible(numero) : ''].filter(Boolean).join(', ');
   return [

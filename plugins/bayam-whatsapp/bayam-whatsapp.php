@@ -20,7 +20,7 @@ if (is_readable(BAYAM_WA_DIR . 'vendor/autoload.php')) {
 }
 
 foreach ([
-    'outils', 'stockage', 'waha', 'regles', 'boutique', 'cartes', 'liens', 'ia', 'aide', 'facebook',
+    'outils', 'fonctions', 'stockage', 'waha', 'regles', 'boutique', 'cartes', 'liens', 'ia', 'aide', 'facebook', 'retours',
     'copilote', 'clients', 'assistant', 'webhook', 'diffusion', 'rapports', 'paiements', 'page-vendeur', 'travailleur', 'interne',
 ] as $fichier) {
     require_once BAYAM_WA_DIR . "includes/{$fichier}.php";
@@ -40,4 +40,5 @@ add_action('plugins_loaded', static function () {
     Bayam_WA_Paiements::init();
     Bayam_WA_Page_Vendeur::init();
     Bayam_WA_Interne::init();
+    Bayam_WA_Retours::init();
 });

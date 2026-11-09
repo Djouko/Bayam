@@ -61,3 +61,10 @@ test('identifiants d’actions : ceux de WhatsApp restent valables', () => {
 test('référence d’article copiée d’une publication (« réf. P25 ») : l’article directement', () => {
   assert.deepEqual(action(message({ message: { mid: 'm', text: 'Bonjour ! Je veux commander : Polo (réf. P25)' } })), [{ type: 'produit', produit: 25 }, true]);
 });
+
+test('lien de l’espace vendeur (« vendeur-… ») : liaison du compte ; « aide » et « signaler … » reconnus, avec ou sans « bayam »', () => {
+  assert.deepEqual(decider(message({ referral: { ref: 'vendeur-3-1794000000-abc', source: 'SHORTLINK' } }), MAINTENANT), { route: 'liaison', page: '555', client: '7001', ref: 'vendeur-3-1794000000-abc' });
+  assert.deepEqual(action(message({ message: { mid: 'm', text: 'Aide' } })), [{ type: 'aide' }, true]);
+  assert.deepEqual(action(message({ message: { mid: 'm', text: 'bayam signaler le lien ne marche pas' } })), [{ type: 'signaler', genre: 'souci', texte: 'le lien ne marche pas' }, true]);
+  assert.deepEqual(action(message({ message: { mid: 'm', text: 'idée : livrer à Kribi' } })), [{ type: 'signaler', genre: 'idee', texte: 'livrer à Kribi' }, true]);
+});

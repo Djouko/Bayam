@@ -48,6 +48,7 @@ export class Donnees {
   /** Page retirée par le vendeur : la ligne et son jeton sont effacés (les publications passées restent). */
   async supprimerPage(id: string): Promise<void> {
     await this.pool.query('DELETE FROM canal_facebook.pages WHERE page = $1', [id]);
+    await this.pool.query('DELETE FROM canal_facebook.vendeurs_messenger WHERE page = $1', [id]);
     this.memoire.delete(id);
   }
 
@@ -55,6 +56,21 @@ export class Donnees {
   async desactiverPage(id: string): Promise<void> {
     await this.pool.query('UPDATE canal_facebook.pages SET actif = false WHERE page = $1', [id]);
     this.memoire.delete(id);
+  }
+
+  // --- Espace vendeur dans Messenger ---
+
+  async lierVendeur(page: string, client: string, vendeur: number): Promise<void> {
+    await this.pool.query(
+      'INSERT INTO canal_facebook.vendeurs_messenger (page, client, vendeur) VALUES ($1, $2, $3) ON CONFLICT (page, client) DO UPDATE SET vendeur = EXCLUDED.vendeur, relie = now()',
+      [page, client, vendeur],
+    );
+  }
+
+  /** Vendeur dont c'est le compte Messenger sur cette Page, sinon null (un client). */
+  async vendeurDe(page: string, client: string): Promise<number | null> {
+    const r = await this.pool.query<{ vendeur: number }>('SELECT vendeur FROM canal_facebook.vendeurs_messenger WHERE page = $1 AND client = $2', [page, client]);
+    return r.rows[0]?.vendeur ?? null;
   }
 
   // --- Liens personnels de commande ---

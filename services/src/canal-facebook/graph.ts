@@ -130,6 +130,16 @@ export class Graph {
     return this.appel('POST', `/${page}/messages`, jeton, { recipient: destinataire, messaging_type: 'RESPONSE', message });
   }
 
+  /** Image envoyée en fichier dans Messenger (réponse du Copilote : carte, visuel), sans adresse publique. */
+  async envoyerImage(page: string, jeton: string, destinataire: Destinataire, image: Buffer, type: string, metadata: string): Promise<void> {
+    const formulaire = new FormData();
+    formulaire.append('recipient', JSON.stringify(destinataire));
+    formulaire.append('messaging_type', 'RESPONSE');
+    formulaire.append('message', JSON.stringify({ attachment: { type: 'image', payload: { is_reusable: false } }, metadata }));
+    formulaire.append('filedata', new Blob([new Uint8Array(image)], { type }), 'image.jpg');
+    await this.appel('POST', `/${page}/messages`, jeton, formulaire);
+  }
+
   /** Réponse publique sous un commentaire. */
   async repondreCommentaire(commentaire: string, jeton: string, texte: string): Promise<void> {
     await this.appel('POST', `/${commentaire}/comments`, jeton, { message: texte });

@@ -2,8 +2,8 @@
 // publication (profil, groupe, Marketplace, statut WhatsApp…), messages tapés, commentaires sous les publications,
 // réponses tapées par le vendeur lui-même. Fonctions pures.
 
-import { demandeMenu, sansAccents } from '../canal-whatsapp/appel.ts';
-import { lireAction, type Action } from '../canal-whatsapp/routeur.ts';
+import { appel, demandeMenu, sansAccents } from '../canal-whatsapp/appel.ts';
+import { aideOuRetour, lireAction, type Action } from '../canal-whatsapp/routeur.ts';
 import type { Commentaire, EvenementFacebook } from '../passerelle/facebook.ts';
 import { interesse } from './messenger.ts';
 
@@ -19,9 +19,14 @@ export type ActionFacebook =
   /** Message libre (ou photo envoyée par le client) que le service ne sait pas traiter : le vendeur est prévenu. */
   | { type: 'question'; extrait: string };
 
+/** Ce que la personne a vraiment envoyé : utile quand c'est le vendeur lui-même (menu, commandes, photo d'article). */
+export type Brut = { texte: string; photo: string | null; choix: string | null };
+
 export type Decision =
   /** libre : déclenchée par un message tapé (et non un bouton) ; ignorée quand le vendeur a repris la main. */
-  | { route: 'client'; page: string; client: string; action: ActionFacebook; libre: boolean }
+  | { route: 'client'; page: string; client: string; action: ActionFacebook; libre: boolean; brut: Brut }
+  /** Le vendeur ouvre le lien signé de son espace : ce compte Messenger devient le sien sur cette Page. */
+  | { route: 'liaison'; page: string; client: string; ref: string }
   | { route: 'commentaire'; page: string; commentaire: Commentaire }
   /** Le vendeur a répondu lui-même dans Messenger : le service se tait un moment dans cette discussion. */
   | { route: 'reprise'; page: string; client: string }
@@ -69,7 +74,16 @@ export function decider(e: EvenementFacebook, maintenant: number): Decision {
     return { route: 'reprise', page: e.page, client: String(m.recipient?.id ?? '') };
   }
   const client = String(m.sender?.id ?? '');
-  const choisi = (action: ActionFacebook | null, libre = false): Decision => (action ? { route: 'client', page: e.page, client, action, libre } : { route: 'ignore' });
+  const ref = m.referral?.ref ?? m.postback?.referral?.ref ?? '';
+  if (ref.startsWith('vendeur-')) {
+    return { route: 'liaison', page: e.page, client, ref };
+  }
+  const brut: Brut = {
+    texte: (m.message?.text ?? '').trim(),
+    photo: m.message?.attachments?.find((a) => a.type === 'image')?.payload?.url ?? null,
+    choix: m.postback?.payload ?? m.message?.quick_reply?.payload ?? null,
+  };
+  const choisi = (action: ActionFacebook | null, libre = false): Decision => (action ? { route: 'client', page: e.page, client, action, libre, brut } : { route: 'ignore' });
   if (m.postback) {
     return choisi(m.postback.referral?.ref ? actionDuLien(m.postback.referral.ref) : lireActionFacebook(m.postback.payload ?? ''));
   }
@@ -87,6 +101,11 @@ export function decider(e: EvenementFacebook, maintenant: number): Decision {
   const reference = /\br[ée]f(?:[ée]rence)?\.?\s*:?\s*P(\d{1,10})\b/i.exec(texte);
   if (reference) {
     return choisi({ type: 'produit', produit: Number(reference[1]) }, true);
+  }
+  // « aide », « signaler … », « idée … », avec ou sans « bayam » devant.
+  const aide = texte ? aideOuRetour(appel(texte) ?? texte) : null;
+  if (aide) {
+    return choisi(aide, true);
   }
   if (texte && (demandeMenu(texte) || DEMANDE_MENU.test(sansAccents(texte.toLowerCase())))) {
     return choisi({ type: 'menu' }, true);

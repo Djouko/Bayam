@@ -20,7 +20,7 @@ export type Messagerie = {
   sender?: { id?: string };
   recipient?: { id?: string };
   timestamp?: number;
-  message?: { mid?: string; text?: string; is_echo?: boolean; metadata?: string; quick_reply?: { payload?: string }; attachments?: unknown[] };
+  message?: { mid?: string; text?: string; is_echo?: boolean; metadata?: string; quick_reply?: { payload?: string }; attachments?: { type?: string; payload?: { url?: string } }[] };
   postback?: { mid?: string; title?: string; payload?: string; referral?: { ref?: string } };
   referral?: { ref?: string; source?: string };
 };

@@ -55,6 +55,12 @@ export type ArticleVendeur = {
   variantes: { id: number; nom: string; stock: number | null }[];
 };
 export type PageArticles = { total: number; articles: ArticleVendeur[] };
+/** Réponse du Copilote rendue à l'appelant (vendeur dans Messenger) : texte, ou image en base64 avec sa légende. */
+export type ReponseCopilote = { texte?: string; image?: string; type?: string; legende?: string };
+/** Endroits où le vendeur peut publier. */
+export type Destinations = { whatsapp: boolean; groupes: { id: string; nom: string }[]; chaines: { id: string; nom: string }[]; pages: { id: string; nom: string }[] };
+/** Publication à plusieurs endroits à la fois (choix multiples du menu). */
+export type DemandePublication = { quoi: string; groupes?: string[]; chaines?: string[]; statut?: boolean; facebook?: boolean; story?: boolean; partager?: boolean };
 export type Commande = { numero: string; total: number; statut: string; date: string };
 
 export interface Commerce {
@@ -66,8 +72,15 @@ export interface Commerce {
   image(chemin: string | null): Promise<Buffer | null>;
   /** Articles du vendeur, par recherche (« robe », « #25 ») ou par page alphabétique. */
   articles(id: number, recherche: string, page: number, parPage: number): Promise<PageArticles>;
-  /** Commande du Copilote exécutée pour le vendeur ; les réponses arrivent dans sa discussion « Message à moi-même ». */
-  copilote(id: number, texte: string, photo?: string): Promise<void>;
+  /**
+   * Commande du Copilote exécutée pour le vendeur : réponses envoyées dans « Message à moi-même », ou rendues (retour)
+   * quand il écrit depuis Messenger. photo : adresse chez WAHA ; photoBase64 : photo déjà téléchargée (Messenger).
+   */
+  copilote(id: number, texte: string, options?: { photo?: string; photoBase64?: string; retour?: boolean }): Promise<ReponseCopilote[]>;
+  destinations(id: number): Promise<Destinations>;
+  publier(id: number, demande: DemandePublication, retour?: boolean): Promise<ReponseCopilote[]>;
+  /** Souci ou idée d'un client, transmis à l'équipe ; renvoie le message de remerciement. */
+  retour(demande: { type: 'souci' | 'idee'; texte: string; canal: string; auteur: string; vendeur?: number }): Promise<string>;
 }
 
 /** Source WooCommerce : API interne de l'extension BAYAM, mise en cache dans Redis jusqu'à la prochaine modification. */
@@ -113,17 +126,35 @@ export class CommerceWordpress implements Commerce {
     return (await this.lire<PageArticles>(`/boutiques/${id}/articles?${q}`)) ?? { total: 0, articles: [] };
   }
 
-  async copilote(id: number, texte: string, photo?: string): Promise<void> {
-    const r = await fetch(`${this.url}/boutiques/${id}/copilote`, {
+  async copilote(id: number, texte: string, options: { photo?: string; photoBase64?: string; retour?: boolean } = {}): Promise<ReponseCopilote[]> {
+    const corps = { texte, ...(options.photo ? { photo: options.photo } : {}), ...(options.photoBase64 ? { photo_base64: options.photoBase64 } : {}), ...(options.retour ? { retour: true } : {}) };
+    return (await this.ecrire<{ reponses?: ReponseCopilote[] }>(`/boutiques/${id}/copilote`, corps)).reponses ?? [];
+  }
+
+  async destinations(id: number): Promise<Destinations> {
+    return (await this.lire<Destinations>(`/boutiques/${id}/destinations`)) ?? { whatsapp: false, groupes: [], chaines: [], pages: [] };
+  }
+
+  async publier(id: number, demande: DemandePublication, retour = false): Promise<ReponseCopilote[]> {
+    return (await this.ecrire<{ reponses?: ReponseCopilote[] }>(`/boutiques/${id}/publier`, { ...demande, retour })).reponses ?? [];
+  }
+
+  async retour(demande: { type: 'souci' | 'idee'; texte: string; canal: string; auteur: string; vendeur?: number }): Promise<string> {
+    return (await this.ecrire<{ message: string }>('/retours', demande)).message;
+  }
+
+  /** Écriture vers WordPress (publier, interroger le modèle de langage : jusqu'à une minute). */
+  private async ecrire<T>(chemin: string, corps: unknown): Promise<T> {
+    const r = await fetch(`${this.url}${chemin}`, {
       method: 'POST',
       headers: { 'x-bayam-service': this.jeton, 'content-type': 'application/json' },
-      body: JSON.stringify(photo ? { texte, photo } : { texte }),
-      // Publier ou interroger le modèle de langage peut prendre du temps.
+      body: JSON.stringify(corps),
       signal: AbortSignal.timeout(60_000),
     });
     if (!r.ok) {
-      throw new Error(`Copilote : réponse ${r.status}`);
+      throw new Error(`commerce : réponse ${r.status} pour ${chemin}`);
     }
+    return (await r.json()) as T;
   }
 
   /** Clé de cache liée à la version du catalogue, que WordPress incrémente à chaque modification d'article. */

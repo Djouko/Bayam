@@ -17,10 +17,11 @@ PAGE=900000000000004
 
 remettre_en_etat() {
   docker compose exec -T postgres psql -q -U bayam_admin -d bayam -c "
-    DELETE FROM canal_facebook.pages WHERE page IN ('$PAGE', '900000000000005'); DELETE FROM canal_facebook.publications WHERE page = '$PAGE';
+    DELETE FROM canal_facebook.pages WHERE page IN ('$PAGE', '900000000000005');
+    DELETE FROM canal_facebook.vendeurs_messenger WHERE page IN ('$PAGE', '900000000000005'); DELETE FROM canal_facebook.publications WHERE page = '$PAGE';
     DELETE FROM canal_facebook.jetons_commande WHERE page = '$PAGE'; DELETE FROM canal_facebook.notifications WHERE page = '$PAGE';
     DELETE FROM canal_facebook.evenements_traites WHERE evt_id LIKE 'm.essai.%' OR evt_id LIKE 'm.vendeur.%' OR evt_id LIKE '%$PAGE%';" >/dev/null
-  docker compose exec -T redis sh -c "for k in \$(redis-cli --scan --pattern 'fb:*$PAGE*'); do redis-cli del \"\$k\" >/dev/null; done"
+  docker compose exec -T redis sh -c "for k in \$(redis-cli --scan --pattern 'fb:*$PAGE*') fb:menu-vendeur:4; do redis-cli del \"\$k\" >/dev/null; done"
   docker compose exec -T -e MYSQL_PWD="$(grep '^DB_PASSWORD=' .env | cut -d= -f2-)" db mariadb -u wordpress wordpress \
     -e "DELETE FROM wp_woocommerce_sessions WHERE session_value LIKE '%$PAGE%'"
   docker stop faux-graph >/dev/null 2>&1 || true

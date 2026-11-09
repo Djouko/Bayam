@@ -2,7 +2,7 @@
 // reste continue d'aller à l'extension WordPress, inchangé. Les fonctions migrent ainsi une par une, sans coupure.
 
 import { MARQUE } from '../passerelle/filtre.ts';
-import { demandeMenu } from './appel.ts';
+import { appel, demandeMenu, sansAccents } from './appel.ts';
 import type { MessageWhatsapp } from './message.ts';
 
 /** Référence d'article écrite dans un message (« réf. P25 ») : liens wa.me des publications partagées par le vendeur. */
@@ -17,7 +17,21 @@ export type Action =
   | { type: 'produit'; produit: number }
   | { type: 'commandes' }
   | { type: 'livraison' }
-  | { type: 'vendeur' };
+  | { type: 'vendeur' }
+  /** « bayam aide » : comment se servir de la boutique sur WhatsApp. */
+  | { type: 'aide' }
+  /** « bayam signaler … », « bayam idée … » : souci ou idée transmis à l'équipe BAYAM. */
+  | { type: 'signaler'; genre: 'souci' | 'idee'; texte: string };
+
+/** « aide », « signaler … », « idée … » (sans accents ni majuscules) ; null si ce n'est ni l'un ni l'autre. */
+export function aideOuRetour(reste: string): Action | null {
+  const t = sansAccents(reste.toLowerCase()).trim();
+  if (/^(aide|help|comment (ca|ça) marche)\b/.test(t)) {
+    return { type: 'aide' };
+  }
+  const m = /^(signaler|signale|souci|probleme|bug|idee|suggestion|amelioration)\b\s*:?\s*([\s\S]*)$/.exec(t);
+  return m ? { type: 'signaler', genre: /^(idee|suggestion|amelioration)/.test(m[1]) ? 'idee' : 'souci', texte: reste.trim().slice(reste.trim().length - m[2].length) } : null;
+}
 
 export type Decision = { route: 'catalogue'; action: Action; message: MessageWhatsapp } | { route: 'heritage' };
 
@@ -74,6 +88,12 @@ export function decider(m: MessageWhatsapp | null, maintenant: number): Decision
   const reference = REFERENCE.exec(m.texte);
   if (reference && !m.deMoi) {
     return { route: 'catalogue', action: { type: 'produit', produit: Number(reference[1]) }, message: m };
+  }
+  // « bayam aide », « bayam signaler … » d'un client : l'aide de la boutique, ou un retour pour l'équipe BAYAM.
+  const reste = m.deMoi ? null : appel(m.texte);
+  const aide = reste !== null ? aideOuRetour(reste) : null;
+  if (aide) {
+    return { route: 'catalogue', action: aide, message: m };
   }
   // Le client demande la boutique ; ou le vendeur tape « bayam menu » dans la discussion d'un client pour la lui
   // montrer (dans sa propre discussion, c'est le menu du Copilote : le service le renvoie à WordPress).

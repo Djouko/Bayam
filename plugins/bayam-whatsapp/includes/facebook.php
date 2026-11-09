@@ -32,6 +32,17 @@ final class Bayam_WA_Facebook
     }
 
     /**
+     * Lien qui fait du compte Messenger qui l'ouvre l'espace vendeur de la boutique (menu et commandes de BAYAM dans
+     * Messenger) : ouvre la discussion avec la Page, signé par le jeton de service, valable 7 jours.
+     */
+    public static function lien_espace(int $vendeur, string $page): string
+    {
+        $echeance = time() + 7 * DAY_IN_SECONDS;
+        $signature = substr(hash_hmac('sha256', "fbvendeur:{$vendeur}.{$echeance}", (string) getenv('BAYAM_SERVICE_JETON')), 0, 32);
+        return "https://m.me/{$page}?ref=vendeur-{$vendeur}-{$echeance}-{$signature}";
+    }
+
+    /**
      * Pages Facebook reliées au vendeur ([['page' => …, 'nom' => …, 'actif' => bool]]), gardées une minute ;
      * null si le service ne répond pas.
      */

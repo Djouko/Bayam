@@ -22,6 +22,9 @@ final class Bayam_WA_Copilote
         'publier' => ['publier', 'publie', 'poster', 'diffuser'],
         'facebook' => ['facebook', 'fb', 'messenger'],
         'partager' => ['partager', 'partage', 'partagez'],
+        'signaler' => ['signaler', 'signale', 'souci', 'probleme', 'bug', 'panne'],
+        'idee' => ['idee', 'suggestion', 'amelioration', 'proposition'],
+        'whatsapp' => ['whatsapp'],
         'envoie' => ['envoie', 'envoyer', 'envoi'],
         'stock' => ['stock', 'stocks', 'reste'],
         'vendu' => ['vendu', 'vendue', 'vente', 'vendus'],
@@ -63,6 +66,11 @@ final class Bayam_WA_Copilote
     public static function traiter(int $vendeur, string $message, ?array $photo = null, bool $equipe = false): array
     {
         $c = new self($vendeur, $equipe);
+        // Copilote en maintenance : message clair ; signaler un souci reste possible (c'est souvent le moment).
+        $etat = Bayam_WA_Fonctions::etat('whatsapp.copilote', $vendeur);
+        if ($etat['etat'] !== 'actif' && !preg_match('/^(signaler|signale|souci|probleme|bug|panne|idee)\b/u', Bayam_WA_Outils::normaliser($message))) {
+            return [['texte' => Bayam_WA_Fonctions::message($etat)]];
+        }
         try {
             return $c->repondre(trim($message), $photo);
         } catch (Throwable $e) {
@@ -146,6 +154,9 @@ final class Bayam_WA_Copilote
             'publier' => $this->publier($reste),
             'facebook' => $this->facebook($avec_accents),
             'partager' => $this->partager($reste),
+            'signaler' => $this->retour('souci', $avec_accents),
+            'idee' => $this->retour('idee', $avec_accents),
+            'whatsapp' => $this->whatsapp($reste),
             'envoie' => $this->envoyer_collection($reste),
             'stock' => $this->stock($reste),
             'vendu' => $this->vendu($reste, $avec_accents),
@@ -654,6 +665,63 @@ final class Bayam_WA_Copilote
         return implode("\n", $lignes);
     }
 
+    /** Articles désignés comme dans « bayam publier … » : « nouveautes », « promos », « #25 », mots du nom. */
+    public static function articles_demandes(int $vendeur, string $quoi): array
+    {
+        return (new self($vendeur, false))->selection(Bayam_WA_Outils::normaliser($quoi))[0];
+    }
+
+    /** « bayam signaler le lien ne s'ouvre pas », « bayam idée … » : arrive à l'équipe BAYAM avec un numéro de suivi. */
+    private function retour(string $type, string $texte): array
+    {
+        if (mb_strlen(trim($texte)) < 5) {
+            return [['texte' => $type === 'idee'
+                ? 'Écrivez votre idée après le mot, par exemple : *bayam idée pouvoir publier sur TikTok*.'
+                : 'Décrivez le souci après le mot, par exemple : *bayam signaler le lien de paiement ne s\'ouvre pas*.']];
+        }
+        return [['texte' => Bayam_WA_Retours::merci(Bayam_WA_Retours::creer($type, $texte, 'vendeur', $this->vendeur), $type)]];
+    }
+
+    /**
+     * « bayam whatsapp » : état de la connexion ; « bayam whatsapp 6 90 00 00 10 » : code d'association à saisir dans
+     * WhatsApp (Appareils connectés), sans QR code ni ordinateur. Depuis Messenger, le vendeur relie ainsi son WhatsApp.
+     */
+    private function whatsapp(string $reste): array
+    {
+        if ($this->equipe) {
+            return [['texte' => 'Seul le propriétaire de la boutique peut relier un numéro WhatsApp.']];
+        }
+        $session = Bayam_WA_Stockage::reglages($this->vendeur)['session'];
+        $etat = Bayam_WA_Waha::client()->session($session);
+        if (!is_wp_error($etat) && ($etat['status'] ?? '') === 'WORKING') {
+            $moi = Bayam_WA_Outils::numero_de((string) ($etat['me']['id'] ?? get_user_meta($this->vendeur, 'bayam_wa_moi', true)));
+            return [['texte' => '✅ WhatsApp relié à BAYAM' . ($moi ? ' (' . Bayam_WA_Outils::numero_lisible($moi) . ')' : '') . ". Votre menu : écrivez *bayam* dans « Message à moi-même »."]];
+        }
+        $numero = Bayam_WA_Outils::numero($reste);
+        if (!$numero) {
+            return [['texte' => "📱 *Relier votre WhatsApp à BAYAM*
+BAYAM répond à vos clients, publie dans vos groupes et vos chaînes, et vous donne votre menu dans « Message à moi-même ». Règles : jamais de messages en masse à des inconnus ; vos clients peuvent toujours parler à une personne.
+
+Envoyez votre numéro WhatsApp, par exemple : *bayam whatsapp 6 90 00 00 10*. Vous recevrez un code à saisir dans WhatsApp."]];
+        }
+        Bayam_WA_Stockage::enregistrer($this->vendeur, ['consentement' => current_time('mysql')]);
+        $demarrage = Bayam_WA_Waha::client()->demarrer_session($session, $this->vendeur);
+        // Le code ne peut être demandé qu'une fois la session prête à associer un téléphone (quelques secondes).
+        for ($i = 0; !is_wp_error($demarrage) && $i < 8; $i++) {
+            $etat = Bayam_WA_Waha::client()->session($session);
+            if (!is_wp_error($etat) && ($etat['status'] ?? '') === 'SCAN_QR_CODE') {
+                break;
+            }
+            sleep(2);
+        }
+        $code = is_wp_error($demarrage) ? $demarrage : Bayam_WA_Waha::client()->demander_code($session, $numero);
+        if (is_wp_error($code) || empty($code['code'])) {
+            return [['texte' => "Le code n'a pas pu être créé" . (is_wp_error($code) ? ' (' . $code->get_error_message() . ')' : '') . '. Réessayez dans une minute.']];
+        }
+        return [['texte' => "🔑 Votre code : *{$code['code']}*
+Sur le téléphone du " . Bayam_WA_Outils::numero_lisible($numero) . ", dans WhatsApp : Réglages (ou ⋮) › Appareils connectés › Connecter un appareil › *Connecter avec le numéro de téléphone*, puis saisissez le code. Il est valable quelques minutes."]];
+    }
+
     /**
      * Où publier, d'après la demande. WhatsApp : « groupes » (par défaut), « statut », « chaîne », plusieurs à la fois.
      * Facebook : « facebook », « fb » ou « page » ; « story » pour les stories de la Page. « partout » : tout, la Page
@@ -724,8 +792,10 @@ final class Bayam_WA_Copilote
         }
         $etat = ($actives ? '✅ Reliée(s) : ' . $noms($actives) . "\n" : '') . ($coupees ? '⚠️ À reconnecter : ' . $noms($coupees) . "\n" : '') . ($manques ? implode("\n", $manques) . "\n" : '');
         $action = $manques ? 'Pour tout activer' : ($actives ? 'Pour relier une autre Page' : 'Reliez la Page Facebook de votre boutique en une minute');
+        // Le menu de BAYAM aussi dans Messenger : le vendeur touche ce lien depuis son compte Facebook personnel.
+        $espace = $actives ? "\n📱 Votre menu BAYAM dans Messenger (à ouvrir avec votre compte Facebook) : " . Bayam_WA_Facebook::lien_espace($this->vendeur, (string) reset($actives)['page']) . "\n" : '';
         $lien = Bayam_WA_Facebook::lien_connexion($this->vendeur);
-        return [['texte' => "📘 *Facebook*\n{$etat}{$action} : touchez ce lien (valable 30 min), connectez-vous à Facebook, acceptez toutes les autorisations et cochez la Page de votre boutique.\n{$lien}\n\n"
+        return [['texte' => "📘 *Facebook*\n{$etat}{$espace}{$action} : touchez ce lien (valable 30 min), connectez-vous à Facebook, acceptez toutes les autorisations et cochez la Page de votre boutique.\n{$lien}\n\n"
             . "Ensuite, tout seul : votre catalogue dans Messenger, une réponse privée à chaque « prix ? » sous vos publications, les commandes confirmées dans Messenger. Pour publier : *bayam publier robes facebook*, ou *… story*."
             . ($pages ? "\nUne Page en trop : *bayam facebook retirer " . end($pages)['nom'] . '*' : '')]];
     }

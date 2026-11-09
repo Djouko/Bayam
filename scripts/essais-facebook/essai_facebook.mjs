@@ -153,6 +153,34 @@ await message({ postback: { mid: `m.essai.${PASSAGE}.${++sequence}`, title: 'Liv
 e = await recus(envoisAuClient);
 verifier('… mais un bouton touché par le client reçoit toujours sa réponse', e[0]?.corps.message.text?.startsWith('🚚 Livraison'), e[0]?.corps.message);
 
+console.log('\nEspace vendeur dans Messenger (le même menu et les mêmes commandes que sur WhatsApp)');
+const VENDEUR = '7000000000000009';
+const versVendeur = (a) => a.methode === 'POST' && a.chemin === `/${PAGE}/messages` && a.corps?.recipient?.id === VENDEUR;
+const parVendeur = (contenu) => meta({ messaging: [{ sender: { id: VENDEUR }, recipient: { id: PAGE }, timestamp: Date.now(), ...contenu }] });
+const echeanceEspace = Math.floor(Date.now() / 1000) + 3600;
+const signature = createHmac('sha256', JETON_SERVICE).update(`fbvendeur:4.${echeanceEspace}`).digest('hex').slice(0, 32);
+await vider();
+await parVendeur({ referral: { ref: `vendeur-4-${echeanceEspace}-${signature}`, source: 'SHORTLINK' } });
+e = await recus(versVendeur);
+verifier('lien signé ouvert : ce compte Messenger devient l\'espace vendeur', (e[0]?.corps.message.text ?? '').includes('espace vendeur BAYAM est prêt'), e[0]?.corps.message);
+await vider();
+await parVendeur({ message: { mid: `m.essai.${PASSAGE}.${++sequence}`, text: 'bayam' } });
+e = await recus(versVendeur);
+const menuTexte = e[0]?.corps.message.text ?? '';
+verifier('« bayam » du vendeur : son menu, en texte numéroté lisible partout', menuTexte.includes('1. 📦 Ajouter du stock') && menuTexte.includes('Répondez par le numéro') && !menuTexte.includes('\u2063'), menuTexte.slice(0, 200));
+await vider();
+await parVendeur({ message: { mid: `m.essai.${PASSAGE}.${++sequence}`, text: '5' } });
+e = await recus(versVendeur);
+verifier('le vendeur répond « 5 » : sous-menu du bilan', (e[0]?.corps.message.text ?? '').includes('Quelle période'), e[0]?.corps.message);
+await vider();
+await parVendeur({ message: { mid: `m.essai.${PASSAGE}.${++sequence}`, text: 'bayam stock' } });
+e = await recus(versVendeur, 1, 30000);
+verifier('« bayam stock » du vendeur : réponse du Copilote dans Messenger, sans la mise en forme WhatsApp', Boolean(e[0]?.corps.message.text) && !/\*[^*\n]+\*/.test(e[0].corps.message.text), e[0]?.corps.message);
+await vider();
+await meta({ messaging: [{ sender: { id: '7000000000000008' }, recipient: { id: PAGE }, timestamp: Date.now(), referral: { ref: `vendeur-4-${echeanceEspace}-${'0'.repeat(32)}`, source: 'SHORTLINK' } }] });
+e = await recus((a) => a.chemin === `/${PAGE}/messages` && a.corps?.recipient?.id === '7000000000000008');
+verifier('lien falsifié : refusé, ce compte reste un client', (e[0]?.corps.message.text ?? '').includes('expiré ou n\'est pas le vôtre'), e[0]?.corps.message);
+
 console.log('\nPublication sur la Page, puis commentaire « prix ? »');
 await vider();
 r = await fetch('http://canal-facebook:8092/interne/publications', { method: 'POST', headers: service, body: JSON.stringify({ vendeur: 4, produits: [1032], type: 'publication' }) });

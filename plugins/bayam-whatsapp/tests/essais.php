@@ -9,6 +9,7 @@
 final class Bayam_Faux_Waha extends Bayam_WA_Waha
 {
     public array $envois = [];
+    public string $statut = 'WORKING';
 
     protected function appel(string $methode, string $chemin, ?array $corps = null, array $requete = [], int $delai = 20)
     {
@@ -29,8 +30,11 @@ final class Bayam_Faux_Waha extends Bayam_WA_Waha
         if (in_array($chemin, ['/api/sendText', '/api/sendImage'], true) || str_contains($chemin, '/status/')) {
             return ['id' => 'true_' . count($this->envois) . '_BAYAMESSAI'];
         }
+        if (str_ends_with($chemin, '/auth/request-code')) {
+            return ['code' => 'ABCD-1234'];
+        }
         if (str_starts_with($chemin, '/api/sessions/')) {
-            return ['status' => 'WORKING', 'me' => ['id' => '237690000003@c.us', 'pushName' => 'Mode Aïcha']];
+            return ['status' => $this->statut, 'me' => ['id' => '237690000003@c.us', 'pushName' => 'Mode Aïcha']];
         }
         return [];
     }
@@ -55,6 +59,7 @@ if (!is_array($sauvegarde)) {
     update_option('bayam_wa_essais_sauvegarde', $sauvegarde, false);
 }
 $depart = [];
+$depart_retours = (int) $wpdb->get_var("SELECT COALESCE(MAX(ID), 0) FROM {$wpdb->posts}");
 foreach (['dettes', 'diffusions', 'wa_messages', 'liens'] as $table) {
     $depart[$table] = (int) $wpdb->get_var("SELECT COALESCE(MAX(id), 0) FROM " . Bayam_WA_Stockage::table($table));
 }
@@ -683,6 +688,57 @@ $execute = rest_do_request($requete)->get_data();
 $au_vendeur = array_filter($faux->envois, static fn ($e) => $e['chemin'] === '/api/sendText' && ($e['corps']['chatId'] ?? '') === '237690000003@c.us');
 bayam_verifier('commande choisie dans le menu : exécutée, réponse dans « Message à moi-même »', ($execute['envoyes'] ?? 0) >= 1 && $au_vendeur, [$execute, array_column($faux->envois, 'chemin')]);
 
+// --- Parité WhatsApp et Facebook, retours, maintenance ----------------------------------------------------------
+echo "\nRetours, connexion WhatsApp, publication multiple, maintenance\n";
+$r = bayam_dire('bayam signaler le lien de paiement ne s’ouvre pas');
+$retour = $wpdb->get_row("SELECT ID, post_title, post_status FROM {$wpdb->posts} WHERE post_type = 'bayam_retour' AND ID > {$depart_retours} ORDER BY ID DESC LIMIT 1");
+bayam_verifier('« bayam signaler … » : enregistré (numéro de suivi), visible dans l’administration', $retour && str_contains($joint($r), "R-{$retour->ID}") && $retour->post_status === 'private' && get_post_meta($retour->ID, '_bayam_type', true) === 'souci', $r);
+$r = bayam_dire('bayam idée publier sur TikTok');
+bayam_verifier('« bayam idée … » : enregistrée comme idée', str_contains($joint($r), 'Votre idée') && get_post_meta((int) $wpdb->get_var("SELECT MAX(ID) FROM {$wpdb->posts} WHERE post_type = 'bayam_retour'"), '_bayam_type', true) === 'idee', $r);
+$r = bayam_dire('bayam whatsapp');
+bayam_verifier('« bayam whatsapp » : WhatsApp déjà relié, le numéro est rappelé', str_contains($joint($r), 'WhatsApp relié à BAYAM'), $r);
+$faux->statut = 'SCAN_QR_CODE';
+$r = bayam_dire('bayam whatsapp 6 90 00 00 10');
+$faux->statut = 'WORKING';
+bayam_verifier('« bayam whatsapp 6 90 00 00 10 » (depuis Messenger) : code d’association à saisir dans WhatsApp', str_contains($joint($r), 'ABCD-1234') && str_contains($joint($r), 'Connecter avec le numéro de téléphone'), $r);
+$jeton_service = (string) getenv('BAYAM_SERVICE_JETON');
+$requete = new WP_REST_Request('GET', '/bayam/v1/interne/boutiques/3/destinations');
+$requete->set_header('x-bayam-service', $jeton_service);
+$destinations = rest_do_request($requete)->get_data();
+bayam_verifier('destinations de publication : groupes choisis, chaînes, statut', $destinations['whatsapp'] === true && count($destinations['groupes']) === 2 && isset($destinations['chaines']), $destinations);
+$requete = new WP_REST_Request('POST', '/bayam/v1/interne/boutiques/3/publier');
+$requete->set_header('x-bayam-service', $jeton_service);
+foreach (['quoi' => 'polo', 'groupes' => [$destinations['groupes'][0]['id']], 'statut' => true, 'retour' => true] as $cle => $valeur) {
+    $requete->set_param($cle, $valeur);
+}
+$publication = rest_do_request($requete)->get_data();
+bayam_verifier('publication multiple : un groupe choisi et le statut, en une demande, réponse rendue (Messenger)', str_contains($publication['reponses'][0]['texte'] ?? '', '1 dans 1 groupe') && str_contains($publication['reponses'][0]['texte'] ?? '', 'en statut'), $publication);
+$wpdb->query($wpdb->prepare("UPDATE $t SET statut = 'annule' WHERE vendeur = 3 AND statut = 'attente' AND id > %d", $depart['diffusions']));
+$requete = new WP_REST_Request('POST', '/bayam/v1/interne/boutiques/3/copilote');
+$requete->set_header('x-bayam-service', $jeton_service);
+$requete->set_param('texte', 'stock polo');
+$requete->set_param('retour', true);
+$faux->envois = [];
+$copilote = rest_do_request($requete)->get_data();
+bayam_verifier('Copilote depuis Messenger : réponses rendues à l’appelant, rien envoyé sur WhatsApp', !empty($copilote['reponses'][0]['texte']) && !array_filter($faux->envois, static fn ($e) => $e['chemin'] === '/api/sendText'), $copilote);
+$requete = new WP_REST_Request('POST', '/bayam/v1/interne/retours');
+$requete->set_header('x-bayam-service', $jeton_service);
+foreach (['type' => 'souci', 'texte' => 'Le lien de commande ne charge pas', 'canal' => 'messenger', 'auteur' => 'client essai', 'vendeur' => 3] as $cle => $valeur) {
+    $requete->set_param($cle, $valeur);
+}
+$retour_client = rest_do_request($requete)->get_data();
+bayam_verifier('retour d’un client (Messenger) : numéro et remerciement', str_starts_with($retour_client['numero'] ?? '', 'R-') && str_contains($retour_client['message'] ?? '', 'Merci'), $retour_client);
+// Maintenance : le Copilote répond par le message de l'équipe, mais signaler un souci reste possible.
+$redis = Bayam_WA_Outils::redis();
+$redis?->hSet('bayam:fonctions', 'whatsapp.copilote', wp_json_encode(['etat' => 'maintenance', 'message' => 'Copilote en maintenance (essai), retour dans 5 minutes.']));
+$reflet = new ReflectionProperty(Bayam_WA_Fonctions::class, 'reglages');
+$reflet->setValue(null, null);
+$r = bayam_dire('bayam stock polo');
+$r2 = bayam_dire('bayam signaler pendant la maintenance');
+$redis?->hDel('bayam:fonctions', 'whatsapp.copilote');
+$reflet->setValue(null, null);
+bayam_verifier('Copilote en maintenance : message de l’équipe ; signaler un souci reste possible ; rouvert ensuite', $redis && str_contains($joint($r), 'Copilote en maintenance (essai)') && str_contains($joint($r2), 'Merci') && str_contains($joint(bayam_dire('bayam stock polo')), 'Polo'), [$r, $r2]);
+
 // --- Remise en état ---------------------------------------------------------------------------------------------
 echo "\nRemise en état\n";
 foreach (wc_get_orders(['created_via' => ['bayam-whatsapp', 'bayam-assistant'], 'limit' => -1, 'date_created' => '>=' . ($debut_ts - 5)]) as $c) {
@@ -722,6 +778,9 @@ Bayam_WA_Waha::remplacer(null);
 Bayam_WA_IA::remplacer(null);
 delete_transient("bayam_wa_chaines_{$vendeur}");
 Bayam_WA_Facebook::remplacer(null);
+foreach ($wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'bayam_retour' AND ID > {$depart_retours}") as $id_retour) {
+    wp_delete_post((int) $id_retour, true); // retours des essais
+}
 wp_cache_delete("bayam_fb_pages_{$vendeur}", 'bayam'); // les vraies Pages reliées sont relues au prochain besoin
 delete_option('bayam_wa_essais_jusqua');
 echo "  données de démonstration restaurées\n";

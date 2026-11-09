@@ -150,6 +150,28 @@ Mise en service (une fois, gratuite) : créer une application sur developers.fac
 
 Essai de bout en bout sans application Meta (un faux Graph remplace Meta, tout le reste est réel, données effacées à la fin) : `bash scripts/essai_facebook.sh`.
 
+Messagerie de Facebook (application et site) : elle n'affiche ni cartes ni boutons. Chaque envoi garde ses cartes pour Messenger et ajoute un texte numéroté ; le client répond « 2 » et BAYAM retrouve la dernière liste qu'il lui a envoyée. Le menu vient quand le client le demande (« bayam », « menu »), à son premier message ou après 3 jours d'absence ; « aide » explique comment acheter.
+
+## WhatsApp et Facebook : les mêmes fonctions des deux côtés
+
+- Espace vendeur dans Messenger : le vendeur ouvre le lien « Mon menu BAYAM dans Messenger » (page de connexion Facebook, ou « bayam facebook ») depuis son compte Facebook ; ce compte devient le sien sur la Page. Il y a le même menu et les mêmes commandes que dans « Message à moi-même » sur WhatsApp, et il peut y relier son WhatsApp : « bayam whatsapp 6 90 00 00 10 » donne un code à saisir dans WhatsApp (Appareils connectés, Connecter avec le numéro de téléphone), sans QR code ni ordinateur.
+- Publier : dans le menu, « Publier » propose chacun des groupes et chaînes du vendeur, son statut, sa Page, une story, le texte à coller sur son profil, ou partout ; plusieurs à la fois en répondant « 1 3 4 ».
+- Aide : « bayam aide » (vendeur), « bayam aide » sur WhatsApp et « aide » dans Messenger (clients).
+- Soucis et idées : « bayam signaler … », « bayam idée … » (vendeurs, clients, WhatsApp et Messenger, ou menu « Ma boutique »). Chaque retour reçoit un numéro, arrive dans l'administration WordPress (menu « Retours ») et par e-mail à l'adresse d'administration.
+
+## Maintenance sans couper le reste
+
+Chaque fonction a son interrupteur, lu en quelques secondes par tous les services, WordPress et les applications, sans redéploiement ni mise à jour :
+
+```
+bash scripts/fonctions.sh liste
+bash scripts/fonctions.sh maintenance facebook.commentaires 30 "Réponses aux commentaires en pause, retour à 15 h."
+bash scripts/fonctions.sh testeurs facebook.commentaires 4      (ces vendeurs gardent l'accès pour vérifier)
+bash scripts/fonctions.sh actif facebook.commentaires
+```
+
+Fonctions : `whatsapp` (catalogue, menu, copilote, publication, assistant), `facebook` (messenger, commentaires, publications, connexion), `paiement`, `mobile`, `web` ; un préfixe vaut pour toutes ses fonctions. Pendant une maintenance, l'utilisateur reçoit un message clair (une fois par heure) au lieu d'une erreur, signaler un souci reste possible, les publications et les commentaires attendent leur tour, et la fonction se rouvre seule à l'heure annoncée. Les applications lisent l'état de chaque fonction sur `https://<adresse>/api/config` (gardé 30 s). Les événements reçus pendant le redémarrage d'un service restent dans le bus et sont traités au retour : une mise à jour des services ne fait perdre aucun message.
+
 ## Captures
 
 `node scripts/captures.js` (avec `NODE_PATH=../cahier-des-charges/src/node_modules`) produit des captures du site et de l'espace vendeur dans `captures/`.

@@ -35,6 +35,10 @@ final class Bayam_WA_Interne
         // Menu du vendeur (canal WhatsApp) : ses articles, épuisés compris, et l'exécution d'une commande du Copilote.
         register_rest_route('bayam/v1', '/interne/boutiques/(?P<id>\d+)/articles', $lecture + ['callback' => [self::class, 'articles']]);
         register_rest_route('bayam/v1', '/interne/boutiques/(?P<id>\d+)/copilote', ['methods' => 'POST', 'permission_callback' => [self::class, 'autorise'], 'callback' => [self::class, 'copilote']]);
+        register_rest_route('bayam/v1', '/interne/boutiques/(?P<id>\d+)/destinations', $lecture + ['callback' => [self::class, 'destinations']]);
+        register_rest_route('bayam/v1', '/interne/boutiques/(?P<id>\d+)/publier', ['methods' => 'POST', 'permission_callback' => [self::class, 'autorise'], 'callback' => [self::class, 'publier']]);
+        // Soucis et idées envoyés par les clients (WhatsApp, Messenger) ; ceux des vendeurs passent par le Copilote.
+        register_rest_route('bayam/v1', '/interne/retours', ['methods' => 'POST', 'permission_callback' => [self::class, 'autorise'], 'callback' => [self::class, 'retour']]);
     }
 
     public static function autorise(WP_REST_Request $requete): bool
@@ -268,20 +272,114 @@ final class Bayam_WA_Interne
             return new WP_REST_Response(['erreur' => 'demande invalide'], 400);
         }
         $photo = null;
-        if (($url = (string) $r->get_param('photo')) !== '') {
+        if (($donnees = (string) $r->get_param('photo_base64')) !== '') {
+            // Photo reçue dans Messenger : déjà téléchargée par le canal Facebook.
+            $binaire = base64_decode($donnees, true);
+            if ($binaire === false || strlen($binaire) > 8 * MB_IN_BYTES) {
+                return new WP_REST_Response(['erreur' => 'photo illisible'], 422);
+            }
+            $photo = ['binaire' => $binaire];
+        } elseif (($url = (string) $r->get_param('photo')) !== '') {
             $binaire = Bayam_WA_Waha::client()->telecharger($url);
             if (is_wp_error($binaire)) {
                 return new WP_REST_Response(['erreur' => 'photo introuvable'], 422);
             }
             $photo = ['binaire' => $binaire];
         }
-        $reponses = Bayam_WA_Copilote::traiter($vendeur, $texte, $photo);
+        return self::livrer($vendeur, Bayam_WA_Copilote::traiter($vendeur, $texte, $photo), (bool) $r->get_param('retour'));
+    }
+
+    /**
+     * Réponses du Copilote : envoyées dans « Message à moi-même » (WhatsApp), ou rendues à l'appelant (retour) quand
+     * le vendeur écrit depuis Messenger ; les images voyagent alors en base64.
+     */
+    private static function livrer(int $vendeur, array $reponses, bool $retour): array
+    {
+        if ($retour) {
+            return ['reponses' => array_map(static fn ($x) => isset($x['image'])
+                ? ['image' => (string) ($x['image']['data'] ?? ''), 'type' => (string) ($x['image']['mimetype'] ?? 'image/jpeg'), 'legende' => (string) ($x['legende'] ?? '')]
+                : ['texte' => (string) $x['texte']], $reponses)];
+        }
         foreach ($reponses as $reponse) {
             isset($reponse['image'])
                 ? Bayam_WA_Regles::image_au_vendeur($vendeur, $reponse['image'], $reponse['legende'] ?? '')
                 : Bayam_WA_Regles::au_vendeur($vendeur, $reponse['texte']);
         }
         return ['envoyes' => count($reponses)];
+    }
+
+    /** Où le vendeur peut publier : ses groupes choisis, ses chaînes, son statut (WhatsApp relié), ses Pages Facebook. */
+    public static function destinations(WP_REST_Request $r)
+    {
+        $vendeur = self::vendeur($r);
+        if (!$vendeur) {
+            return new WP_REST_Response(['erreur' => 'boutique inconnue'], 404);
+        }
+        $liste = static fn (array $parId) => array_map(static fn ($id, $nom) => ['id' => (string) $id, 'nom' => (string) $nom], array_keys($parId), $parId);
+        $whatsapp = get_user_meta($vendeur, 'bayam_wa_statut', true) === 'WORKING';
+        return [
+            'whatsapp' => $whatsapp,
+            'groupes' => $whatsapp ? $liste(Bayam_WA_Stockage::reglages($vendeur)['groupes']) : [],
+            'chaines' => $whatsapp ? $liste(Bayam_WA_Diffusion::chaines($vendeur)) : [],
+            'pages' => array_values(array_map(static fn ($p) => ['id' => (string) $p['page'], 'nom' => (string) $p['nom']], array_filter(Bayam_WA_Facebook::pages($vendeur) ?? [], static fn ($p) => !empty($p['actif'])))),
+        ];
+    }
+
+    /**
+     * Publication à plusieurs endroits à la fois, choisis dans le menu : groupes et chaînes désignés, statut, Page,
+     * story, texte à coller pour le profil Facebook. Une seule demande, un message de suivi par canal.
+     */
+    public static function publier(WP_REST_Request $r)
+    {
+        $vendeur = self::vendeur($r);
+        $quoi = trim((string) $r->get_param('quoi'));
+        if (!$vendeur || $quoi === '') {
+            return new WP_REST_Response(['erreur' => 'demande invalide'], 400);
+        }
+        $retour = (bool) $r->get_param('retour');
+        $produits = Bayam_WA_Copilote::articles_demandes($vendeur, $quoi);
+        if (!$produits) {
+            return self::livrer($vendeur, [['texte' => "Rien en stock pour « {$quoi} »."]], $retour);
+        }
+        $choisis = static function (array $tous, $ids): array {
+            $ids = array_map('strval', (array) $ids);
+            $garde = [];
+            foreach ($tous as $id => $nom) {
+                if (in_array((string) $id, $ids, true)) {
+                    $garde[$id] = $nom;
+                }
+            }
+            return $garde;
+        };
+        $groupes = $choisis(Bayam_WA_Stockage::reglages($vendeur)['groupes'], $r->get_param('groupes'));
+        $chaines = $choisis(Bayam_WA_Diffusion::chaines($vendeur), $r->get_param('chaines'));
+        $cibles = array_merge($groupes ? ['groupes'] : [], $chaines ? ['chaine'] : [], $r->get_param('statut') ? ['statut'] : []);
+        $reponses = [];
+        if ($cibles) {
+            $reponses[] = ['texte' => Bayam_WA_Diffusion::programmer($vendeur, $produits, implode('+', $cibles), $groupes ?: null, $chaines ?: null)];
+        }
+        if ($r->get_param('facebook')) {
+            $reponses[] = ['texte' => Bayam_WA_Facebook::publier($vendeur, $produits, false)];
+        }
+        if ($r->get_param('story')) {
+            $reponses[] = ['texte' => Bayam_WA_Facebook::publier($vendeur, $produits, true)];
+        }
+        if ($r->get_param('partager')) {
+            $reponses = array_merge($reponses, Bayam_WA_Copilote::traiter($vendeur, 'partager ' . $quoi));
+        }
+        return self::livrer($vendeur, $reponses ?: [['texte' => 'Choisissez au moins un endroit où publier.']], $retour);
+    }
+
+    /** Souci ou idée d'un client (canal, prénom ou identifiant) : enregistré, numéro et remerciement rendus. */
+    public static function retour(WP_REST_Request $r)
+    {
+        $texte = trim((string) $r->get_param('texte'));
+        $type = (string) $r->get_param('type');
+        if (mb_strlen($texte) < 3 || mb_strlen($texte) > 2000) {
+            return new WP_REST_Response(['erreur' => 'texte invalide'], 400);
+        }
+        $numero = Bayam_WA_Retours::creer($type, $texte, sanitize_text_field((string) $r->get_param('canal')), (int) $r->get_param('vendeur'), sanitize_text_field((string) $r->get_param('auteur')));
+        return ['numero' => $numero, 'message' => Bayam_WA_Retours::merci($numero, $type)];
     }
 
     // --- Lien personnel de commande ----------------------------------------------------------------------------

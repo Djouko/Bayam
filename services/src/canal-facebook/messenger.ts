@@ -12,7 +12,9 @@ import { idAction } from '../canal-whatsapp/routeur.ts';
 /** Objet « message » de l'API d'envoi de Messenger. */
 export type MessageMessenger = Record<string, unknown>;
 /** choix : identifiants des lignes numérotées envoyées, gardés pour comprendre la réponse « 2 » du client. */
-export type Envoi = { type: 'message'; message: MessageMessenger } | { type: 'au_vendeur'; texte: string } | { type: 'choix'; ids: string[] };
+export type Envoi = { type: 'message'; message: MessageMessenger } | { type: 'au_vendeur'; texte: string } | { type: 'choix'; ids: string[] }
+  /** Image jointe en fichier (base64), pour les réponses du Copilote au vendeur. */
+  | { type: 'fichier'; donnees: string; mimetype: string };
 
 /** Limites de Messenger (documentation de la plateforme). */
 export const LIMITES = { elements: 10, titreElement: 80, sousTitre: 80, boutons: 3, titreBouton: 20, texte: 2000 };
@@ -175,6 +177,16 @@ export function vendeur(b: Boutique, nomPage: string): Envoi[] {
     ...liste(`C'est noté 👍 ${b.nom} vous répond ici très vite. En attendant :`, [ARTICLES]),
     { type: 'au_vendeur', texte: `🙋 *Un client veut vous parler sur Messenger* (Page ${nomPage}).\nRépondez-lui depuis la messagerie de votre Page : application Facebook, Messenger ou Meta Business Suite.` },
   ];
+}
+
+/** « aide » d'un client : comment voir les articles, commander, parler au vendeur, signaler un souci. */
+export function aide(b: Boutique): Envoi[] {
+  return liste(`ℹ️ Comment acheter chez ${b.nom}\n• Écrivez « menu » (ou « bayam ») : la boutique s'affiche.\n• Touchez une carte, ou répondez par le numéro d'une ligne.\n• Choisissez un article : vous recevez sa photo, son prix et votre lien de commande.\n• Une question ? Écrivez-la : la boutique vous répond ici.\n• Un souci ou une idée pour BAYAM ? Écrivez « signaler » suivi de votre message.\n\nPour commencer :`, [ARTICLES, LIVRAISON, VENDEUR]);
+}
+
+/** Texte simple, exporté pour les réponses au vendeur (Copilote, menu) mises en forme pour Messenger. */
+export function texteSimple(t: string): Envoi {
+  return texte(t);
 }
 
 /** Alerte au vendeur sur WhatsApp pour un message que BAYAM ne sait pas traiter. */

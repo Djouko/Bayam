@@ -239,7 +239,7 @@ final class Bayam_WA_Webhook
         $cites = $reglages['mots_cles'] && !empty($m['replyTo']['body']) ? Bayam_WA_Clients::produits_cites($vendeur, (string) $m['replyTo']['body']) : [];
         // Assistant actif (vendeur occupé) et discussion que le vendeur n'a pas reprise : le texte sert au fil de la
         // conversation ; s'il s'avère personnel, l'assistant l'efface aussitôt.
-        $assistant = !$equipe && $frais && Bayam_WA_Assistant::actif($vendeur) && !Bayam_WA_Assistant::vendeur_a_la_main($vendeur, $chat);
+        $assistant = !$equipe && $frais && Bayam_WA_Assistant::actif($vendeur) && !Bayam_WA_Assistant::vendeur_a_la_main($vendeur, $chat) && Bayam_WA_Fonctions::disponible('whatsapp.assistant', $vendeur);
         $pour_bayam = $equipe || $assistant || $cites || ($reglages['mots_cles'] && Bayam_WA_Clients::recherche($texte) !== null);
         Bayam_WA_Stockage::noter_message($vendeur, $chat, 'in', $pour_bayam ? $texte : '', $id !== '' ? $id : null, 'texte', $numero);
         if ($equipe) {

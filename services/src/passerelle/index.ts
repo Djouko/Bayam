@@ -6,8 +6,10 @@ import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { headers } from '@nats-io/transport-node';
 import { jetstream } from '@nats-io/jetstream';
+import { createClient, type RedisClientType } from 'redis';
 import { assurerFluxFacebook, assurerFluxWhatsapp, connecterBus, SUJET_FACEBOOK, SUJET_WHATSAPP } from '../commun/bus.ts';
 import { exiger, lire, nombre } from '../commun/config.ts';
+import { etatDepuis, Fonctions, FONCTIONS } from '../commun/fonctions.ts';
 import { journal, texteErreur } from '../commun/journal.ts';
 import { evenementsFacebook, resumeFacebook, signatureMetaValide, type EvenementFacebook } from './facebook.ts';
 import { signatureValide, utile } from './filtre.ts';
@@ -21,6 +23,11 @@ const nc = await connecterBus(lire('NATS_URL', 'nats://nats:4222'), 'passerelle'
 await assurerFluxWhatsapp(nc, nombre('NATS_REPLIQUES', 1));
 await assurerFluxFacebook(nc, nombre('NATS_REPLIQUES', 1));
 const js = jetstream(nc);
+// Interrupteurs des fonctions, publiés pour les applications mobile et web (GET /config, public via /api/config).
+const redis: RedisClientType = createClient({ url: lire('REDIS_URL', 'redis://redis:6379') });
+redis.on('error', (e: unknown) => log.erreur('Redis', { erreur: texteErreur(e) }));
+await redis.connect();
+const fonctions = new Fonctions(redis);
 const compteurs = { depuis: new Date().toISOString(), recus: 0, publies: 0, doublons: 0, ecartes: 0, refuses: 0, echecs: 0 };
 const compteursFacebook = { recus: 0, publies: 0, doublons: 0, refuses: 0, echecs: 0 };
 
@@ -48,6 +55,14 @@ const serveur = createServer(async (req, res) => {
     res.writeHead(statut, { 'content-type': 'application/json' });
     res.end(JSON.stringify(corps));
   };
+  if (req.method === 'GET' && req.url === '/config') {
+    // État de chaque fonction pour les applications : elles affichent la maintenance d'une partie sans mise à jour.
+    const reglages = await fonctions.tous();
+    const etats = Object.fromEntries(Object.keys(FONCTIONS).map((nom) => [nom, etatDepuis(reglages, nom, 0, Date.now())]));
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'public, max-age=30' });
+    res.end(JSON.stringify({ genere: new Date().toISOString(), rafraichir_s: 60, fonctions: etats }));
+    return;
+  }
   if (req.method === 'GET' && req.url === '/sante') {
     repondre(nc.isClosed() ? 503 : 200, { ...compteurs, facebook: compteursFacebook, bus: nc.isClosed() ? 'fermé' : 'connecté' });
     return;

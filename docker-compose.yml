@@ -272,7 +272,9 @@ services:
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
       FACEBOOK_JETON_VERIFICATION: ${FACEBOOK_JETON_VERIFICATION:-}
       NATS_URL: nats://nats:4222
-    # Seule l'adresse des événements Facebook est publique (https://<adresse>/webhooks/facebook) ; /whatsapp et
+      REDIS_URL: redis://redis:6379
+    # Adresses publiques : événements Facebook (https://<adresse>/webhooks/facebook) et état des fonctions pour les
+    # applications (https://<adresse>/api/config) ; /whatsapp et /sante restent sur le réseau interne. (https://<adresse>/webhooks/facebook) ; /whatsapp et
     # /sante restent sur le réseau interne.
     labels:
       traefik.enable: "true"
@@ -283,7 +285,15 @@ services:
       traefik.http.routers.webhook-facebook.entrypoints: web
       traefik.http.routers.webhook-facebook.service: passerelle
       traefik.http.routers.webhook-facebook.middlewares: securite@file,debit-general@file,corps-limite@file,vers-facebook
+      traefik.http.middlewares.vers-config.replacepath.path: /config
+      traefik.http.routers.config-fonctions.rule: Path(`/api/config`)
+      traefik.http.routers.config-fonctions.priority: "100"
+      traefik.http.routers.config-fonctions.entrypoints: web
+      traefik.http.routers.config-fonctions.service: passerelle
+      traefik.http.routers.config-fonctions.middlewares: securite@file,debit-general@file,compression@file,vers-config
     depends_on:
+      redis:
+        condition: service_started
       nats:
         condition: service_healthy
     read_only: true

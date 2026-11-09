@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ArticleVendeur, PageArticles } from '../commun/commerce.ts';
+import type { ArticleVendeur, Destinations, PageArticles } from '../commun/commerce.ts';
 import { MARQUE } from '../passerelle/filtre.ts';
 import { fcfa, LIMITES, type EnvoiPret } from './catalogue.ts';
 import { avancer, commandeVente, menu, montant, type Etat, type Pas } from './menu-vendeur.ts';
@@ -13,12 +13,20 @@ const tous = [polo, sweat, epuise, ...Array.from({ length: 9 }, (_, i): ArticleV
 
 /** Faux commerce : recherche par « #id » ou par mot, huit articles par page. */
 const appels: [string, number][] = [];
-async function source(recherche: string, page: number): Promise<PageArticles> {
+async function chercher(recherche: string, page: number): Promise<PageArticles> {
   appels.push([recherche, page]);
   const id = /^#(\d+)$/.exec(recherche)?.[1];
   const trouves = id ? tous.filter((a) => a.id === Number(id)) : tous.filter((a) => !recherche || a.nom.toLowerCase().includes(recherche.toLowerCase()));
   return { total: trouves.length, articles: trouves.slice((page - 1) * 8, page * 8) };
 }
+/** Endroits où publier : deux groupes, une chaîne, le statut, une Page Facebook. */
+const destinations: Destinations = {
+  whatsapp: true,
+  groupes: [{ id: '120363000000000001@g.us', nom: 'Clientes Akwa' }, { id: '120363000000000002@g.us', nom: 'Tontine du quartier' }],
+  chaines: [{ id: '120363000000000777@newsletter', nom: 'Nouveautés Mode Aïcha' }],
+  pages: [{ id: '555', nom: 'Kratos Learn' }],
+};
+const source = { articles: chercher, destinations: async () => destinations };
 
 const lignes = (p: Pas) => p.envois.flatMap((e) => (e.type === 'liste' ? e.sections.flatMap((s) => s.lignes) : []));
 const texte = (p: Pas) => p.envois.map((e: EnvoiPret) => (e.type === 'texte' ? e.texte : e.type === 'liste' ? e.texte : '')).join('\n');
@@ -99,10 +107,33 @@ test('consultations directes : bilan d’hier, lien de la boutique, stock, comma
   assert.deepEqual((await parcours('4')).commande, { texte: 'commandes' });
 });
 
-test('publier : nouveautés partout ; un article choisi dans la story Facebook ; partage pour le profil', async () => {
-  assert.deepEqual((await parcours('7', '1', 'choix:bayam:v:ou:partout')).commande, { texte: 'publier nouveautes partout' });
-  assert.deepEqual((await parcours('7', '3', '1', 'choix:bayam:v:ou:story')).commande, { texte: 'publier #25 story' });
-  assert.deepEqual((await parcours('7', '2', 'choix:bayam:v:ou:partager')).commande, { texte: 'partager promos' });
+const publication = (champs: Record<string, unknown>) => ({ publication: { groupes: [], chaines: [], statut: false, facebook: false, story: false, partager: false, ...champs } });
+
+test('publier : chaque groupe, chaque chaîne, le statut, la Page, la story, le profil, partout (liste numérotée)', async () => {
+  const ou = await parcours('7', '1');
+  assert.deepEqual(lignes(ou).map((l) => l.titre), ['1. 👥 Clientes Akwa', '2. 👥 Tontine du quartier', '3. 📢 Nouveautés Mode Aï…', '4. 📲 Mon statut', '5. 📘 Ma Page Facebook', '6. 🎞️ Story Facebook', '7. ✍️ Profil, groupes FB', '8. 🌍 Partout']);
+  assert.ok(texte(ou).includes('plusieurs numéros'));
+});
+
+test('publier à plusieurs endroits à la fois : « 1 3 4 » = un groupe, la chaîne et le statut, en une seule demande', async () => {
+  assert.deepEqual((await parcours('7', '1', '1 3 4')).commande, publication({ quoi: 'nouveautes', groupes: ['120363000000000001@g.us'], chaines: ['120363000000000777@newsletter'], statut: true }));
+  assert.deepEqual((await parcours('7', '2', '1, 2 et 5')).commande, publication({ quoi: 'promos', groupes: ['120363000000000001@g.us', '120363000000000002@g.us'], facebook: true }));
+  assert.ok(texte(await parcours('7', '1', '1 9')).includes('Des numéros entre 1 et 8'));
+});
+
+test('publier : un seul endroit touché ; un article choisi en story ; partout = groupes, chaînes, statut et Page', async () => {
+  assert.deepEqual((await parcours('7', '3', '1', 'choix:bayam:v:dest:story')).commande, publication({ quoi: '#25', story: true }));
+  assert.deepEqual((await parcours('7', '2', '7')).commande, publication({ quoi: 'promos', partager: true }));
+  assert.deepEqual((await parcours('7', '1', '8')).commande, publication({
+    quoi: 'nouveautes', groupes: ['120363000000000001@g.us', '120363000000000002@g.us'], chaines: ['120363000000000777@newsletter'], statut: true, facebook: true,
+  }));
+});
+
+test('ma boutique : relier WhatsApp, signaler un souci, proposer une idée (avec le texte tapé)', async () => {
+  assert.deepEqual((await parcours('9', '4')).commande, { texte: 'whatsapp' });
+  assert.deepEqual((await parcours('9', '8', 'Le lien de paiement ne s’ouvre pas')).commande, { texte: 'signaler Le lien de paiement ne s’ouvre pas' });
+  assert.deepEqual((await parcours('9', '9', 'Publier sur TikTok')).commande, { texte: 'idee Publier sur TikTok' });
+  assert.ok(texte(await parcours('9', '8', 'bof')).includes('Quelques mots de plus'));
 });
 
 test('recherche d’un article par son nom, puis pages suivantes', async () => {
@@ -124,7 +155,7 @@ test('annuler, mauvais numéro, texte au lieu d’un choix : on le dit, sans rie
 
 test('choix d’une ancienne liste (parcours expiré) : le menu revient, rien n’est vendu ni publié au hasard', async () => {
   const vide: Etat = { etape: 'menu', options: [] };
-  for (const id of ['bayam:v:q:5', 'bayam:v:pay:momo', 'bayam:v:ou:partout', 'bayam:v:art:25']) {
+  for (const id of ['bayam:v:q:5', 'bayam:v:pay:momo', 'bayam:v:dest:partout', 'bayam:v:art:25']) {
     const p = await avancer(vide, { type: 'choix', id }, source);
     assert.ok(!p.commande && texte(p).includes('ancienne liste'), id);
   }
