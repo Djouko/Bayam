@@ -43,6 +43,12 @@ final class Bayam_WA_Interne
 
     public static function autorise(WP_REST_Request $requete): bool
     {
+        // Jamais par l'entrée publique, même avec le bon jeton : Traefik marque toute requête venue de l'extérieur
+        // (X-Bayam-Entree), alors que les services appellent WordPress en direct sur le réseau interne. Cloudflare
+        // ajoute Cf-Connecting-Ip. (X-Forwarded-For ne suffit pas : Apache le retire avant PHP, module remoteip.)
+        if ($requete->get_header('x-bayam-entree') !== null || $requete->get_header('cf-connecting-ip') !== null) {
+            return false;
+        }
         $attendu = (string) getenv('BAYAM_SERVICE_JETON');
         return $attendu !== '' && hash_equals($attendu, (string) $requete->get_header('x-bayam-service'));
     }

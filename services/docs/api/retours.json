@@ -1,0 +1,1488 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "BAYAM, service des retours",
+    "version": "1.0.0",
+    "description": "Signalements, idées et pannes détectées : regroupement des doublons en sujets, urgence, suivi jusqu'à la résolution, réponse aux signaleurs."
+  },
+  "components": {
+    "securitySchemes": {
+      "service": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-bayam-service",
+        "description": "jeton de service partagé (réseau interne)"
+      }
+    },
+    "schemas": {}
+  },
+  "paths": {
+    "/retours": {
+      "post": {
+        "summary": "Signaler un souci ou proposer une idée depuis l'application ou le site",
+        "tags": [
+          "public"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "type",
+                  "texte"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "souci",
+                      "idee",
+                      "question"
+                    ]
+                  },
+                  "texte": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 2000
+                  },
+                  "canal": {
+                    "type": "string",
+                    "enum": [
+                      "app",
+                      "web"
+                    ],
+                    "default": "app"
+                  },
+                  "contexte": {
+                    "type": "object",
+                    "maxProperties": 12,
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "description": "version, plateforme, écran, appareil"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "numero": {
+                      "type": "string",
+                      "description": "numéro à donner à la personne (R-123)"
+                    },
+                    "sujet": {
+                      "type": "integer"
+                    },
+                    "signaleurs": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "réponse prête à envoyer à la personne"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interne/signalements": {
+      "post": {
+        "summary": "Enregistrer un retour reçu sur un canal (WhatsApp, Messenger, copilote, administration)",
+        "tags": [
+          "interne"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "type",
+                  "texte",
+                  "canal"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "souci",
+                      "idee",
+                      "question"
+                    ]
+                  },
+                  "texte": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 2000
+                  },
+                  "canal": {
+                    "type": "string",
+                    "enum": [
+                      "whatsapp",
+                      "messenger",
+                      "copilote",
+                      "app",
+                      "web",
+                      "admin"
+                    ]
+                  },
+                  "auteur": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "description": "nom lisible par l'équipe (boutique, prénom)"
+                  },
+                  "vendeur": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "fonction": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z.]{1,59}$",
+                    "description": "fonction touchée (whatsapp.menu, paiement…)"
+                  },
+                  "contact": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "canal",
+                          "session",
+                          "chat"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "canal": {
+                            "enum": [
+                              "whatsapp"
+                            ]
+                          },
+                          "session": {
+                            "type": "string",
+                            "pattern": "^[\\w-]{1,64}$"
+                          },
+                          "chat": {
+                            "type": "string",
+                            "pattern": "^[\\w.-]{3,64}@(c\\.us|lid|s\\.whatsapp\\.net)$"
+                          }
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "required": [
+                          "canal",
+                          "page",
+                          "client"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "canal": {
+                            "enum": [
+                              "messenger"
+                            ]
+                          },
+                          "page": {
+                            "type": "string",
+                            "pattern": "^\\d{1,20}$"
+                          },
+                          "client": {
+                            "type": "string",
+                            "pattern": "^\\d{1,30}$"
+                          }
+                        }
+                      }
+                    ],
+                    "description": "où prévenir la personne quand ce sera réglé"
+                  },
+                  "contexte": {
+                    "type": "object",
+                    "maxProperties": 12,
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 200
+                    }
+                  },
+                  "identifiant": {
+                    "type": "string",
+                    "maxLength": 120,
+                    "description": "identifiant stable de la personne, jamais stocké en clair"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "numero": {
+                      "type": "string",
+                      "description": "numéro à donner à la personne (R-123)"
+                    },
+                    "sujet": {
+                      "type": "integer"
+                    },
+                    "signaleurs": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "réponse prête à envoyer à la personne"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interne/incidents": {
+      "post": {
+        "summary": "Panne détectée par une sonde (ouvre ou rouvre le sujet de cette panne)",
+        "tags": [
+          "interne"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "cle",
+                  "texte"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "cle": {
+                    "type": "string",
+                    "pattern": "^[\\w.:-]{3,100}$"
+                  },
+                  "texte": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 2000
+                  },
+                  "fonction": {
+                    "type": "string",
+                    "pattern": "^[a-z][a-z.]{1,59}$"
+                  },
+                  "gravite": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 4,
+                    "default": 3
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "service": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "numero": {
+                      "type": "string",
+                      "description": "numéro à donner à la personne (R-123)"
+                    },
+                    "sujet": {
+                      "type": "integer"
+                    },
+                    "signaleurs": {
+                      "type": "integer"
+                    },
+                    "message": {
+                      "type": "string",
+                      "description": "réponse prête à envoyer à la personne"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interne/incidents/{cle}/retabli": {
+      "post": {
+        "summary": "La sonde voit la fonction rétablie : le sujet de la panne passe à corrigé",
+        "tags": [
+          "interne"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\w.:-]{3,100}$"
+            },
+            "in": "path",
+            "name": "cle",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "service": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "titre": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "souci",
+                        "idee",
+                        "question",
+                        "incident"
+                      ]
+                    },
+                    "categorie": {
+                      "type": "string",
+                      "enum": [
+                        "securite",
+                        "paiement",
+                        "livraison",
+                        "commande",
+                        "connexion",
+                        "whatsapp",
+                        "facebook",
+                        "application",
+                        "photos",
+                        "disponibilite",
+                        "autre"
+                      ]
+                    },
+                    "gravite": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 4,
+                      "description": "1 basse, 2 moyenne, 3 haute (bloquant), 4 critique"
+                    },
+                    "statut": {
+                      "type": "string",
+                      "enum": [
+                        "nouveau",
+                        "confirme",
+                        "en_cours",
+                        "corrige",
+                        "ferme",
+                        "rejete",
+                        "doublon"
+                      ]
+                    },
+                    "fonction": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "signaleurs": {
+                      "type": "integer",
+                      "description": "personnes distinctes"
+                    },
+                    "signalements": {
+                      "type": "integer"
+                    },
+                    "alerte": {
+                      "type": "integer"
+                    },
+                    "assigne": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "resolution": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "doublon_de": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "premier": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "dernier": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "modifie": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "score": {
+                      "type": "number",
+                      "description": "urgence : gravité, personnes touchées, fraîcheur"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interne/sujets": {
+      "get": {
+        "summary": "Sujets à traiter, du plus urgent au moins urgent",
+        "tags": [
+          "interne"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "nouveau",
+                "confirme",
+                "en_cours",
+                "corrige",
+                "ferme",
+                "rejete",
+                "doublon",
+                "ouverts"
+              ],
+              "default": "ouverts"
+            },
+            "in": "query",
+            "name": "statut",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "securite",
+                "paiement",
+                "livraison",
+                "commande",
+                "connexion",
+                "whatsapp",
+                "facebook",
+                "application",
+                "photos",
+                "disponibilite",
+                "autre"
+              ]
+            },
+            "in": "query",
+            "name": "categorie",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": [
+                "souci",
+                "idee",
+                "question",
+                "incident"
+              ]
+            },
+            "in": "query",
+            "name": "type",
+            "required": false
+          },
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 100
+            },
+            "in": "query",
+            "name": "limite",
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "service": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "integer"
+                      },
+                      "titre": {
+                        "type": "string"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "souci",
+                          "idee",
+                          "question",
+                          "incident"
+                        ]
+                      },
+                      "categorie": {
+                        "type": "string",
+                        "enum": [
+                          "securite",
+                          "paiement",
+                          "livraison",
+                          "commande",
+                          "connexion",
+                          "whatsapp",
+                          "facebook",
+                          "application",
+                          "photos",
+                          "disponibilite",
+                          "autre"
+                        ]
+                      },
+                      "gravite": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 4,
+                        "description": "1 basse, 2 moyenne, 3 haute (bloquant), 4 critique"
+                      },
+                      "statut": {
+                        "type": "string",
+                        "enum": [
+                          "nouveau",
+                          "confirme",
+                          "en_cours",
+                          "corrige",
+                          "ferme",
+                          "rejete",
+                          "doublon"
+                        ]
+                      },
+                      "fonction": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "signaleurs": {
+                        "type": "integer",
+                        "description": "personnes distinctes"
+                      },
+                      "signalements": {
+                        "type": "integer"
+                      },
+                      "alerte": {
+                        "type": "integer"
+                      },
+                      "assigne": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "resolution": {
+                        "type": "string",
+                        "nullable": true
+                      },
+                      "doublon_de": {
+                        "type": "integer",
+                        "nullable": true
+                      },
+                      "premier": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "dernier": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "modifie": {
+                        "type": "string",
+                        "format": "date-time"
+                      },
+                      "score": {
+                        "type": "number",
+                        "description": "urgence : gravité, personnes touchées, fraîcheur"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interne/sujets/{id}": {
+      "get": {
+        "summary": "Un sujet, ses signalements et l'historique des décisions",
+        "tags": [
+          "interne"
+        ],
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "service": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sujet": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "titre": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "souci",
+                            "idee",
+                            "question",
+                            "incident"
+                          ]
+                        },
+                        "categorie": {
+                          "type": "string",
+                          "enum": [
+                            "securite",
+                            "paiement",
+                            "livraison",
+                            "commande",
+                            "connexion",
+                            "whatsapp",
+                            "facebook",
+                            "application",
+                            "photos",
+                            "disponibilite",
+                            "autre"
+                          ]
+                        },
+                        "gravite": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 4,
+                          "description": "1 basse, 2 moyenne, 3 haute (bloquant), 4 critique"
+                        },
+                        "statut": {
+                          "type": "string",
+                          "enum": [
+                            "nouveau",
+                            "confirme",
+                            "en_cours",
+                            "corrige",
+                            "ferme",
+                            "rejete",
+                            "doublon"
+                          ]
+                        },
+                        "fonction": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "signaleurs": {
+                          "type": "integer",
+                          "description": "personnes distinctes"
+                        },
+                        "signalements": {
+                          "type": "integer"
+                        },
+                        "alerte": {
+                          "type": "integer"
+                        },
+                        "assigne": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "resolution": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "doublon_de": {
+                          "type": "integer",
+                          "nullable": true
+                        },
+                        "premier": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "dernier": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "modifie": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "score": {
+                          "type": "number",
+                          "description": "urgence : gravité, personnes touchées, fraîcheur"
+                        }
+                      }
+                    },
+                    "signalements": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": true,
+                        "properties": {
+                          "id": {
+                            "type": "integer"
+                          },
+                          "type": {
+                            "type": "string"
+                          },
+                          "texte": {
+                            "type": "string"
+                          },
+                          "canal": {
+                            "type": "string"
+                          },
+                          "auteur": {
+                            "type": "string"
+                          },
+                          "vendeur": {
+                            "type": "integer",
+                            "nullable": true
+                          },
+                          "contexte": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "joignable": {
+                            "type": "boolean"
+                          },
+                          "prevenu": {
+                            "type": "string",
+                            "format": "date-time",
+                            "nullable": true
+                          },
+                          "cree": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    },
+                    "historique": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "action": {
+                            "type": "string"
+                          },
+                          "auteur": {
+                            "type": "string"
+                          },
+                          "details": {
+                            "type": "object",
+                            "additionalProperties": true
+                          },
+                          "quand": {
+                            "type": "string",
+                            "format": "date-time"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "summary": "Décision sur un sujet (statut, responsable, gravité, résolution) et réponse aux signaleurs",
+        "tags": [
+          "interne"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "auteur"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "auteur": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "statut": {
+                    "type": "string",
+                    "enum": [
+                      "nouveau",
+                      "confirme",
+                      "en_cours",
+                      "corrige",
+                      "ferme",
+                      "rejete"
+                    ]
+                  },
+                  "assigne": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "nullable": true
+                  },
+                  "gravite": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 4
+                  },
+                  "categorie": {
+                    "type": "string",
+                    "enum": [
+                      "securite",
+                      "paiement",
+                      "livraison",
+                      "commande",
+                      "connexion",
+                      "whatsapp",
+                      "facebook",
+                      "application",
+                      "photos",
+                      "disponibilite",
+                      "autre"
+                    ]
+                  },
+                  "resolution": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 2000
+                  },
+                  "prevenir": {
+                    "type": "boolean",
+                    "description": "prévenir les signaleurs joignables (avec un statut corrigé)"
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 1000,
+                    "description": "message aux signaleurs, sinon le message standard"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "service": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sujet": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "titre": {
+                          "type": "string"
+                        },
+                        "type": {
+                          "type": "string",
+                          "enum": [
+                            "souci",
+                            "idee",
+                            "question",
+                            "incident"
+                          ]
+                        },
+                        "categorie": {
+                          "type": "string",
+                          "enum": [
+                            "securite",
+                            "paiement",
+                            "livraison",
+                            "commande",
+                            "connexion",
+                            "whatsapp",
+                            "facebook",
+                            "application",
+                            "photos",
+                            "disponibilite",
+                            "autre"
+                          ]
+                        },
+                        "gravite": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 4,
+                          "description": "1 basse, 2 moyenne, 3 haute (bloquant), 4 critique"
+                        },
+                        "statut": {
+                          "type": "string",
+                          "enum": [
+                            "nouveau",
+                            "confirme",
+                            "en_cours",
+                            "corrige",
+                            "ferme",
+                            "rejete",
+                            "doublon"
+                          ]
+                        },
+                        "fonction": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "signaleurs": {
+                          "type": "integer",
+                          "description": "personnes distinctes"
+                        },
+                        "signalements": {
+                          "type": "integer"
+                        },
+                        "alerte": {
+                          "type": "integer"
+                        },
+                        "assigne": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "resolution": {
+                          "type": "string",
+                          "nullable": true
+                        },
+                        "doublon_de": {
+                          "type": "integer",
+                          "nullable": true
+                        },
+                        "premier": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "dernier": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "modifie": {
+                          "type": "string",
+                          "format": "date-time"
+                        },
+                        "score": {
+                          "type": "number",
+                          "description": "urgence : gravité, personnes touchées, fraîcheur"
+                        }
+                      }
+                    },
+                    "prevenus": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interne/sujets/{id}/fusionner": {
+      "post": {
+        "summary": "Déclarer ce sujet doublon d'un autre : ses signalements et ses personnes passent dans l'autre",
+        "tags": [
+          "interne"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "dans",
+                  "auteur"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "dans": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "auteur": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  }
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "in": "path",
+            "name": "id",
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "service": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "integer"
+                    },
+                    "titre": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "souci",
+                        "idee",
+                        "question",
+                        "incident"
+                      ]
+                    },
+                    "categorie": {
+                      "type": "string",
+                      "enum": [
+                        "securite",
+                        "paiement",
+                        "livraison",
+                        "commande",
+                        "connexion",
+                        "whatsapp",
+                        "facebook",
+                        "application",
+                        "photos",
+                        "disponibilite",
+                        "autre"
+                      ]
+                    },
+                    "gravite": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 4,
+                      "description": "1 basse, 2 moyenne, 3 haute (bloquant), 4 critique"
+                    },
+                    "statut": {
+                      "type": "string",
+                      "enum": [
+                        "nouveau",
+                        "confirme",
+                        "en_cours",
+                        "corrige",
+                        "ferme",
+                        "rejete",
+                        "doublon"
+                      ]
+                    },
+                    "fonction": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "signaleurs": {
+                      "type": "integer",
+                      "description": "personnes distinctes"
+                    },
+                    "signalements": {
+                      "type": "integer"
+                    },
+                    "alerte": {
+                      "type": "integer"
+                    },
+                    "assigne": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "resolution": {
+                      "type": "string",
+                      "nullable": true
+                    },
+                    "doublon_de": {
+                      "type": "integer",
+                      "nullable": true
+                    },
+                    "premier": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "dernier": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "modifie": {
+                      "type": "string",
+                      "format": "date-time"
+                    },
+                    "score": {
+                      "type": "number",
+                      "description": "urgence : gravité, personnes touchées, fraîcheur"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/interne/statistiques": {
+      "get": {
+        "summary": "Tableau de bord : sujets par statut et catégorie, signalements par jour, délai médian de correction",
+        "tags": [
+          "interne"
+        ],
+        "security": [
+          {
+            "service": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "erreur": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "public",
+      "description": "application mobile et site (via /api/retours)"
+    },
+    {
+      "name": "interne",
+      "description": "services et administration"
+    }
+  ]
+}

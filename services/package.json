@@ -8,7 +8,8 @@
   },
   "scripts": {
     "test": "node --test \"src/**/*.test.ts\"",
-    "types": "tsc -p tsconfig.json"
+    "types": "tsc -p tsconfig.json",
+    "openapi": "node src/outils/openapi.ts"
   },
   "dependencies": {
     "@fastify/multipart": "10.1.6",

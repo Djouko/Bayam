@@ -18,6 +18,8 @@ services:
       MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
     volumes:
       - db:/var/lib/mysql
+    networks: [donnees]
+    security_opt: ["no-new-privileges:true"]
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 5s
@@ -25,23 +27,34 @@ services:
 
   # Redis : cache d'objets persistant de WordPress et signal de réveil du travailleur à chaque événement WhatsApp.
   # Données reconstituables (la base reste la référence) : pas d'écriture sur disque, éviction des clés anciennes.
+  # Mot de passe obligatoire, réseau interne seul.
   redis:
     image: redis:8.2.2-alpine
     restart: unless-stopped
-    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+    command: ["sh", "-c", "exec redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save '' --appendonly no --requirepass \"$$REDIS_MOT_DE_PASSE\""]
+    environment:
+      REDIS_MOT_DE_PASSE: ${REDIS_MOT_DE_PASSE}
+    networks: [donnees]
+    read_only: true
+    tmpfs: [/data]
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    security_opt: ["no-new-privileges:true"]
 
   # Entrée unique (infra/traefik) : http://localhost:8080 et le tunnel public passent ici.
   traefik:
     image: traefik:v3.6.25
     restart: unless-stopped
+    # Ouvert sur cet ordinateur seulement (téléphone par adb reverse, public par le tunnel) : jamais sur le réseau local.
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
       - "127.0.0.1:8081:8081"
     volumes:
       - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./infra/traefik/dynamique.yml:/etc/traefik/dynamique.yml:ro
     depends_on:
       - proxy-docker
+    networks: [default, socket-traefik]
     read_only: true
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
@@ -51,7 +64,8 @@ services:
       interval: 10s
       retries: 6
 
-  # Accès de Traefik à Docker limité à la lecture de la liste des conteneurs (jamais le socket complet).
+  # Accès de Traefik à Docker limité à la lecture de la liste des conteneurs (jamais le socket complet), sur un
+  # réseau à part : aucun autre conteneur ne peut l'interroger (les variables d'environnement y sont lisibles).
   proxy-docker:
     image: tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     restart: unless-stopped
@@ -61,6 +75,7 @@ services:
       POST: 0
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [socket-traefik]
     security_opt: ["no-new-privileges:true"]
 
   # Cache des pages publiques (infra/nginx) : visiteurs anonymes servis sans faire travailler PHP, tout ce qui est
@@ -74,6 +89,8 @@ services:
       - /var/cache/nginx
     depends_on:
       - wordpress
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
     security_opt: ["no-new-privileges:true"]
     labels:
       traefik.enable: "true"
@@ -105,7 +122,7 @@ services:
       traefik.http.routers.boutique-liens.entrypoints: web
       traefik.http.routers.boutique-liens.service: boutique
       traefik.http.routers.boutique-liens.middlewares: securite@file,debit-liens@file
-      traefik.http.routers.boutique-interne.rule: PathPrefix(`/wp-json/bayam/v1/interne`) || PathPrefix(`/wp-json/bayam/v1/whatsapp`) || Path(`/xmlrpc.php`) || QueryRegexp(`rest_route`, `^/?bayam/`)
+      traefik.http.routers.boutique-interne.rule: PathRegexp(`(?i)^(/index\.php)?/wp-json/bayam/v1/(interne|whatsapp)`) || PathRegexp(`(?i)^/xmlrpc\.php`) || QueryRegexp(`rest_route`, `(?i)^/?bayam/v1/(interne|whatsapp)`)
       traefik.http.routers.boutique-interne.priority: "100"
       traefik.http.routers.boutique-interne.entrypoints: web
       traefik.http.routers.boutique-interne.service: boutique
@@ -134,7 +151,12 @@ services:
         define('WP_SITEURL', 'http://localhost:8080');
         define('WP_MEMORY_LIMIT', '256M');
         define('WP_REDIS_HOST', 'redis');
+        define('WP_REDIS_PASSWORD', getenv('BAYAM_REDIS_MDP'));
         define('WP_REDIS_PREFIX', 'bayam:');
+        define('DISALLOW_FILE_EDIT', true);
+        define('DISALLOW_FILE_MODS', true);
+      BAYAM_REDIS_MDP: ${REDIS_MOT_DE_PASSE}
+      BAYAM_CLE_LIENS: ${BAYAM_CLE_LIENS}
       # Connecteur WhatsApp (WAHA) : appelé par l'extension BAYAM WhatsApp.
       WAHA_URL: http://waha:3000
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
@@ -163,13 +185,14 @@ services:
     volumes:
       - wp:/var/www/html
       - ./php.ini:/usr/local/etc/php/conf.d/fluxstore.ini:ro
-      # Code BAYAM suivi ici : charte des pages vendeur (mu-plugins) et extension WhatsApp.
-      - ./mu-plugins:/var/www/html/wp-content/mu-plugins
-      - ./plugins/bayam-whatsapp:/var/www/html/wp-content/plugins/bayam-whatsapp
-      - whatsapp-vendor:/var/www/html/wp-content/plugins/bayam-whatsapp/vendor
-      - ./plugins/bayam-cinetpay:/var/www/html/wp-content/plugins/bayam-cinetpay
-      - ./themes/bayam-vitrine:/var/www/html/wp-content/themes/bayam-vitrine
-
+      # Code BAYAM suivi ici, en lecture seule : un PHP compromis ne peut pas réécrire l'extension.
+      - ./mu-plugins:/var/www/html/wp-content/mu-plugins:ro
+      - ./plugins/bayam-whatsapp:/var/www/html/wp-content/plugins/bayam-whatsapp:ro
+      - whatsapp-vendor:/var/www/html/wp-content/plugins/bayam-whatsapp/vendor:ro
+      - ./plugins/bayam-cinetpay:/var/www/html/wp-content/plugins/bayam-cinetpay:ro
+      - ./themes/bayam-vitrine:/var/www/html/wp-content/themes/bayam-vitrine:ro
+    networks: [default, donnees]
+    security_opt: ["no-new-privileges:true"]
 
   # WhatsApp en mode connecté (appareil lié par QR code), connecteur libre WAHA, moteur GOWS sans navigateur.
   waha:
@@ -190,6 +213,7 @@ services:
       TZ: Africa/Douala
     volumes:
       - waha:/app/.sessions
+    security_opt: ["no-new-privileges:true"]
 
   # Adresse publique temporaire (https://….trycloudflare.com) pour ouvrir le site local depuis un téléphone pendant
   # les démonstrations. Elle change à chaque redémarrage : WordPress la lit sur /quicktunnel (mu-plugin bayam-adresses).
@@ -199,6 +223,9 @@ services:
     command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://traefik:80
     depends_on:
       - traefik
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
   # Bus d'événements : chaque événement WhatsApp est écrit sur disque avant d'être acquitté à WAHA, puis relu
   # par les services à leur rythme, avec redistribution en cas d'échec. Jamais exposé hors du réseau interne.
@@ -209,6 +236,13 @@ services:
     volumes:
       - nats:/data
       - ./infra/nats/nats.conf:/etc/nats/nats.conf:ro
+    environment:
+      NATS_MDP_PASSERELLE: ${NATS_MDP_PASSERELLE}
+      NATS_MDP_CANAL_WHATSAPP: ${NATS_MDP_CANAL_WHATSAPP}
+      NATS_MDP_CANAL_FACEBOOK: ${NATS_MDP_CANAL_FACEBOOK}
+    networks: [donnees]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8222/healthz?js-enabled-only=true"]
       interval: 5s
@@ -229,6 +263,8 @@ services:
     volumes:
       - postgres:/var/lib/postgresql
       - ./infra/postgres/initialisation.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    networks: [donnees]
+    security_opt: ["no-new-privileges:true"]
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "bayam_admin", "-d", "bayam"]
       interval: 5s
@@ -245,6 +281,7 @@ services:
     depends_on:
       - proxy-docker-veilleur
       - tunnel
+    networks: [default, socket-veilleur]
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -258,6 +295,7 @@ services:
       ALLOW_RESTARTS: 1
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [socket-veilleur]
     security_opt: ["no-new-privileges:true"]
 
   # Passerelle des événements WhatsApp (services/src/passerelle) : vérifie la signature de WAHA, ne garde que ce
@@ -273,7 +311,9 @@ services:
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
       FACEBOOK_JETON_VERIFICATION: ${FACEBOOK_JETON_VERIFICATION:-}
       NATS_URL: nats://nats:4222
-      REDIS_URL: redis://redis:6379
+      NATS_UTILISATEUR: passerelle
+      NATS_MOT_DE_PASSE: ${NATS_MDP_PASSERELLE}
+      REDIS_URL: redis://:${REDIS_MOT_DE_PASSE}@redis:6379
     # Adresses publiques : événements Facebook (https://<adresse>/webhooks/facebook) et état des fonctions pour les
     # applications (https://<adresse>/api/config) ; /whatsapp et /sante restent sur le réseau interne.
     labels:
@@ -284,7 +324,7 @@ services:
       traefik.http.routers.webhook-facebook.priority: "100"
       traefik.http.routers.webhook-facebook.entrypoints: web
       traefik.http.routers.webhook-facebook.service: passerelle
-      traefik.http.routers.webhook-facebook.middlewares: securite@file,debit-general@file,corps-limite@file,vers-facebook
+      traefik.http.routers.webhook-facebook.middlewares: securite@file,debit-general@file,corps-webhook@file,vers-facebook
       traefik.http.middlewares.vers-config.replacepath.path: /config
       traefik.http.routers.config-fonctions.rule: Path(`/api/config`)
       traefik.http.routers.config-fonctions.priority: "100"
@@ -296,6 +336,7 @@ services:
         condition: service_started
       nats:
         condition: service_healthy
+    networks: [default, donnees]
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -313,7 +354,9 @@ services:
     environment:
       CANAL_WHATSAPP_BASE: postgres://canal_whatsapp:${CANAL_WHATSAPP_DB_PASSWORD}@postgres:5432/bayam
       NATS_URL: nats://nats:4222
-      REDIS_URL: redis://redis:6379
+      NATS_UTILISATEUR: canal-whatsapp
+      NATS_MOT_DE_PASSE: ${NATS_MDP_CANAL_WHATSAPP}
+      REDIS_URL: redis://:${REDIS_MOT_DE_PASSE}@redis:6379
       WAHA_URL: http://waha:3000
       WAHA_API_KEY: ${WAHA_API_KEY}
       BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
@@ -331,6 +374,7 @@ services:
         condition: service_started
       passerelle:
         condition: service_started
+    networks: [default, donnees]
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -339,9 +383,6 @@ services:
       interval: 10s
       retries: 6
 
-  # Canal Facebook (services/src/canal-facebook) : Pages des vendeurs par l'API officielle de Meta. Messenger
-  # (catalogue en carrousel, lien personnel de commande), réponses aux commentaires, publications et stories,
-  # connexion des Pages (https://<adresse>/facebook/connexion). Sans application Meta configurée, il attend.
   # Retours des utilisateurs (signalements, idées) et pannes détectées par les sondes : doublons regroupés en sujets,
   # urgence, alertes à l'équipe, réponse aux signaleurs. Public : POST /api/retours (application, site), débit limité.
   retours:
@@ -359,6 +400,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks: [default, donnees]
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -376,6 +418,9 @@ services:
       traefik.http.routers.retours-public.service: retours
       traefik.http.routers.retours-public.middlewares: securite@file,debit-retours@file,corps-petit@file,vers-retours
 
+  # Canal Facebook (services/src/canal-facebook) : Pages des vendeurs par l'API officielle de Meta. Messenger
+  # (catalogue en carrousel, lien personnel de commande), réponses aux commentaires, publications et stories,
+  # connexion des Pages (https://<adresse>/facebook/connexion). Sans application Meta configurée, il attend.
   canal-facebook:
     image: bayam/services:1
     restart: unless-stopped
@@ -391,10 +436,13 @@ services:
       # Clé de chiffrement des jetons de Page en base (32 octets en base64).
       FACEBOOK_CLE: ${FACEBOOK_CLE}
       NATS_URL: nats://nats:4222
-      REDIS_URL: redis://redis:6379
+      NATS_UTILISATEUR: canal-facebook
+      NATS_MOT_DE_PASSE: ${NATS_MDP_CANAL_FACEBOOK}
+      REDIS_URL: redis://:${REDIS_MOT_DE_PASSE}@redis:6379
       BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
       BAYAM_WP_INTERNE: http://wordpress
       BAYAM_CANAL_WHATSAPP: http://canal-whatsapp:8091
+      BAYAM_CLE_LIENS: ${BAYAM_CLE_LIENS}
       BAYAM_URL_PUBLIQUE: ${BAYAM_URL_PUBLIQUE:-}
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
       TZ: Africa/Douala
@@ -405,6 +453,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+    networks: [default, donnees]
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -430,6 +479,8 @@ services:
     user: "33:33"
     depends_on:
       - wordpress
+    networks: [default, donnees]
+    security_opt: ["no-new-privileges:true"]
     command: ["wp", "bayam-wa", "travailleur", "--duree=3600"]
     environment:
       WORDPRESS_DB_HOST: db
@@ -438,11 +489,14 @@ services:
       WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_REDIS_HOST', 'redis');
+        define('WP_REDIS_PASSWORD', getenv('BAYAM_REDIS_MDP'));
         define('WP_REDIS_PREFIX', 'bayam:');
       WAHA_URL: http://waha:3000
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
       BAYAM_WA_WEBHOOK: http://passerelle:8090/whatsapp
       BAYAM_REDIS: redis
+      BAYAM_REDIS_MDP: ${REDIS_MOT_DE_PASSE}
+      BAYAM_CLE_LIENS: ${BAYAM_CLE_LIENS}
       # Microservices : jeton partagé de l'API interne, adresse du canal WhatsApp (liens personnels, notifications).
       BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
       BAYAM_CANAL_URL: http://canal-whatsapp:8091
@@ -489,6 +543,8 @@ services:
     user: "33:33"
     depends_on:
       - wordpress
+    networks: [default, donnees]
+    security_opt: ["no-new-privileges:true"]
     environment:
       WORDPRESS_DB_HOST: db
       WORDPRESS_DB_NAME: wordpress
@@ -501,11 +557,14 @@ services:
       WP_CLI_CACHE_DIR: /tmp/wp-cli-cache
       WORDPRESS_CONFIG_EXTRA: |
         define('WP_REDIS_HOST', 'redis');
+        define('WP_REDIS_PASSWORD', getenv('BAYAM_REDIS_MDP'));
         define('WP_REDIS_PREFIX', 'bayam:');
       WAHA_URL: http://waha:3000
       BAYAM_TUNNEL_METRICS: http://tunnel:2000
       BAYAM_WA_WEBHOOK: http://passerelle:8090/whatsapp
       BAYAM_REDIS: redis
+      BAYAM_REDIS_MDP: ${REDIS_MOT_DE_PASSE}
+      BAYAM_CLE_LIENS: ${BAYAM_CLE_LIENS}
       # Microservices : jeton partagé de l'API interne, adresse du canal WhatsApp (liens personnels, notifications).
       BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
       BAYAM_CANAL_URL: http://canal-whatsapp:8091
@@ -535,6 +594,16 @@ services:
       - whatsapp-vendor:/var/www/html/wp-content/plugins/bayam-whatsapp/vendor
       - ./plugins/bayam-cinetpay:/var/www/html/wp-content/plugins/bayam-cinetpay
       - ./themes/bayam-vitrine:/var/www/html/wp-content/themes/bayam-vitrine
+
+# Réseaux : « donnees » (bases, Redis, NATS) sans accès à Internet et réservé aux services qui ont des identifiants ;
+# chaque porte vers Docker sur son propre réseau, joignable par un seul conteneur.
+networks:
+  donnees:
+    internal: true
+  socket-traefik:
+    internal: true
+  socket-veilleur:
+    internal: true
 
 volumes:
   whatsapp-vendor:

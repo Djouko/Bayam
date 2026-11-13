@@ -13,6 +13,8 @@ ESSAI_FB_SECRET=$(openssl rand -hex 24)
 ESSAI_FB_VERIFICATION=$(openssl rand -hex 12)
 export ESSAI_FB_SECRET ESSAI_FB_VERIFICATION
 JETON_SERVICE=$(grep '^BAYAM_SERVICE_JETON=' .env | cut -d= -f2-)
+CLE_LIENS=$(grep '^BAYAM_CLE_LIENS=' .env | cut -d= -f2-)
+REDIS_MDP=$(grep '^REDIS_MOT_DE_PASSE=' .env | cut -d= -f2-)
 PAGE=900000000000004
 
 remettre_en_etat() {
@@ -21,7 +23,7 @@ remettre_en_etat() {
     DELETE FROM canal_facebook.vendeurs_messenger WHERE page IN ('$PAGE', '900000000000005'); DELETE FROM canal_facebook.publications WHERE page = '$PAGE';
     DELETE FROM canal_facebook.jetons_commande WHERE page = '$PAGE'; DELETE FROM canal_facebook.notifications WHERE page = '$PAGE';
     DELETE FROM canal_facebook.evenements_traites WHERE evt_id LIKE 'm.essai.%' OR evt_id LIKE 'm.vendeur.%' OR evt_id LIKE '%$PAGE%';" >/dev/null
-  docker compose exec -T redis sh -c "for k in \$(redis-cli --scan --pattern 'fb:*$PAGE*') fb:menu-vendeur:4; do redis-cli del \"\$k\" >/dev/null; done"
+  docker compose exec -T -e REDISCLI_AUTH="$REDIS_MDP" redis sh -c "for k in \$(redis-cli --scan --pattern 'fb:*$PAGE*') fb:menu-vendeur:4; do redis-cli del \"\$k\" >/dev/null; done; for k in \$(redis-cli --scan --pattern 'fb:espace:*'); do case \$(redis-cli get \"\$k\") in $PAGE:*) redis-cli del \"\$k\" >/dev/null;; esac; done"
   docker compose exec -T -e MYSQL_PWD="$(grep '^DB_PASSWORD=' .env | cut -d= -f2-)" db mariadb -u wordpress wordpress \
     -e "DELETE FROM wp_woocommerce_sessions WHERE session_value LIKE '%$PAGE%'"
   docker stop faux-graph >/dev/null 2>&1 || true
@@ -39,4 +41,4 @@ for _ in $(seq 1 30); do
   sleep 2
 done
 docker run --rm --network fluxstore-local_default -e SECRET="$ESSAI_FB_SECRET" -e VERIFICATION="$ESSAI_FB_VERIFICATION" \
-  -e JETON_SERVICE="$JETON_SERVICE" -v "$ESSAIS:/essai:ro" node:24.22.2-alpine node /essai/essai_facebook.mjs
+  -e JETON_SERVICE="$JETON_SERVICE" -e CLE_LIENS="$CLE_LIENS" -v "$ESSAIS:/essai:ro" node:24.22.2-alpine node /essai/essai_facebook.mjs

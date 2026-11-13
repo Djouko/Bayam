@@ -10,3 +10,6 @@ plugins/bayam-whatsapp/vendor/
 
 # Vidéos de référence déposées par la direction : jamais dans le dépôt.
 *.mp4
+
+# Copies de référence du modèle FluxStore (clés de démonstration du vendeur du modèle) : jamais versionnées.
+originaux/

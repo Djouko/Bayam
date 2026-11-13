@@ -471,21 +471,33 @@ final class Bayam_WA_Copilote
         }
         // Un code de 4 chiffres se devine par essais : après 5 erreurs en 15 minutes, actions sensibles bloquées.
         $compteur = 'bayam_wa_pin_echecs_' . $this->vendeur;
-        $echecs = (int) get_transient($compteur);
+        $redis = Bayam_WA_Outils::redis();
+        $echecs = $redis ? (int) $redis->get("bayam:{$compteur}") : (int) get_transient($compteur);
         if ($echecs >= 5) {
             return [['texte' => "🔒 Trop de codes PIN erronés : les actions sensibles de l'équipe sont bloquées pendant 15 minutes."]];
         }
         if (!preg_match('/\bpin\s*(\d{4,6})$/', $texte, $m)) {
             return [['texte' => "Action sensible : ajoutez le code PIN de la boutique à la fin du message, par exemple « … pin 1234 »."]];
         }
-        if (!hash_equals($pin, $m[1])) {
-            set_transient($compteur, ++$echecs, 15 * MINUTE_IN_SECONDS);
+        // Ancien code gardé en clair (avant le 13/11/2026) : comparé puis remplacé par son empreinte au premier succès.
+        $clair = preg_match('/^\d{4,6}$/', $pin) === 1;
+        if (!($clair ? hash_equals($pin, $m[1]) : wp_check_password($m[1], $pin))) {
+            // Compteur atomique : des messages envoyés en rafale ne donnent pas plus de 5 essais.
+            if ($redis) {
+                $echecs = (int) $redis->incr("bayam:{$compteur}");
+                $redis->expire("bayam:{$compteur}", 15 * MINUTE_IN_SECONDS);
+            } else {
+                set_transient($compteur, ++$echecs, 15 * MINUTE_IN_SECONDS);
+            }
             if ($echecs === 5) {
                 Bayam_WA_Regles::au_vendeur($this->vendeur, "⚠️ 5 codes PIN erronés viennent d'être tapés par un numéro de votre équipe. Les ventes, liens, promos et dettes de l'équipe sont bloqués 15 minutes. Si ce n'est pas normal, changez le code : *bayam pin 1234*.");
             }
             return [['texte' => 'Code PIN incorrect. Vérifiez-le auprès du propriétaire de la boutique.']];
         }
-        delete_transient($compteur);
+        if ($clair) {
+            Bayam_WA_Stockage::enregistrer($this->vendeur, ['pin' => wp_hash_password($m[1])]);
+        }
+        $redis ? $redis->del("bayam:{$compteur}") : delete_transient($compteur);
         return null;
     }
 
@@ -1142,7 +1154,7 @@ Sur le téléphone du " . Bayam_WA_Outils::numero_lisible($numero) . ", dans Wha
         if (!preg_match('/^\d{4,6}$/', $reste)) {
             return [['texte' => 'Choisissez un code de 4 à 6 chiffres : *bayam pin 4826*. Il protège les ventes, liens, promos et dettes demandés par votre équipe.']];
         }
-        Bayam_WA_Stockage::enregistrer($this->vendeur, ['pin' => $reste]);
+        Bayam_WA_Stockage::enregistrer($this->vendeur, ['pin' => wp_hash_password($reste)]);
         return [['texte' => '🔒 Code PIN de l\'équipe enregistré. Ne le communiquez qu\'aux personnes de confiance.']];
     }
 

@@ -29,8 +29,13 @@ WordPress reste la boutique pendant la transition ; les nouvelles fonctions nais
 | NATS JetStream 2.12 (`infra/nats`) | Bus d'événements durable : rien ne se perd si un service redémarre |
 | Canal WhatsApp (`services/src/canal-whatsapp`) | Catalogue interactif (rayons, cartes, lien personnel de commande), confirmations aux clients ; transmet le reste à l'extension WordPress |
 | Canal Facebook (`services/src/canal-facebook`) | Pages Facebook des vendeurs (API officielle de Meta) : catalogue dans Messenger, réponses aux commentaires, publications et stories, confirmations de commande |
+| Retours (`services/src/retours`) | Signalements, idées et pannes détectées : doublons regroupés en sujets, urgence, alertes à l'équipe, réponse aux signaleurs |
 | PostgreSQL 18 (`infra/postgres`) | Base des nouveaux services, un rôle et un schéma par service |
-| Redis 8.2 | Cache, verrous, plafonds d'envoi |
+| Redis 8.2 | Cache, verrous, plafonds d'envoi (mot de passe obligatoire) |
+
+Réseaux : `donnees` (MariaDB, PostgreSQL, Redis, NATS) sans accès à Internet et réservé aux services qui ont des identifiants ; chaque porte vers Docker sur son propre réseau ; ports publiés sur 127.0.0.1 seulement. Chaque service a son compte NATS : seule la passerelle peut écrire des événements.
+
+Documentation des API (OpenAPI 3) : `services/docs/api/<service>.json`, régénérée par `npm run openapi` (un essai échoue si elle n'est plus à jour). À lire avec n'importe quel lecteur OpenAPI (Swagger Editor, Redoc, extension de l'éditeur).
 
 Essais des services : `docker run --rm -v "$(pwd -W)/services:/app" -w /app node:24.22.2-alpine npm test` (et `npm run types` pour le typage). Tableau de bord de l'entrée : http://127.0.0.1:8081/dashboard/ (poste seulement).
 
@@ -171,6 +176,24 @@ bash scripts/fonctions.sh actif facebook.commentaires
 ```
 
 Fonctions : `whatsapp` (catalogue, menu, copilote, publication, assistant), `facebook` (messenger, commentaires, publications, connexion), `paiement`, `mobile`, `web` ; un préfixe vaut pour toutes ses fonctions. Pendant une maintenance, l'utilisateur reçoit un message clair (une fois par heure) au lieu d'une erreur, signaler un souci reste possible, les publications et les commentaires attendent leur tour, et la fonction se rouvre seule à l'heure annoncée. Les applications lisent l'état de chaque fonction sur `https://<adresse>/api/config` (gardé 30 s). Les événements reçus pendant le redémarrage d'un service restent dans le bus et sont traités au retour : une mise à jour des services ne fait perdre aucun message.
+
+## Retours des utilisateurs (signalements, idées, pannes)
+
+Les clients et les vendeurs écrivent « bayam signaler … » ou « bayam idée … » (WhatsApp, Messenger, Copilote) ; l'application et le site envoient sur `POST /api/retours` (6 envois par heure et par personne au plus). Chaque retour reçoit un numéro (R-…), est classé (catégorie, gravité) et rejoint le sujet identique s'il existe déjà : l'équipe voit un seul sujet avec le nombre de personnes touchées.
+
+Tableau de bord : administration WordPress, menu **Retours** (du plus urgent au moins urgent). Une décision (statut, responsable, gravité, résolution, doublon) est gardée dans l'historique ; « Corrigé » avec « Prévenir » envoie à chaque signaleur joignable un message sur son canal. Un sujet critique, une panne ou un sujet signalé par trois personnes prévient l'équipe tout de suite (WhatsApp `RETOURS_ALERTE_WHATSAPP` et courriel de l'administrateur). Les moyens de contact s'effacent 30 jours après la clôture.
+
+## Sécurité et essais
+
+| Commande | Ce qu'elle vérifie |
+|---|---|
+| `docker run --rm -v "$(pwd -W)/services:/app" -w /app node:24.22.2-alpine sh -c "npm run types; npm test"` | Typage et essais unitaires des services, documentation OpenAPI à jour |
+| `docker compose run --rm cli wp eval-file /var/www/html/wp-content/plugins/bayam-whatsapp/tests/essais.php` | Extension WordPress (176 vérifications) |
+| `bash scripts/essai_facebook.sh` | Canal Facebook de bout en bout avec un faux Graph (40 vérifications) |
+| `bash scripts/essai_retours.sh` | Service des retours en réel, réponse sur le téléphone d'essai (10 vérifications) |
+| `bash scripts/essai_securite.sh` | Rejoue les attaques de l'audit (`cahier-des-charges/recherche/S_audit_securite.md`) : chacune doit échouer |
+
+Secrets : uniquement dans `.env` (jamais dans git). Les liens signés (connexion Facebook, espace vendeur) ont leur propre clé `BAYAM_CLE_LIENS`, distincte du jeton de l'API interne. Le code PIN de l'équipe est gardé en empreinte.
 
 ## Captures
 

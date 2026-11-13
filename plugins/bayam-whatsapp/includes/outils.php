@@ -23,7 +23,8 @@ final class Bayam_WA_Outils
             if ($hote && class_exists('Redis')) {
                 try {
                     $r = new Redis();
-                    if ($r->connect($hote, 6379, 1.0)) {
+                    $mdp = (string) getenv('BAYAM_REDIS_MDP');
+                    if ($r->connect($hote, 6379, 1.0) && ($mdp === '' || $r->auth($mdp))) {
                         $connexion = $r;
                     }
                 } catch (Throwable $e) {

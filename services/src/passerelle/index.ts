@@ -2,7 +2,7 @@
 // JetStream. L'expéditeur n'est acquitté qu'une fois l'événement écrit dans le bus ; en cas de panne du bus il reçoit
 // 503 et réessaie lui-même. Sans état : autant d'instances que nécessaire derrière le répartiteur de charge.
 
-import { createHash } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { headers } from '@nats-io/transport-node';
 import { jetstream } from '@nats-io/jetstream';
@@ -31,29 +31,48 @@ const fonctions = new Fonctions(redis);
 const compteurs = { depuis: new Date().toISOString(), recus: 0, publies: 0, doublons: 0, ecartes: 0, refuses: 0, echecs: 0 };
 const compteursFacebook = { recus: 0, publies: 0, doublons: 0, refuses: 0, echecs: 0 };
 
-/** Corps brut de la requête, plafonné : aucun événement légitime n'approche 5 Mo (les médias passent par lien). */
-function lireCorps(req: IncomingMessage): Promise<Buffer | null> {
+/**
+ * Corps brut de la requête, plafonné avant toute vérification de signature : aucun événement légitime n'approche
+ * 5 Mo pour WAHA (les médias passent par lien) ni 1 Mo pour Meta. Au-delà, la lecture s'arrête et la réponse est un
+ * 413 propre, connexion fermée ensuite (pas de mémoire ni de calcul dépensés pour un envoi hostile).
+ */
+function lireCorps(req: IncomingMessage, plafond = 5e6): Promise<Buffer | null> {
   return new Promise((resoudre, rejeter) => {
     const morceaux: Buffer[] = [];
-    let taille = 0;
-    req.on('data', (m: Buffer) => {
+    let taille = Number(req.headers['content-length'] ?? 0);
+    if (taille > plafond) {
+      resoudre(null);
+      return;
+    }
+    taille = 0;
+    const lire = (m: Buffer) => {
       taille += m.length;
-      if (taille > 5e6) {
+      if (taille > plafond) {
+        req.off('data', lire);
+        req.pause();
         resoudre(null);
-        req.destroy();
       } else {
         morceaux.push(m);
       }
-    });
+    };
+    req.on('data', lire);
     req.on('end', () => resoudre(Buffer.concat(morceaux)));
     req.on('error', rejeter);
   });
 }
 
+/** Comparaison en temps constant (jetons, secrets) : la durée ne révèle rien du texte attendu. */
+function memeTexte(recu: string, attendu: string): boolean {
+  const a = createHash('sha256').update(recu).digest();
+  const b = createHash('sha256').update(attendu).digest();
+  return timingSafeEqual(a, b) && recu.length === attendu.length;
+}
+
 const serveur = createServer(async (req, res) => {
   const repondre = (statut: number, corps: unknown = { ok: statut < 300 }) => {
-    res.writeHead(statut, { 'content-type': 'application/json' });
-    res.end(JSON.stringify(corps));
+    // Corps refusé (trop gros) : réponse envoyée puis connexion fermée, le reste de l'envoi n'est jamais lu.
+    res.writeHead(statut, { 'content-type': 'application/json', ...(statut === 413 ? { connection: 'close' } : {}) });
+    res.end(JSON.stringify(corps), () => statut === 413 && req.destroy());
   };
   if (req.method === 'GET' && req.url === '/config') {
     // État de chaque fonction pour les applications : elles affichent la maintenance d'une partie sans mise à jour.
@@ -128,7 +147,7 @@ async function facebook(req: IncomingMessage, res: ServerResponse, adresse: URL,
   if (req.method === 'GET') {
     const p = adresse.searchParams;
     const defi = p.get('hub.challenge') ?? '';
-    if (p.get('hub.mode') !== 'subscribe' || p.get('hub.verify_token') !== jetonVerification || !/^[\w-]{1,128}$/.test(defi)) {
+    if (p.get('hub.mode') !== 'subscribe' || !memeTexte(p.get('hub.verify_token') ?? '', jetonVerification) || !/^[\w-]{1,128}$/.test(defi)) {
       repondre(403);
       return;
     }
@@ -141,7 +160,7 @@ async function facebook(req: IncomingMessage, res: ServerResponse, adresse: URL,
     repondre(405);
     return;
   }
-  const corps = await lireCorps(req).catch(() => null);
+  const corps = await lireCorps(req, 1e6).catch(() => null);
   compteursFacebook.recus++;
   if (!corps) {
     repondre(413);

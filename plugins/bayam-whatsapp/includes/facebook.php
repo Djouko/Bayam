@@ -27,7 +27,7 @@ final class Bayam_WA_Facebook
     public static function lien_connexion(int $vendeur): string
     {
         $echeance = time() + self::VALIDITE_CONNEXION;
-        $signature = hash_hmac('sha256', "facebook:{$vendeur}.{$echeance}", (string) getenv('BAYAM_SERVICE_JETON'));
+        $signature = hash_hmac('sha256', "facebook:{$vendeur}.{$echeance}", (string) getenv('BAYAM_CLE_LIENS'));
         return untrailingslashit(Bayam_WA_Liens::base()) . '/facebook/connexion?' . http_build_query(['v' => $vendeur, 'e' => $echeance, 's' => $signature]);
     }
 
@@ -37,8 +37,8 @@ final class Bayam_WA_Facebook
      */
     public static function lien_espace(int $vendeur, string $page): string
     {
-        $echeance = time() + 7 * DAY_IN_SECONDS;
-        $signature = substr(hash_hmac('sha256', "fbvendeur:{$vendeur}.{$echeance}", (string) getenv('BAYAM_SERVICE_JETON')), 0, 32);
+        $echeance = time() + DAY_IN_SECONDS;
+        $signature = substr(hash_hmac('sha256', "fbvendeur:{$vendeur}.{$echeance}", (string) getenv('BAYAM_CLE_LIENS')), 0, 32);
         return "https://m.me/{$page}?ref=vendeur-{$vendeur}-{$echeance}-{$signature}";
     }
 

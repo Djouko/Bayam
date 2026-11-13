@@ -2,7 +2,7 @@
 // -> WordPress) et un faux Graph à la place de Meta. Boutique 4 (Accessoires Akwa, sans WhatsApp relié : aucun envoi réel).
 import { createHmac } from 'node:crypto';
 
-const { SECRET, VERIFICATION, JETON_SERVICE } = process.env;
+const { SECRET, VERIFICATION, JETON_SERVICE, CLE_LIENS } = process.env;
 const PAGE = '900000000000004';
 const CLIENT = '7000000000000001';
 const ENTREE = 'http://traefik/webhooks/facebook';
@@ -81,8 +81,17 @@ verifier('API interne sans le jeton de service : refusée (401)', r.status === 4
 
 console.log('\nConnexion par la fenêtre Facebook : le vendeur coche ses Pages');
 const echeance = Math.floor(Date.now() / 1000) + 600;
-const etat = `4.${echeance}.${createHmac('sha256', JETON_SERVICE).update(`facebook:4.${echeance}`).digest('hex')}`;
+const signe = `v=4&e=${echeance}&s=${createHmac('sha256', CLE_LIENS).update(`facebook:4.${echeance}`).digest('hex')}`;
+r = await fetch(`http://traefik/facebook/connexion?${signe}`, { headers: ENTETES_PUBLICS, redirect: 'manual' });
+const etat = new URL(r.headers.get('location') ?? 'http://x').searchParams.get('state') ?? '';
+const cookie = (r.headers.get('set-cookie') ?? '').split(';')[0];
+verifier('lien de connexion : redirection vers Facebook avec un état aléatoire, cookie lié au navigateur (HttpOnly, Secure, SameSite)',
+  r.status === 302 && /^[\w-]{24}$/.test(etat) && cookie === `bayam_fb_etat=${etat}` && /HttpOnly; Secure; SameSite=Lax/.test(r.headers.get('set-cookie') ?? ''), [r.status, etat]);
 r = await fetch(`http://traefik/facebook/retour?code=CODE-ESSAI&state=${etat}`, { headers: ENTETES_PUBLICS });
+verifier('retour de Facebook dans un autre navigateur (sans le cookie) : refusé', r.status === 403);
+r = await fetch(`http://traefik/facebook/connexion?${signe}`, { headers: ENTETES_PUBLICS, redirect: 'manual' });
+const etat2 = new URL(r.headers.get('location') ?? 'http://x').searchParams.get('state') ?? '';
+r = await fetch(`http://traefik/facebook/retour?code=CODE-ESSAI&state=${etat2}`, { headers: { ...ENTETES_PUBLICS, cookie: `bayam_fb_etat=${etat2}` } });
 const choix = await r.text();
 const cle = /name="c" value="([\w-]{24})"/.exec(choix)?.[1];
 verifier('compte qui gère deux Pages : le vendeur choisit, la Page déjà reliée est cochée, l\'autre non',
@@ -158,7 +167,7 @@ const VENDEUR = '7000000000000009';
 const versVendeur = (a) => a.methode === 'POST' && a.chemin === `/${PAGE}/messages` && a.corps?.recipient?.id === VENDEUR;
 const parVendeur = (contenu) => meta({ messaging: [{ sender: { id: VENDEUR }, recipient: { id: PAGE }, timestamp: Date.now(), ...contenu }] });
 const echeanceEspace = Math.floor(Date.now() / 1000) + 3600;
-const signature = createHmac('sha256', JETON_SERVICE).update(`fbvendeur:4.${echeanceEspace}`).digest('hex').slice(0, 32);
+const signature = createHmac('sha256', CLE_LIENS).update(`fbvendeur:4.${echeanceEspace}`).digest('hex').slice(0, 32);
 await vider();
 await parVendeur({ referral: { ref: `vendeur-4-${echeanceEspace}-${signature}`, source: 'SHORTLINK' } });
 e = await recus(versVendeur);
@@ -180,6 +189,10 @@ await vider();
 await meta({ messaging: [{ sender: { id: '7000000000000008' }, recipient: { id: PAGE }, timestamp: Date.now(), referral: { ref: `vendeur-4-${echeanceEspace}-${'0'.repeat(32)}`, source: 'SHORTLINK' } }] });
 e = await recus((a) => a.chemin === `/${PAGE}/messages` && a.corps?.recipient?.id === '7000000000000008');
 verifier('lien falsifié : refusé, ce compte reste un client', (e[0]?.corps.message.text ?? '').includes('expiré ou n\'est pas le vôtre'), e[0]?.corps.message);
+await vider();
+await meta({ messaging: [{ sender: { id: '7000000000000007' }, recipient: { id: PAGE }, timestamp: Date.now(), referral: { ref: `vendeur-4-${echeanceEspace}-${signature}`, source: 'SHORTLINK' } }] });
+e = await recus((a) => a.chemin === `/${PAGE}/messages` && a.corps?.recipient?.id === '7000000000000007');
+verifier('vrai lien transféré à un autre compte : refusé (usage unique)', (e[0]?.corps.message.text ?? '').includes('expiré ou n\'est pas le vôtre'), e[0]?.corps.message);
 
 console.log('\nPublication sur la Page, puis commentaire « prix ? »');
 await vider();

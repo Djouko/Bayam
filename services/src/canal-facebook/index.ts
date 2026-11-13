@@ -40,6 +40,11 @@ const appId = lire('FACEBOOK_APP_ID', '');
 const secretApp = lire('FACEBOOK_APP_SECRET', '');
 const configure = Boolean(appId && secretApp);
 const jetonVerification = lire('FACEBOOK_JETON_VERIFICATION', '');
+// Clé des liens signés (connexion de Page, espace vendeur), distincte du jeton de l'API interne.
+const cleLiens = exiger('BAYAM_CLE_LIENS');
+const COOKIE_ETAT = 'bayam_fb_etat';
+const HOTES_MEDIAS_META = ['fbcdn.net', 'fbsbx.com', 'facebook.com'];
+const PHOTO_MAX = 8 * 1024 * 1024;
 const graph = new Graph(lire('FACEBOOK_GRAPH_URL', 'https://graph.facebook.com/v27.0'), appId, secretApp, lire('FACEBOOK_CONFIG_ID', ''));
 
 const pool = creerPool(exiger('CANAL_FACEBOOK_BASE'));
@@ -298,11 +303,11 @@ async function traiter(msg: JsMsg): Promise<void> {
 
 // --- Espace vendeur dans Messenger : le même menu et les mêmes commandes que sur WhatsApp ---------------------------
 
-const signatureEspace = (vendeur: number, echeance: number) => createHmac('sha256', jetonService).update(`fbvendeur:${vendeur}.${echeance}`).digest('hex').slice(0, 32);
+const signatureEspace = (vendeur: number, echeance: number) => createHmac('sha256', cleLiens).update(`fbvendeur:${vendeur}.${echeance}`).digest('hex').slice(0, 32);
 
-/** Lien (7 jours) qui fait du compte Messenger qui l'ouvre l'espace vendeur sur cette Page. */
+/** Lien (24 h, un seul compte) qui fait du compte Messenger qui l'ouvre l'espace vendeur sur cette Page. */
 function lienEspace(vendeur: number, page: string): string {
-  const echeance = Math.floor(Date.now() / 1000) + 7 * 86_400;
+  const echeance = Math.floor(Date.now() / 1000) + 86_400;
   return `https://m.me/${page}?ref=vendeur-${vendeur}-${echeance}-${signatureEspace(vendeur, echeance)}`;
 }
 
@@ -315,7 +320,10 @@ async function lierVendeur(d: Extract<Decision, { route: 'liaison' }>): Promise<
   }
   const attendue = m ? signatureEspace(Number(m[1]), Number(m[2])) : '';
   const valide = m && Number(m[1]) === p.vendeur && Number(m[2]) > Date.now() / 1000 && timingSafeEqual(Buffer.from(attendue), Buffer.from(m[3]));
-  if (!valide) {
+  // Usage unique : le premier compte qui l'ouvre devient l'espace vendeur ; un lien transféré ou copié ne sert plus.
+  const utilisation = `${p.page}:${d.client}`;
+  const premier = valide && (await redis.set(`fb:espace:${m[3]}`, utilisation, { condition: 'NX', expiration: { type: 'EX', value: 2 * 86_400 } })) === 'OK';
+  if (!valide || (!premier && (await redis.get(`fb:espace:${m[3]}`)) !== utilisation)) {
     await envoyer(p, b, d.client, [messenger.texteSimple('Ce lien d\'espace vendeur a expiré ou n\'est pas le vôtre. Le propriétaire de la boutique en reçoit un nouveau avec « bayam facebook ».')], d.ref);
     return;
   }
@@ -348,14 +356,29 @@ function pourMessenger(envois: EnvoiPret[], reponses: ReponseCopilote[]): messen
   return sortie;
 }
 
-/** Photo envoyée par le vendeur dans Messenger (nouvel article), téléchargée pour WordPress. */
+/**
+ * Photo envoyée par le vendeur dans Messenger (nouvel article), téléchargée pour WordPress : seulement depuis les
+ * serveurs de fichiers de Meta, sans redirection, lecture arrêtée au-delà de 8 Mo (jamais une adresse interne).
+ */
 async function photoMessenger(url: string): Promise<string> {
-  const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-  const octets = Buffer.from(await r.arrayBuffer());
-  if (!r.ok || octets.length > 8 * 1024 * 1024) {
+  const adresse = new URL(url);
+  if (adresse.protocol !== 'https:' || !HOTES_MEDIAS_META.some((h) => adresse.hostname === h || adresse.hostname.endsWith(`.${h}`))) {
+    throw new Error(`photo Messenger refusée (hôte ${adresse.hostname})`);
+  }
+  const r = await fetch(adresse, { redirect: 'error', signal: AbortSignal.timeout(20_000) });
+  if (!r.ok || !r.body || Number(r.headers.get('content-length') ?? 0) > PHOTO_MAX) {
     throw new Error(`photo Messenger illisible (${r.status})`);
   }
-  return octets.toString('base64');
+  const morceaux: Buffer[] = [];
+  let taille = 0;
+  for await (const morceau of r.body) {
+    taille += morceau.length;
+    if (taille > PHOTO_MAX) {
+      throw new Error('photo Messenger trop lourde');
+    }
+    morceaux.push(Buffer.from(morceau));
+  }
+  return Buffer.concat(morceaux).toString('base64');
 }
 
 /**
@@ -450,12 +473,12 @@ async function declarerAdresse(): Promise<void> {
 
 // --- Connexion des Pages ---------------------------------------------------------------------------------------
 
-/** Lien de connexion signé par WordPress (jeton de service), valable jusqu'à son échéance. */
+/** Lien de connexion signé par WordPress (clé des liens), valable jusqu'à son échéance. */
 function etatValide(v: string, e: string, s: string): number | null {
   if (!/^\d{1,10}$/.test(v) || !/^\d{1,12}$/.test(e) || Number(e) < Date.now() / 1000) {
     return null;
   }
-  const attendue = createHmac('sha256', jetonService).update(`facebook:${v}.${e}`).digest('hex');
+  const attendue = createHmac('sha256', cleLiens).update(`facebook:${v}.${e}`).digest('hex');
   return attendue.length === s.length && timingSafeEqual(Buffer.from(attendue), Buffer.from(s)) ? Number(v) : null;
 }
 
@@ -627,14 +650,22 @@ app.get<{ Querystring: { v?: string; e?: string; s?: string } }>('/facebook/conn
   if (etatConnexion.etat !== 'actif') {
     return reply.code(503).type('text/html').send(pageHtml('Maintenance', messageFonction(etatConnexion)));
   }
-  if (etatValide(v, e, s) === null) {
+  const vendeurLien = etatValide(v, e, s);
+  if (vendeurLien === null) {
     return reply.code(403).type('text/html').send(pageHtml('Lien expiré', 'Ce lien de connexion a expiré. Écrivez « bayam facebook » sur WhatsApp pour en recevoir un nouveau.'));
   }
-  return reply.redirect(graph.urlConnexion(`${base}/facebook/retour`, `${v}.${e}.${s}`));
+  // État de connexion aléatoire, à usage unique, lié au navigateur par un cookie : un lien transféré ou une
+  // réponse de Facebook rejouée dans un autre navigateur ne relie aucune Page (protection CSRF de l'OAuth).
+  const nonce = randomBytes(18).toString('base64url');
+  await redis.set(`fb:etat:${nonce}`, String(vendeurLien), { expiration: { type: 'EX', value: 900 } });
+  return reply.header('set-cookie', `${COOKIE_ETAT}=${nonce}; Path=/facebook; Max-Age=900; HttpOnly; Secure; SameSite=Lax`)
+    .redirect(graph.urlConnexion(`${base}/facebook/retour`, nonce));
 });
 app.get<{ Querystring: { code?: string; state?: string; error?: string } }>('/facebook/retour', async (req, reply) => {
-  const [v = '', e = '', s = ''] = String(req.query.state ?? '').split('.');
-  const vendeur = etatValide(v, e, s);
+  const etat = String(req.query.state ?? '');
+  const cookie = new RegExp(`(?:^|;\\s*)${COOKIE_ETAT}=([\\w-]{24})(?:;|$)`).exec(String(req.headers.cookie ?? ''))?.[1];
+  const enregistre = /^[\w-]{24}$/.test(etat) && cookie === etat ? await redis.getDel(`fb:etat:${etat}`) : null;
+  const vendeur = enregistre && /^\d{1,10}$/.test(enregistre) ? Number(enregistre) : null;
   if (vendeur === null || !req.query.code) {
     return reply.code(req.query.error ? 200 : 403).type('text/html').send(pageHtml('Connexion annulée', 'Aucune Page n\'a été reliée. Écrivez « bayam facebook » sur WhatsApp pour recommencer.'));
   }

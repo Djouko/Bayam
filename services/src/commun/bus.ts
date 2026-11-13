@@ -14,7 +14,10 @@ export const SUJET_FACEBOOK = 'facebook.evenements';
 
 export function connecterBus(serveurs: string, nom: string): Promise<NatsConnection> {
   // Reconnexion sans fin : le bus redémarre, le service attend et reprend.
-  return connect({ servers: serveurs.split(','), name: nom, maxReconnectAttempts: -1, reconnectTimeWait: 1000 });
+  // Compte du service sur le bus (infra/nats/nats.conf) : sans lui, NATS refuse la connexion.
+  const user = process.env.NATS_UTILISATEUR;
+  const pass = process.env.NATS_MOT_DE_PASSE;
+  return connect({ servers: serveurs.split(','), name: nom, maxReconnectAttempts: -1, reconnectTimeWait: 1000, ...(user && pass ? { user, pass } : {}) });
 }
 
 /** Crée ou met à jour le flux des événements WhatsApp (au démarrage de chaque service, sans effet s'il existe). */

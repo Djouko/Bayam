@@ -590,7 +590,7 @@ bayam_verifier('« … statut story » : statut WhatsApp et story Facebook deman
 $r = bayam_dire('bayam facebook');
 preg_match('#/facebook/connexion\?v=(\d+)&e=(\d+)&s=([0-9a-f]{64})#', $joint($r), $lien_fb);
 bayam_verifier('« bayam facebook » : lien de connexion signé, valable 30 min', $lien_fb && (int) $lien_fb[1] === 3 && abs((int) $lien_fb[2] - time() - 1800) < 60
-    && hash_equals(hash_hmac('sha256', "facebook:3.{$lien_fb[2]}", (string) getenv('BAYAM_SERVICE_JETON')), $lien_fb[3]), $r);
+    && hash_equals(hash_hmac('sha256', "facebook:3.{$lien_fb[2]}", (string) getenv('BAYAM_CLE_LIENS')), $lien_fb[3]), $r);
 // Page reliée (simulée) : publication et story demandées au service, avec le bon article ; retrait d'une Page.
 $pages_fb = [['page' => '110675147863315', 'vendeur' => 3, 'nom' => 'Kratos Learn', 'actif' => true, 'permissions' => ['pages_manage_posts']]];
 wp_cache_delete("bayam_fb_pages_{$vendeur}", 'bayam');

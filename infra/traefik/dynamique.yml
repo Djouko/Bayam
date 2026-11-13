@@ -9,10 +9,19 @@ http:
         frameDeny: true
         contentTypeNosniff: true
         referrerPolicy: strict-origin-when-cross-origin
+        stsSeconds: 31536000
+        # Le TLS s'arrête chez Cloudflare : Traefik reçoit du HTTP et doit quand même annoncer HSTS.
+        forceSTSHeader: true
+        contentSecurityPolicy: "frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self' https://*.cinetpay.com https://checkout.cinetpay.com"
         permissionsPolicy: "camera=(), microphone=(), geolocation=(self), payment=(self)"
         customResponseHeaders:
           X-Powered-By: ""
           Server: ""
+          Cross-Origin-Opener-Policy: same-origin-allow-popups
+        # Marque de toute requête venue de l'entrée publique (écrasée si un client l'envoie lui-même) : WordPress
+        # refuse ses routes internes à une requête qui la porte, même avec le bon jeton.
+        customRequestHeaders:
+          X-Bayam-Entree: publique
 
     # Navigation ordinaire : une page charge des dizaines de fichiers d'un coup, d'où la rafale permise.
     debit-general:
@@ -40,6 +49,12 @@ http:
         burst: 3
         sourceCriterion:
           requestHeaderName: Cf-Connecting-Ip
+
+    # Événements de Meta : 1 Mo au plus (un lot d'événements pèse quelques kilo-octets).
+    corps-webhook:
+      buffering:
+        maxRequestBodyBytes: 1048576
+        memRequestBodyBytes: 1048576
 
     # Petits envois JSON (signalements) : 32 Ko au plus.
     corps-petit:

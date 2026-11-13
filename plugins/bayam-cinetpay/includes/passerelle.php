@@ -91,7 +91,7 @@ final class Bayam_CinetPay_Passerelle extends WC_Payment_Gateway
     /** Retour du client (succès ou échec) : adresse courte, CinetPay en limite la longueur à 120 caractères. */
     private static function url_retour(WC_Order $commande): string
     {
-        return home_url('/wp-json/bayam/v1/cinetpay/retour/' . $commande->get_id());
+        return add_query_arg('cle', $commande->get_order_key(), home_url('/wp-json/bayam/v1/cinetpay/retour/' . $commande->get_id()));
     }
 
     public static function routes(): void
@@ -127,7 +127,8 @@ final class Bayam_CinetPay_Passerelle extends WC_Payment_Gateway
     public static function retour(WP_REST_Request $requete): void
     {
         $commande = wc_get_order((int) $requete['commande']);
-        if (!$commande || $commande->get_payment_method() !== self::ID) {
+        // Clé de la commande exigée : sans elle, un numéro tiré au hasard ne mène à rien.
+        if (!$commande || $commande->get_payment_method() !== self::ID || !hash_equals($commande->get_order_key(), (string) $requete->get_param('cle'))) {
             wp_safe_redirect(home_url('/'));
             exit;
         }
