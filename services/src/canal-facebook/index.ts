@@ -27,6 +27,7 @@ import { METADONNEE_BAYAM, type EvenementFacebook } from '../passerelle/facebook
 import { chiffrer, cleDepuis, dechiffrer } from './coffre.ts';
 import { Donnees, type Page } from './donnees.ts';
 import { ABONNEMENTS, ErreurGraph, Graph } from './graph.ts';
+import { ClientRetours } from '../commun/retours.ts';
 import * as messenger from './messenger.ts';
 import { decider, lireActionFacebook, type Decision } from './routeur.ts';
 
@@ -53,6 +54,7 @@ redis.on('error', (e: unknown) => log.erreur('Redis', { erreur: texteErreur(e) }
 await redis.connect();
 const fonctions = new Fonctions(redis);
 const commerce = new CommerceWordpress(`${urlWordpress}/wp-json/bayam/v1/interne`, jetonService, redis);
+const retours = new ClientRetours(lire('BAYAM_RETOURS', 'http://retours:8093'), jetonService);
 
 const REPRISE_S = 2 * 3600; // le vendeur a répondu lui-même : le service se tait 2 h dans cette discussion
 const RETOUR_S = 3 * 86_400; // client qui revient après 3 jours sans écrire : il retrouve le menu de la boutique
@@ -205,7 +207,10 @@ async function pourClient(d: Extract<Decision, { route: 'client' }>, evt: string
       envois = messenger.aide(b);
       break;
     case 'signaler':
-      envois = [messenger.texteSimple(await commerce.retour({ type: a.genre, texte: a.texte || '(sans détail)', canal: 'messenger', auteur: `client ${d.client}`, vendeur: b.id }))];
+      envois = [messenger.texteSimple(await retours.signaler({
+        type: a.genre, texte: a.texte || '(sans détail)', canal: 'messenger', auteur: 'client Messenger', identifiant: `${d.page}:${d.client}`, vendeur: b.id,
+        contact: { canal: 'messenger', page: d.page, client: d.client },
+      }))];
       break;
   }
   await envoyer(p, b, d.client, envois, evt);

@@ -59,7 +59,6 @@ if (!is_array($sauvegarde)) {
     update_option('bayam_wa_essais_sauvegarde', $sauvegarde, false);
 }
 $depart = [];
-$depart_retours = (int) $wpdb->get_var("SELECT COALESCE(MAX(ID), 0) FROM {$wpdb->posts}");
 foreach (['dettes', 'diffusions', 'wa_messages', 'liens'] as $table) {
     $depart[$table] = (int) $wpdb->get_var("SELECT COALESCE(MAX(id), 0) FROM " . Bayam_WA_Stockage::table($table));
 }
@@ -690,11 +689,23 @@ bayam_verifier('commande choisie dans le menu : exécutée, réponse dans « Mes
 
 // --- Parité WhatsApp et Facebook, retours, maintenance ----------------------------------------------------------
 echo "\nRetours, connexion WhatsApp, publication multiple, maintenance\n";
+// Service des retours simulé : les essais ne remplissent pas le vrai tableau de bord (vérifié à part par
+// scripts/essai_retours.sh contre le service réel).
+$appels_retours = [];
+$retours_en_panne = false;
+Bayam_WA_Retours::remplacer(static function (string $methode, string $chemin, ?array $corps) use (&$appels_retours, &$retours_en_panne) {
+    $appels_retours[] = compact('methode', 'chemin', 'corps');
+    return $retours_en_panne ? null : ['numero' => 'R-' . count($appels_retours), 'message' => '🙏 Merci ! Votre signalement (R-' . count($appels_retours) . ') est bien arrivé à l’équipe BAYAM.'];
+});
 $r = bayam_dire('bayam signaler le lien de paiement ne s’ouvre pas');
-$retour = $wpdb->get_row("SELECT ID, post_title, post_status FROM {$wpdb->posts} WHERE post_type = 'bayam_retour' AND ID > {$depart_retours} ORDER BY ID DESC LIMIT 1");
-bayam_verifier('« bayam signaler … » : enregistré (numéro de suivi), visible dans l’administration', $retour && str_contains($joint($r), "R-{$retour->ID}") && $retour->post_status === 'private' && get_post_meta($retour->ID, '_bayam_type', true) === 'souci', $r);
+$envoi = end($appels_retours) ?: [];
+bayam_verifier('« bayam signaler … » : transmis au service des retours (Copilote, boutique, identité anonymisée), numéro donné', str_contains($joint($r), 'R-1') && $envoi['chemin'] === '/interne/signalements' && $envoi['corps']['type'] === 'souci' && $envoi['corps']['canal'] === 'copilote' && $envoi['corps']['vendeur'] === 3 && $envoi['corps']['identifiant'] === 'vendeur:3', [$r, $envoi]);
 $r = bayam_dire('bayam idée publier sur TikTok');
-bayam_verifier('« bayam idée … » : enregistrée comme idée', str_contains($joint($r), 'Votre idée') && get_post_meta((int) $wpdb->get_var("SELECT MAX(ID) FROM {$wpdb->posts} WHERE post_type = 'bayam_retour'"), '_bayam_type', true) === 'idee', $r);
+bayam_verifier('« bayam idée … » : transmise comme idée', (end($appels_retours)['corps']['type'] ?? '') === 'idee' && str_contains($joint($r), 'R-2'), $r);
+$retours_en_panne = true;
+$r = bayam_dire('bayam signaler le panier se vide tout seul');
+$retours_en_panne = false;
+bayam_verifier('service des retours en panne : message honnête, aucun faux numéro', str_contains($joint($r), "n'a pas pu être enregistré") && !str_contains($joint($r), 'R-3'), $r);
 $r = bayam_dire('bayam whatsapp');
 bayam_verifier('« bayam whatsapp » : WhatsApp déjà relié, le numéro est rappelé', str_contains($joint($r), 'WhatsApp relié à BAYAM'), $r);
 $faux->statut = 'SCAN_QR_CODE';
@@ -721,13 +732,15 @@ $requete->set_param('retour', true);
 $faux->envois = [];
 $copilote = rest_do_request($requete)->get_data();
 bayam_verifier('Copilote depuis Messenger : réponses rendues à l’appelant, rien envoyé sur WhatsApp', !empty($copilote['reponses'][0]['texte']) && !array_filter($faux->envois, static fn ($e) => $e['chemin'] === '/api/sendText'), $copilote);
-$requete = new WP_REST_Request('POST', '/bayam/v1/interne/retours');
+$requete = new WP_REST_Request('POST', '/bayam/v1/interne/alerte');
 $requete->set_header('x-bayam-service', $jeton_service);
-foreach (['type' => 'souci', 'texte' => 'Le lien de commande ne charge pas', 'canal' => 'messenger', 'auteur' => 'client essai', 'vendeur' => 3] as $cle => $valeur) {
-    $requete->set_param($cle, $valeur);
-}
-$retour_client = rest_do_request($requete)->get_data();
-bayam_verifier('retour d’un client (Messenger) : numéro et remerciement', str_starts_with($retour_client['numero'] ?? '', 'R-') && str_contains($retour_client['message'] ?? '', 'Merci'), $retour_client);
+$requete->set_param('texte', '');
+$alerte_vide = rest_do_request($requete);
+$requete = new WP_REST_Request('POST', '/bayam/v1/interne/alerte');
+$requete->set_param('sujet', 1);
+$requete->set_param('texte', 'essai');
+$alerte_anonyme = rest_do_request($requete);
+bayam_verifier('alerte de l’équipe : refusée vide (400) ou sans jeton de service (401)', $alerte_vide->get_status() === 400 && $alerte_anonyme->get_status() === 401, [$alerte_vide->get_status(), $alerte_anonyme->get_status()]);
 // Maintenance : le Copilote répond par le message de l'équipe, mais signaler un souci reste possible.
 $redis = Bayam_WA_Outils::redis();
 $redis?->hSet('bayam:fonctions', 'whatsapp.copilote', wp_json_encode(['etat' => 'maintenance', 'message' => 'Copilote en maintenance (essai), retour dans 5 minutes.']));
@@ -778,9 +791,7 @@ Bayam_WA_Waha::remplacer(null);
 Bayam_WA_IA::remplacer(null);
 delete_transient("bayam_wa_chaines_{$vendeur}");
 Bayam_WA_Facebook::remplacer(null);
-foreach ($wpdb->get_col("SELECT ID FROM {$wpdb->posts} WHERE post_type = 'bayam_retour' AND ID > {$depart_retours}") as $id_retour) {
-    wp_delete_post((int) $id_retour, true); // retours des essais
-}
+Bayam_WA_Retours::remplacer(null);
 wp_cache_delete("bayam_fb_pages_{$vendeur}", 'bayam'); // les vraies Pages reliées sont relues au prochain besoin
 delete_option('bayam_wa_essais_jusqua');
 echo "  données de démonstration restaurées\n";

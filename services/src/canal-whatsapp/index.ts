@@ -23,6 +23,7 @@ import { creerJeton, nettoyer, ouvrirJeton } from './jetons.ts';
 import { LotWordpress } from './lot.ts';
 import * as menuVendeur from './menu-vendeur.ts';
 import { discussionDuVendeur, lireMessage, type Evenement, type MessageWhatsapp } from './message.ts';
+import { ClientRetours } from '../commun/retours.ts';
 import { deposer, envoyerDues, valide, type Notification } from './notifications.ts';
 import { decider, FRAICHEUR, type Decision } from './routeur.ts';
 import { COTE_PHOTO, dessinerVitrine, photoLegere } from './vitrine.ts';
@@ -43,6 +44,7 @@ await redis.connect();
 
 const fonctions = new Fonctions(redis);
 const commerce = new CommerceWordpress(`${urlWordpress}/wp-json/bayam/v1/interne`, jetonService, redis);
+const retours = new ClientRetours(lire('BAYAM_RETOURS', 'http://retours:8093'), jetonService);
 const waha = new Waha(lire('WAHA_URL', 'http://waha:3000'), exiger('WAHA_API_KEY'));
 const expediteur = new Expediteur(waha, redis, pool, log, {
   parDiscussion10Min: nombre('PLAFOND_DISCUSSION_10MIN', 40),
@@ -81,7 +83,10 @@ async function repondre(d: Extract<Decision, { route: 'catalogue' }>): Promise<'
       envois = catalogue.aideClient(b);
       break;
     case 'signaler': {
-      const merci = await commerce.retour({ type: a.genre, texte: a.texte || '(sans détail)', canal: 'whatsapp', auteur: m.numero ?? m.nom, vendeur: b.id });
+      const merci = await retours.signaler({
+        type: a.genre, texte: a.texte || '(sans détail)', canal: 'whatsapp', auteur: m.nom, identifiant: m.numero ?? m.chat, vendeur: b.id,
+        contact: { canal: 'whatsapp', session: m.session, chat: m.chat },
+      });
       envois = [{ type: 'texte', texte: MARQUE + merci }];
       break;
     }

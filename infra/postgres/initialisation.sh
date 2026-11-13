@@ -7,7 +7,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<'S
 REVOKE ALL ON DATABASE bayam FROM PUBLIC;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 SQL
-for service in canal_whatsapp canal_facebook; do
+for service in canal_whatsapp canal_facebook retours; do
   variable=$(echo "${service}_DB_PASSWORD" | tr '[:lower:]' '[:upper:]')
   mdp=$(printenv "$variable" || true)
   if [ -z "$mdp" ]; then

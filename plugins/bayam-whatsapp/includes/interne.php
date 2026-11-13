@@ -38,7 +38,7 @@ final class Bayam_WA_Interne
         register_rest_route('bayam/v1', '/interne/boutiques/(?P<id>\d+)/destinations', $lecture + ['callback' => [self::class, 'destinations']]);
         register_rest_route('bayam/v1', '/interne/boutiques/(?P<id>\d+)/publier', ['methods' => 'POST', 'permission_callback' => [self::class, 'autorise'], 'callback' => [self::class, 'publier']]);
         // Soucis et idées envoyés par les clients (WhatsApp, Messenger) ; ceux des vendeurs passent par le Copilote.
-        register_rest_route('bayam/v1', '/interne/retours', ['methods' => 'POST', 'permission_callback' => [self::class, 'autorise'], 'callback' => [self::class, 'retour']]);
+        register_rest_route('bayam/v1', '/interne/alerte', ['methods' => 'POST', 'permission_callback' => [self::class, 'autorise'], 'callback' => [self::class, 'alerte']]);
     }
 
     public static function autorise(WP_REST_Request $requete): bool
@@ -371,15 +371,19 @@ final class Bayam_WA_Interne
     }
 
     /** Souci ou idée d'un client (canal, prénom ou identifiant) : enregistré, numéro et remerciement rendus. */
-    public static function retour(WP_REST_Request $r)
+    /** Alerte du service des retours (sujet critique, panne, plusieurs personnes touchées) : courriel à l'équipe. */
+    public static function alerte(WP_REST_Request $r)
     {
-        $texte = trim((string) $r->get_param('texte'));
-        $type = (string) $r->get_param('type');
-        if (mb_strlen($texte) < 3 || mb_strlen($texte) > 2000) {
-            return new WP_REST_Response(['erreur' => 'texte invalide'], 400);
+        $sujet = absint($r->get_param('sujet'));
+        $texte = sanitize_textarea_field((string) $r->get_param('texte'));
+        if (!$sujet || $texte === '' || mb_strlen($texte) > 1000) {
+            return new WP_REST_Response(['erreur' => 'alerte invalide'], 400);
         }
-        $numero = Bayam_WA_Retours::creer($type, $texte, sanitize_text_field((string) $r->get_param('canal')), (int) $r->get_param('vendeur'), sanitize_text_field((string) $r->get_param('auteur')));
-        return ['numero' => $numero, 'message' => Bayam_WA_Retours::merci($numero, $type)];
+        $lien = add_query_arg(['page' => 'bayam-retours', 'sujet' => $sujet], admin_url('admin.php'));
+        $envoye = wp_mail((string) get_option('admin_email'), mb_strimwidth($texte, 0, 120, '…', 'UTF-8'), "{$texte}
+
+{$lien}");
+        return new WP_REST_Response(['envoye' => (bool) $envoye], $envoye ? 200 : 502);
     }
 
     // --- Lien personnel de commande ----------------------------------------------------------------------------

@@ -79,8 +79,6 @@ export interface Commerce {
   copilote(id: number, texte: string, options?: { photo?: string; photoBase64?: string; retour?: boolean }): Promise<ReponseCopilote[]>;
   destinations(id: number): Promise<Destinations>;
   publier(id: number, demande: DemandePublication, retour?: boolean): Promise<ReponseCopilote[]>;
-  /** Souci ou idée d'un client, transmis à l'équipe ; renvoie le message de remerciement. */
-  retour(demande: { type: 'souci' | 'idee'; texte: string; canal: string; auteur: string; vendeur?: number }): Promise<string>;
 }
 
 /** Source WooCommerce : API interne de l'extension BAYAM, mise en cache dans Redis jusqu'à la prochaine modification. */
@@ -137,10 +135,6 @@ export class CommerceWordpress implements Commerce {
 
   async publier(id: number, demande: DemandePublication, retour = false): Promise<ReponseCopilote[]> {
     return (await this.ecrire<{ reponses?: ReponseCopilote[] }>(`/boutiques/${id}/publier`, { ...demande, retour })).reponses ?? [];
-  }
-
-  async retour(demande: { type: 'souci' | 'idee'; texte: string; canal: string; auteur: string; vendeur?: number }): Promise<string> {
-    return (await this.ecrire<{ message: string }>('/retours', demande)).message;
   }
 
   /** Écriture vers WordPress (publier, interroger le modèle de langage : jusqu'à une minute). */

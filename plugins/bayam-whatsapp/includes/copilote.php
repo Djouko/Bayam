@@ -679,7 +679,7 @@ final class Bayam_WA_Copilote
                 ? 'Écrivez votre idée après le mot, par exemple : *bayam idée pouvoir publier sur TikTok*.'
                 : 'Décrivez le souci après le mot, par exemple : *bayam signaler le lien de paiement ne s\'ouvre pas*.']];
         }
-        return [['texte' => Bayam_WA_Retours::merci(Bayam_WA_Retours::creer($type, $texte, 'vendeur', $this->vendeur), $type)]];
+        return [['texte' => Bayam_WA_Retours::creer($type, $texte, 'vendeur', $this->vendeur)]];
     }
 
     /**

@@ -32,6 +32,21 @@ http:
         sourceCriterion:
           requestHeaderName: Cf-Connecting-Ip
 
+    # Signalements depuis l'application et le site : quelques-uns par personne, contre le remplissage automatique.
+    debit-retours:
+      rateLimit:
+        average: 6
+        period: 1h
+        burst: 3
+        sourceCriterion:
+          requestHeaderName: Cf-Connecting-Ip
+
+    # Petits envois JSON (signalements) : 32 Ko au plus.
+    corps-petit:
+      buffering:
+        maxRequestBodyBytes: 32768
+        memRequestBodyBytes: 32768
+
     # Liens personnels de commande : contre l'essai de jetons au hasard.
     debit-liens:
       rateLimit:

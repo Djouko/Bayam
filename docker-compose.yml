@@ -224,6 +224,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       CANAL_WHATSAPP_DB_PASSWORD: ${CANAL_WHATSAPP_DB_PASSWORD}
       CANAL_FACEBOOK_DB_PASSWORD: ${CANAL_FACEBOOK_DB_PASSWORD}
+      RETOURS_DB_PASSWORD: ${RETOURS_DB_PASSWORD}
       TZ: Africa/Douala
     volumes:
       - postgres:/var/lib/postgresql
@@ -274,8 +275,7 @@ services:
       NATS_URL: nats://nats:4222
       REDIS_URL: redis://redis:6379
     # Adresses publiques : événements Facebook (https://<adresse>/webhooks/facebook) et état des fonctions pour les
-    # applications (https://<adresse>/api/config) ; /whatsapp et /sante restent sur le réseau interne. (https://<adresse>/webhooks/facebook) ; /whatsapp et
-    # /sante restent sur le réseau interne.
+    # applications (https://<adresse>/api/config) ; /whatsapp et /sante restent sur le réseau interne.
     labels:
       traefik.enable: "true"
       traefik.http.services.passerelle.loadbalancer.server.port: "8090"
@@ -342,6 +342,40 @@ services:
   # Canal Facebook (services/src/canal-facebook) : Pages des vendeurs par l'API officielle de Meta. Messenger
   # (catalogue en carrousel, lien personnel de commande), réponses aux commentaires, publications et stories,
   # connexion des Pages (https://<adresse>/facebook/connexion). Sans application Meta configurée, il attend.
+  # Retours des utilisateurs (signalements, idées) et pannes détectées par les sondes : doublons regroupés en sujets,
+  # urgence, alertes à l'équipe, réponse aux signaleurs. Public : POST /api/retours (application, site), débit limité.
+  retours:
+    image: bayam/services:1
+    restart: unless-stopped
+    command: ["node", "src/retours/index.ts"]
+    environment:
+      RETOURS_BASE: postgres://retours:${RETOURS_DB_PASSWORD}@postgres:5432/bayam
+      BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
+      BAYAM_WP_INTERNE: http://wordpress
+      BAYAM_CANAL_WHATSAPP: http://canal-whatsapp:8091
+      BAYAM_CANAL_FACEBOOK: http://canal-facebook:8092
+      RETOURS_ALERTE_WHATSAPP: ${RETOURS_ALERTE_WHATSAPP:-}
+      TZ: Africa/Douala
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8093/sante"]
+      interval: 10s
+      retries: 6
+    labels:
+      traefik.enable: "true"
+      traefik.http.services.retours.loadbalancer.server.port: "8093"
+      traefik.http.middlewares.vers-retours.replacepath.path: /retours
+      traefik.http.routers.retours-public.rule: Path(`/api/retours`) && Method(`POST`)
+      traefik.http.routers.retours-public.priority: "100"
+      traefik.http.routers.retours-public.entrypoints: web
+      traefik.http.routers.retours-public.service: retours
+      traefik.http.routers.retours-public.middlewares: securite@file,debit-retours@file,corps-petit@file,vers-retours
+
   canal-facebook:
     image: bayam/services:1
     restart: unless-stopped
