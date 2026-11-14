@@ -34,8 +34,11 @@ def lire(chemin):
 
 
 def main():
-    if len(sys.argv) != 3 or not re.match(r'^https://[a-z0-9.-]+$', sys.argv[1]):
-        sys.exit(__doc__)
+    adresse = sys.argv[1].strip().rstrip('/') if len(sys.argv) == 3 else ''
+    if not re.match(r'^https://[a-z0-9.-]+$', adresse):
+        sys.exit(__doc__ + '\nAdresse attendue : https://<nom>.easypanel.host (sans chemin).')
+    if not re.match(r'^[a-z0-9-]+$', sys.argv[2].strip()):
+        sys.exit(__doc__ + '\nNom de sauvegarde attendu : migration-AAAAMMJJ-HHMM.')
     local = lire(RACINE / '.env')
     sortie = []
     for ligne in (RACINE / '.env.example').read_text(encoding='utf-8').splitlines():
@@ -45,9 +48,9 @@ def main():
             continue
         nom, defaut = m.groups()
         if nom == 'BAYAM_URL_PUBLIQUE':
-            valeur = sys.argv[1]
+            valeur = adresse
         elif nom == 'BAYAM_RESTAURER':
-            valeur = sys.argv[2]
+            valeur = sys.argv[2].strip()
         elif nom == 'RESTAURER_WHATSAPP':
             valeur = 'oui'
         elif nom in NOUVEAUX:
