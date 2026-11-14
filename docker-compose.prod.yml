@@ -71,6 +71,7 @@ x-wordpress-env: &wordpress-env
   WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD}
   WP_VENDOR_PASSWORD: ${WP_VENDOR_PASSWORD}
   WP_CLI_CONFIG_PATH: /scripts/wp-cli.yml
+  WP_RACINE: /srv/wordpress
   TZ: Africa/Douala
 
 x-services-env: &services-env
@@ -206,8 +207,8 @@ services:
     restart: "no"
     environment: *wordpress-env
     volumes:
-      - uploads:/var/www/html/wp-content/uploads
-      - langues:/var/www/html/wp-content/languages
+      - uploads:/srv/wordpress/wp-content/uploads
+      - langues:/srv/wordpress/wp-content/languages
     networks: [default, donnees]
     depends_on:
       restauration: { condition: service_completed_successfully }
@@ -222,8 +223,8 @@ services:
       replicas: 2
     environment: *wordpress-env
     volumes:
-      - uploads:/var/www/html/wp-content/uploads
-      - langues:/var/www/html/wp-content/languages
+      - uploads:/srv/wordpress/wp-content/uploads
+      - langues:/srv/wordpress/wp-content/languages
     networks: [default, donnees]
     depends_on:
       preparation: { condition: service_completed_successfully }
@@ -237,8 +238,8 @@ services:
     command: ["wp", "bayam-wa", "travailleur", "--duree=3600"]
     environment: *wordpress-env
     volumes:
-      - uploads:/var/www/html/wp-content/uploads
-      - langues:/var/www/html/wp-content/languages
+      - uploads:/srv/wordpress/wp-content/uploads
+      - langues:/srv/wordpress/wp-content/languages
     networks: [default, donnees]
     depends_on:
       preparation: { condition: service_completed_successfully }

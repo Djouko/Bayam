@@ -2,7 +2,7 @@
 # Installation complète de la plateforme locale (WordPress + WooCommerce + WCFM + MStore API), sans intervention.
 # Lancé par : docker compose run --rm cli bash /scripts/installer.sh   (peut être relancé : chaque étape vérifie l'existant)
 set -euo pipefail
-cd /var/www/html
+cd "${WP_RACINE:-/var/www/html}"
 
 echo "== 1. WordPress"
 if ! wp core is-installed 2>/dev/null; then

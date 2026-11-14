@@ -32,22 +32,28 @@ COPY php.ini /usr/local/etc/php/conf.d/fluxstore.ini
 
 # Cœur WordPress et configuration lue dans les variables d'environnement (wp-config-docker.php de l'image officielle) :
 # présents dès la construction, pour le site comme pour WP-CLI.
-RUN cp -a /usr/src/wordpress/. /var/www/html/ && cp /usr/src/wordpress/wp-config-docker.php /var/www/html/wp-config.php
-COPY --from=extensions /x/plugins/ /var/www/html/wp-content/plugins/
-COPY --from=extensions /x/themes/ /var/www/html/wp-content/themes/
-COPY plugins/bayam-whatsapp /var/www/html/wp-content/plugins/bayam-whatsapp
-COPY --from=dependances /app/vendor /var/www/html/wp-content/plugins/bayam-whatsapp/vendor
-COPY plugins/bayam-cinetpay /var/www/html/wp-content/plugins/bayam-cinetpay
-COPY themes/bayam-vitrine /var/www/html/wp-content/themes/bayam-vitrine
-COPY mu-plugins /var/www/html/wp-content/mu-plugins
+# /var/www/html est déclaré volume par l'image officielle : Docker Compose le garde d'un conteneur à l'autre et
+# masquerait le code neuf à chaque déploiement. WordPress vit donc dans /srv/wordpress, qui suit toujours l'image.
+RUN mkdir -p /srv/wordpress \
+    && sed -ri 's#/var/www/html#/srv/wordpress#g; s#<Directory /var/www/>#<Directory /srv/>#g' \
+       /etc/apache2/apache2.conf /etc/apache2/sites-available/*.conf /etc/apache2/conf-available/docker-php.conf \
+    && cp -a /usr/src/wordpress/. /srv/wordpress/ && cp /usr/src/wordpress/wp-config-docker.php /srv/wordpress/wp-config.php
+WORKDIR /srv/wordpress
+COPY --from=extensions /x/plugins/ /srv/wordpress/wp-content/plugins/
+COPY --from=extensions /x/themes/ /srv/wordpress/wp-content/themes/
+COPY plugins/bayam-whatsapp /srv/wordpress/wp-content/plugins/bayam-whatsapp
+COPY --from=dependances /app/vendor /srv/wordpress/wp-content/plugins/bayam-whatsapp/vendor
+COPY plugins/bayam-cinetpay /srv/wordpress/wp-content/plugins/bayam-cinetpay
+COPY themes/bayam-vitrine /srv/wordpress/wp-content/themes/bayam-vitrine
+COPY mu-plugins /srv/wordpress/wp-content/mu-plugins
 COPY scripts/installer.sh scripts/wp-cli.yml /scripts/
 COPY scripts/catalogue /scripts/catalogue
 COPY scripts/pages /scripts/pages
 COPY scripts/medias /scripts/medias
 COPY deploiement/wordpress/preparer.sh /scripts/preparer.sh
 # Cache d'objets Redis actif sans écrire dans wp-content au démarrage ; essais retirés de l'image de production.
-RUN cp /var/www/html/wp-content/plugins/redis-cache/includes/object-cache.php /var/www/html/wp-content/object-cache.php \
-    && rm -rf /var/www/html/wp-content/plugins/bayam-whatsapp/tests \
-    && mkdir -p /var/www/html/wp-content/uploads /var/www/html/wp-content/languages \
-    && chown -R www-data:www-data /var/www/html /scripts
-VOLUME ["/var/www/html/wp-content/uploads", "/var/www/html/wp-content/languages"]
+RUN cp /srv/wordpress/wp-content/plugins/redis-cache/includes/object-cache.php /srv/wordpress/wp-content/object-cache.php \
+    && rm -rf /srv/wordpress/wp-content/plugins/bayam-whatsapp/tests \
+    && mkdir -p /srv/wordpress/wp-content/uploads /srv/wordpress/wp-content/languages \
+    && chown -R www-data:www-data /srv/wordpress /scripts
+VOLUME ["/srv/wordpress/wp-content/uploads", "/srv/wordpress/wp-content/languages"]

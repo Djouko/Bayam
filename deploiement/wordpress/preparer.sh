@@ -7,7 +7,7 @@
 #   4. adresse du site changée (poste vers serveur, nouveau domaine) : liens réécrits partout en base ;
 #   5. caches vidés.
 set -euo pipefail
-cd /var/www/html
+cd /srv/wordpress
 journal() { printf '{"t":"%s","service":"preparation","message":"%s"}\n' "$(date -u +%FT%TZ)" "$1"; }
 
 : "${BAYAM_URL_PUBLIQUE:?BAYAM_URL_PUBLIQUE manquant (adresse publique du site, https://…)}"
