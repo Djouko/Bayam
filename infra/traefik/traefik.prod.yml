@@ -1,0 +1,43 @@
+# Entrée de BAYAM sur le serveur (Easypanel) : le mandataire d'Easypanel reçoit HTTPS sur le domaine et transmet
+# ici en HTTP sur le réseau Docker. Mêmes routes et mêmes règles que sur le poste ; pas de tableau de bord,
+# santé et métriques sur un port interne jamais publié.
+
+entryPoints:
+  web:
+    address: ":80"
+    transport:
+      respondingTimeouts:
+        readTimeout: 60s
+        writeTimeout: 120s
+        idleTimeout: 180s
+    # Seul le mandataire d'Easypanel (réseaux Docker privés) est cru pour X-Forwarded-For.
+    forwardedHeaders:
+      trustedIPs: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+  interne:
+    address: ":8082"
+
+ping:
+  entryPoint: interne
+
+metrics:
+  prometheus:
+    entryPoint: interne
+
+providers:
+  file:
+    directory: /etc/traefik/dynamique
+    watch: false
+
+log:
+  level: INFO
+  format: json
+
+accessLog:
+  format: json
+  fields:
+    headers:
+      defaultMode: drop
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false

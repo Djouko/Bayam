@@ -1,0 +1,12 @@
+# Extensions et thème de wordpress.org aux versions figées (mêmes que scripts/installer.sh), cuits dans l'image de
+# production. Changer une version ici puis redéployer : c'est la seule façon de mettre à jour une extension.
+# type      nom                           version
+plugin      woocommerce                   11.2.1
+plugin      mstore-api                    4.21.3
+plugin      wc-frontend-manager           6.8.1
+plugin      wc-multivendor-marketplace    3.8.3
+plugin      wc-multivendor-membership     2.12.0
+plugin      wordpress-importer            0.9.6
+plugin      woocommerce-gateway-stripe    11.1.1
+plugin      redis-cache                   3.0.0
+theme       storefront                    4.6.1

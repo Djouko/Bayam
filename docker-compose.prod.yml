@@ -1,0 +1,406 @@
+# BAYAM en production (Easypanel, service « Compose » depuis GitHub). Easypanel lance « docker compose up --build -d »
+# à chaque déploiement : les images sont reconstruites depuis le dépôt, les données restent dans les volumes.
+# Guide pas à pas : DEPLOIEMENT.md. Variables : .env.example (copié par Easypanel dans son éditeur d'environnement).
+#
+# Ordre de démarrage garanti à chaque déploiement :
+#   bases (MariaDB, PostgreSQL, Redis, NATS)
+#   -> restauration (une seule fois, si BAYAM_RESTAURER est rempli)
+#   -> preparation (mises à jour de la base WordPress, adresse du site)
+#   -> WordPress, services, WhatsApp, entrée Traefik (le domaine Easypanel pointe sur traefik:80)
+# Aucun port publié, aucun nom de conteneur fixe (règles Easypanel) ; aucun accès au socket Docker.
+
+x-journal: &journal
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+x-durci: &durci
+  security_opt: ["no-new-privileges:true"]
+
+x-wordpress-env: &wordpress-env
+  WORDPRESS_DB_HOST: db
+  WORDPRESS_DB_NAME: wordpress
+  WORDPRESS_DB_USER: wordpress
+  WORDPRESS_DB_PASSWORD: ${DB_PASSWORD}
+  WORDPRESS_AUTH_KEY: ${WORDPRESS_AUTH_KEY}
+  WORDPRESS_SECURE_AUTH_KEY: ${WORDPRESS_SECURE_AUTH_KEY}
+  WORDPRESS_LOGGED_IN_KEY: ${WORDPRESS_LOGGED_IN_KEY}
+  WORDPRESS_NONCE_KEY: ${WORDPRESS_NONCE_KEY}
+  WORDPRESS_AUTH_SALT: ${WORDPRESS_AUTH_SALT}
+  WORDPRESS_SECURE_AUTH_SALT: ${WORDPRESS_SECURE_AUTH_SALT}
+  WORDPRESS_LOGGED_IN_SALT: ${WORDPRESS_LOGGED_IN_SALT}
+  WORDPRESS_NONCE_SALT: ${WORDPRESS_NONCE_SALT}
+  WORDPRESS_CONFIG_EXTRA: |
+    define('WP_HOME', getenv('BAYAM_URL_PUBLIQUE'));
+    define('WP_SITEURL', getenv('BAYAM_URL_PUBLIQUE'));
+    define('WP_MEMORY_LIMIT', '256M');
+    define('WP_REDIS_HOST', 'redis');
+    define('WP_REDIS_PASSWORD', getenv('BAYAM_REDIS_MDP'));
+    define('WP_REDIS_PREFIX', 'bayam:');
+    define('DISALLOW_FILE_EDIT', true);
+    define('DISALLOW_FILE_MODS', true);
+    define('FORCE_SSL_ADMIN', true);
+    define('WP_ENVIRONMENT_TYPE', 'production');
+  BAYAM_URL_PUBLIQUE: ${BAYAM_URL_PUBLIQUE}
+  BAYAM_REDIS: redis
+  BAYAM_REDIS_MDP: ${REDIS_MOT_DE_PASSE}
+  BAYAM_CLE_LIENS: ${BAYAM_CLE_LIENS}
+  BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
+  BAYAM_CANAL_URL: http://canal-whatsapp:8091
+  BAYAM_CANAL_FACEBOOK_URL: http://canal-facebook:8092
+  BAYAM_RETOURS_URL: http://retours:8093
+  BAYAM_WA_WEBHOOK: http://passerelle:8090/whatsapp
+  WAHA_URL: http://waha:3000
+  WAHA_API_KEY: ${WAHA_API_KEY}
+  WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
+  CINETPAY_API_KEY: ${CINETPAY_API_KEY:-}
+  CINETPAY_API_PASSWORD: ${CINETPAY_API_PASSWORD:-}
+  CINETPAY_ENV: ${CINETPAY_ENV:-sandbox}
+  STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY:-}
+  STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+  STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+  STRIPE_MODE: ${STRIPE_MODE:-test}
+  ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+  BAYAM_GEMINI_MODELES: ${BAYAM_GEMINI_MODELES:-gemini-3.6-flash,gemini-3.5-flash-lite,gemini-3.1-flash-lite}
+  BAYAM_ASSISTANT_MODELE: ${BAYAM_ASSISTANT_MODELE:-claude-opus-5-5}
+  # Installation complète (premier déploiement sans restauration seulement).
+  WP_ADMIN: ${WP_ADMIN:-direction}
+  WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD}
+  WP_VENDOR_PASSWORD: ${WP_VENDOR_PASSWORD}
+  WP_CLI_CONFIG_PATH: /scripts/wp-cli.yml
+  TZ: Africa/Douala
+
+x-services-env: &services-env
+  BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
+  BAYAM_WP_INTERNE: http://wordpress
+  BAYAM_URL_PUBLIQUE: ${BAYAM_URL_PUBLIQUE}
+  NATS_URL: nats://nats:4222
+  REDIS_URL: redis://:${REDIS_MOT_DE_PASSE}@redis:6379
+  TZ: Africa/Douala
+
+x-r2-env: &r2-env
+  R2_ENDPOINT: ${R2_ENDPOINT}
+  R2_ACCESS_KEY: ${R2_ACCESS_KEY}
+  R2_SECRET_KEY: ${R2_SECRET_KEY}
+  R2_BUCKET: ${R2_BUCKET}
+  DB_HOST: db
+  DB_PASSWORD: ${DB_PASSWORD}
+  PGHOST: postgres
+  PGUSER: bayam_admin
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  TZ: Africa/Douala
+
+services:
+  # --- Données (réseau « donnees », sans Internet) ---------------------------------------------------------------
+  db:
+    image: mariadb:11.4.9
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_USER: wordpress
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    volumes: [db:/var/lib/mysql]
+    networks: [donnees]
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      retries: 30
+    <<: [*journal, *durci]
+
+  redis:
+    image: redis:8.2.2-alpine
+    restart: unless-stopped
+    command: ["sh", "-c", "exec redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --save '' --appendonly no --requirepass \"$$REDIS_MOT_DE_PASSE\""]
+    environment:
+      REDIS_MOT_DE_PASSE: ${REDIS_MOT_DE_PASSE}
+    networks: [donnees]
+    read_only: true
+    tmpfs: [/data]
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID]
+    <<: [*journal, *durci]
+
+  nats:
+    image: nats:2.12.15-alpine
+    restart: unless-stopped
+    command: ["--config", "/etc/nats/nats.conf"]
+    environment:
+      NATS_MDP_PASSERELLE: ${NATS_MDP_PASSERELLE}
+      NATS_MDP_CANAL_WHATSAPP: ${NATS_MDP_CANAL_WHATSAPP}
+      NATS_MDP_CANAL_FACEBOOK: ${NATS_MDP_CANAL_FACEBOOK}
+    volumes:
+      - nats:/data
+      - ./infra/nats/nats.conf:/etc/nats/nats.conf:ro
+    networks: [donnees]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8222/healthz?js-enabled-only=true"]
+      interval: 5s
+      retries: 30
+    <<: [*journal, *durci]
+
+  postgres:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bayam
+      POSTGRES_USER: bayam_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CANAL_WHATSAPP_DB_PASSWORD: ${CANAL_WHATSAPP_DB_PASSWORD}
+      CANAL_FACEBOOK_DB_PASSWORD: ${CANAL_FACEBOOK_DB_PASSWORD}
+      RETOURS_DB_PASSWORD: ${RETOURS_DB_PASSWORD}
+      TZ: Africa/Douala
+    volumes:
+      - postgres:/var/lib/postgresql
+      - ./infra/postgres/initialisation.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    networks: [donnees]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "bayam_admin", "-d", "bayam"]
+      interval: 5s
+      retries: 30
+    <<: [*journal, *durci]
+
+  # --- Restauration (une fois) et sauvegardes nocturnes vers Cloudflare R2 ----------------------------------------
+  restauration:
+    image: bayam/sauvegarde:prod
+    build: { context: ., dockerfile: deploiement/sauvegarde/Dockerfile }
+    command: ["premier-demarrage"]
+    restart: "no"
+    environment:
+      <<: *r2-env
+      BAYAM_RESTAURER: ${BAYAM_RESTAURER:-}
+      RESTAURER_WHATSAPP: ${RESTAURER_WHATSAPP:-non}
+    volumes:
+      - uploads:/donnees/uploads
+      - waha:/donnees/waha
+      - etat:/etat
+    networks: [default, donnees]
+    depends_on:
+      db: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    <<: *journal
+
+  sauvegarde:
+    image: bayam/sauvegarde:prod
+    pull_policy: never
+    restart: unless-stopped
+    environment: *r2-env
+    volumes:
+      - uploads:/donnees/uploads:ro
+      - waha:/donnees/waha:ro
+    networks: [default, donnees]
+    depends_on:
+      restauration: { condition: service_completed_successfully }
+    <<: [*journal, *durci]
+
+  # --- WordPress (boutique pendant la migration vers les services) -------------------------------------------------
+  preparation:
+    image: bayam/wordpress:prod
+    build: { context: ., dockerfile: deploiement/wordpress/Dockerfile }
+    command: ["bash", "/scripts/preparer.sh"]
+    user: "33:33"
+    restart: "no"
+    environment: *wordpress-env
+    volumes:
+      - uploads:/var/www/html/wp-content/uploads
+      - langues:/var/www/html/wp-content/languages
+    networks: [default, donnees]
+    depends_on:
+      restauration: { condition: service_completed_successfully }
+      redis: { condition: service_started }
+    <<: [*journal, *durci]
+
+  wordpress:
+    image: bayam/wordpress:prod
+    pull_policy: never
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+    environment: *wordpress-env
+    volumes:
+      - uploads:/var/www/html/wp-content/uploads
+      - langues:/var/www/html/wp-content/languages
+    networks: [default, donnees]
+    depends_on:
+      preparation: { condition: service_completed_successfully }
+    <<: [*journal, *durci]
+
+  travailleur:
+    image: bayam/wordpress:prod
+    pull_policy: never
+    restart: unless-stopped
+    user: "33:33"
+    command: ["wp", "bayam-wa", "travailleur", "--duree=3600"]
+    environment: *wordpress-env
+    volumes:
+      - uploads:/var/www/html/wp-content/uploads
+      - langues:/var/www/html/wp-content/languages
+    networks: [default, donnees]
+    depends_on:
+      preparation: { condition: service_completed_successfully }
+    <<: [*journal, *durci]
+
+  cache-web:
+    image: nginx:1.29.8-alpine
+    restart: unless-stopped
+    volumes:
+      - ./infra/nginx/cache.conf:/etc/nginx/conf.d/default.conf:ro
+    tmpfs: [/var/cache/nginx]
+    depends_on: [wordpress]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    <<: [*journal, *durci]
+
+  # --- WhatsApp (connecteur WAHA, moteur GOWS) ---------------------------------------------------------------------
+  waha:
+    image: devlikeapro/waha:latest@sha256:2fc1787ddbd343ed2e7d59482846d1b22aa5ca134e29aa8d42d0e88c54e24779
+    restart: unless-stopped
+    environment:
+      WHATSAPP_DEFAULT_ENGINE: GOWS
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      WHATSAPP_API_KEY: ${WAHA_API_KEY}
+      WAHA_DASHBOARD_USERNAME: admin
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
+      WHATSAPP_SWAGGER_USERNAME: admin
+      WHATSAPP_SWAGGER_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
+      TZ: Africa/Douala
+    volumes: [waha:/app/.sessions]
+    depends_on:
+      restauration: { condition: service_completed_successfully }
+    <<: [*journal, *durci]
+
+  # --- Microservices (services/) -----------------------------------------------------------------------------------
+  passerelle:
+    image: bayam/services:prod
+    build: { context: services }
+    restart: unless-stopped
+    command: ["node", "src/passerelle/index.ts"]
+    environment:
+      <<: *services-env
+      NATS_UTILISATEUR: passerelle
+      NATS_MOT_DE_PASSE: ${NATS_MDP_PASSERELLE}
+      WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      FACEBOOK_JETON_VERIFICATION: ${FACEBOOK_JETON_VERIFICATION:-}
+    networks: [default, donnees]
+    depends_on:
+      redis: { condition: service_started }
+      nats: { condition: service_healthy }
+    read_only: true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8090/sante"]
+      interval: 10s
+      retries: 6
+    <<: [*journal, *durci]
+
+  canal-whatsapp:
+    image: bayam/services:prod
+    pull_policy: never
+    restart: unless-stopped
+    command: ["node", "src/canal-whatsapp/index.ts"]
+    environment:
+      <<: *services-env
+      NATS_UTILISATEUR: canal-whatsapp
+      NATS_MOT_DE_PASSE: ${NATS_MDP_CANAL_WHATSAPP}
+      CANAL_WHATSAPP_BASE: postgres://canal_whatsapp:${CANAL_WHATSAPP_DB_PASSWORD}@postgres:5432/bayam
+      WAHA_URL: http://waha:3000
+      WAHA_API_KEY: ${WAHA_API_KEY}
+    networks: [default, donnees]
+    depends_on:
+      restauration: { condition: service_completed_successfully }
+      nats: { condition: service_healthy }
+      passerelle: { condition: service_started }
+    read_only: true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8091/sante"]
+      interval: 10s
+      retries: 6
+    <<: [*journal, *durci]
+
+  canal-facebook:
+    image: bayam/services:prod
+    pull_policy: never
+    restart: unless-stopped
+    command: ["node", "src/canal-facebook/index.ts"]
+    environment:
+      <<: *services-env
+      NATS_UTILISATEUR: canal-facebook
+      NATS_MOT_DE_PASSE: ${NATS_MDP_CANAL_FACEBOOK}
+      CANAL_FACEBOOK_BASE: postgres://canal_facebook:${CANAL_FACEBOOK_DB_PASSWORD}@postgres:5432/bayam
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      FACEBOOK_CONFIG_ID: ${FACEBOOK_CONFIG_ID:-}
+      FACEBOOK_JETON_VERIFICATION: ${FACEBOOK_JETON_VERIFICATION:-}
+      FACEBOOK_CLE: ${FACEBOOK_CLE}
+      BAYAM_CANAL_WHATSAPP: http://canal-whatsapp:8091
+      BAYAM_CLE_LIENS: ${BAYAM_CLE_LIENS}
+    networks: [default, donnees]
+    depends_on:
+      restauration: { condition: service_completed_successfully }
+      nats: { condition: service_healthy }
+    read_only: true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8092/sante"]
+      interval: 10s
+      retries: 6
+    <<: [*journal, *durci]
+
+  retours:
+    image: bayam/services:prod
+    pull_policy: never
+    restart: unless-stopped
+    command: ["node", "src/retours/index.ts"]
+    environment:
+      <<: *services-env
+      RETOURS_BASE: postgres://retours:${RETOURS_DB_PASSWORD}@postgres:5432/bayam
+      BAYAM_CANAL_WHATSAPP: http://canal-whatsapp:8091
+      BAYAM_CANAL_FACEBOOK: http://canal-facebook:8092
+      RETOURS_ALERTE_WHATSAPP: ${RETOURS_ALERTE_WHATSAPP:-}
+      BAYAM_IP_CLIENT: mandataire
+    networks: [default, donnees]
+    depends_on:
+      restauration: { condition: service_completed_successfully }
+    read_only: true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8093/sante"]
+      interval: 10s
+      retries: 6
+    <<: [*journal, *durci]
+
+  # --- Entrée publique : le domaine Easypanel pointe ici (service traefik, port 80) ------------------------------------
+  traefik:
+    image: traefik:v3.6.25
+    restart: unless-stopped
+    volumes:
+      - ./infra/traefik/traefik.prod.yml:/etc/traefik/traefik.yml:ro
+      - ./infra/traefik/dynamique.yml:/etc/traefik/dynamique/communs.yml:ro
+      - ./infra/traefik/routes.yml:/etc/traefik/dynamique/routes.yml:ro
+      - ./infra/traefik/debits-mandataire.yml:/etc/traefik/dynamique/debits.yml:ro
+    depends_on: [cache-web, passerelle, canal-facebook, retours]
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck"]
+      interval: 10s
+      retries: 6
+    <<: [*journal, *durci]
+
+networks:
+  donnees:
+    internal: true
+
+volumes:
+  db:
+  postgres:
+  nats:
+  waha:
+  uploads:
+  langues:
+  etat:

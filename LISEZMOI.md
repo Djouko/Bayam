@@ -24,7 +24,7 @@ WordPress reste la boutique pendant la transition ; les nouvelles fonctions nais
 
 | Élément | Rôle |
 |---|---|
-| Traefik 3.6 (`infra/traefik`) | Entrée unique sur le port 8080 et pour le tunnel : répartition de charge, limitation de débit, en-têtes de sécurité, adresses internes refusées |
+| Traefik 3.6 (`infra/traefik`) | Entrée unique sur le port 8080 et pour le tunnel : répartition de charge, limitation de débit, en-têtes de sécurité, adresses internes refusées. Routes dans `infra/traefik/routes.yml` (mêmes sur le poste et le serveur), aucun accès à Docker |
 | Passerelle (`services/src/passerelle`) | Reçoit les événements de WAHA et de Meta (Facebook), vérifie leur signature, garde ce qui concerne BAYAM et l'écrit dans le bus |
 | NATS JetStream 2.12 (`infra/nats`) | Bus d'événements durable : rien ne se perd si un service redémarre |
 | Canal WhatsApp (`services/src/canal-whatsapp`) | Catalogue interactif (rayons, cartes, lien personnel de commande), confirmations aux clients ; transmet le reste à l'extension WordPress |
@@ -176,6 +176,18 @@ bash scripts/fonctions.sh actif facebook.commentaires
 ```
 
 Fonctions : `whatsapp` (catalogue, menu, copilote, publication, assistant), `facebook` (messenger, commentaires, publications, connexion), `paiement`, `mobile`, `web` ; un préfixe vaut pour toutes ses fonctions. Pendant une maintenance, l'utilisateur reçoit un message clair (une fois par heure) au lieu d'une erreur, signaler un souci reste possible, les publications et les commentaires attendent leur tour, et la fonction se rouvre seule à l'heure annoncée. Les applications lisent l'état de chaque fonction sur `https://<adresse>/api/config` (gardé 30 s). Les événements reçus pendant le redémarrage d'un service restent dans le bus et sont traités au retour : une mise à jour des services ne fait perdre aucun message.
+
+## Production (serveur Easypanel)
+
+Guide pas à pas : `DEPLOIEMENT.md`. Composition déployée : `docker-compose.prod.yml` (images WordPress et sauvegarde dans `deploiement/`, variables dans `.env.example`). Sauvegardes chaque nuit vers Cloudflare R2 (`deploiement/sauvegarde`) ; migration du poste vers le serveur : `bash scripts/migrer_vers_serveur.sh`.
+
+Essayer la production sur le poste avant de pousser un changement de déploiement :
+```
+python scripts/env_production.py https://essai.local <sauvegarde>   (puis adapter en deploiement/.env.essai, voir deploiement/essai-local.yml)
+docker compose -p bayam-essai-prod -f docker-compose.prod.yml -f deploiement/essai-local.yml --env-file deploiement/.env.essai up -d --build
+BAYAM_PROJET=bayam-essai-prod BAYAM_ENV=deploiement/.env.essai bash scripts/essai_securite.sh
+```
+Les scripts (`fonctions.sh`, `essai_securite.sh`, `essai_retours.sh`) retrouvent les conteneurs sur le poste comme sur le serveur (`scripts/commun.sh`).
 
 ## Retours des utilisateurs (signalements, idées, pannes)
 

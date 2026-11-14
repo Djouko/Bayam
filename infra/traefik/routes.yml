@@ -1,0 +1,105 @@
+# Routes publiques de BAYAM, identiques sur le poste et sur le serveur. Traefik ne lit plus Docker (aucun accès au
+# socket) : chaque service est joint par son nom sur le réseau interne. Ajouter une route publique = l'écrire ici.
+# Tout ce qui n'est pas listé reste interne (API des services, bases, WAHA).
+
+http:
+  routers:
+    # Boutique WordPress, à travers le cache des pages publiques.
+    boutique:
+      rule: PathPrefix(`/`)
+      priority: 1
+      entryPoints: [web]
+      service: boutique
+      middlewares: [securite, debit-general, compression, corps-limite]
+    boutique-statique:
+      rule: PathRegexp(`\.(css|js|jpe?g|png|webp|avif|gif|svg|woff2?|ico)$`)
+      priority: 40
+      entryPoints: [web]
+      service: boutique
+      middlewares: [securite, debit-general, cache-statique, compression]
+    boutique-sensible:
+      rule: (Path(`/wp-login.php`) || PathPrefix(`/my-account`) || PathPrefix(`/wp-json/wc/store/v1/checkout`)) && Method(`POST`)
+      priority: 50
+      entryPoints: [web]
+      service: boutique
+      middlewares: [securite, debit-sensible, compression, corps-limite]
+    boutique-liens:
+      rule: PathPrefix(`/commander/`)
+      priority: 50
+      entryPoints: [web]
+      service: boutique
+      middlewares: [securite, debit-liens]
+    # Routes internes de WordPress (API des services, événements WAHA, XML-RPC) : refusées depuis l'entrée, quelle
+    # que soit l'écriture du chemin. WordPress les refuse aussi lui-même (marque X-Bayam-Entree).
+    boutique-interne:
+      rule: PathRegexp(`(?i)^(/index\.php)?/wp-json/bayam/v1/(interne|whatsapp)`) || PathRegexp(`(?i)^/xmlrpc\.php`) || QueryRegexp(`rest_route`, `(?i)^/?bayam/v1/(interne|whatsapp)`)
+      priority: 100
+      entryPoints: [web]
+      service: boutique
+      middlewares: [interne-seulement]
+
+    # Événements de Meta (Facebook, Messenger) et état des fonctions pour les applications.
+    webhook-facebook:
+      rule: Path(`/webhooks/facebook`)
+      priority: 100
+      entryPoints: [web]
+      service: passerelle
+      middlewares: [securite, debit-general, corps-webhook, vers-facebook]
+    config-fonctions:
+      rule: Path(`/api/config`)
+      priority: 100
+      entryPoints: [web]
+      service: passerelle
+      middlewares: [securite, debit-general, compression, vers-config]
+
+    # Connexion des Pages Facebook par les vendeurs.
+    facebook-connexion:
+      rule: Path(`/facebook/connexion`) || Path(`/facebook/retour`) || Path(`/facebook/choisir`)
+      priority: 100
+      entryPoints: [web]
+      service: canal-facebook
+      middlewares: [securite, debit-liens]
+
+    # Signalements depuis l'application et le site (envoi seulement).
+    retours-public:
+      rule: Path(`/api/retours`) && Method(`POST`)
+      priority: 100
+      entryPoints: [web]
+      service: retours
+      middlewares: [securite, debit-retours, corps-petit, vers-retours]
+
+  middlewares:
+    vers-facebook:
+      replacePath:
+        path: /facebook
+    vers-config:
+      replacePath:
+        path: /config
+    vers-retours:
+      replacePath:
+        path: /retours
+
+  services:
+    # Le cache répartit lui-même entre les copies de WordPress. Contrôle de santé sans suivre les redirections
+    # (WordPress redirige un nom d'hôte inattendu, ce qui prouve aussi qu'il répond).
+    boutique:
+      loadBalancer:
+        servers:
+          - url: http://cache-web:8080
+        healthCheck:
+          path: /robots.txt
+          interval: 10s
+          timeout: 5s
+          followRedirects: false
+    passerelle:
+      loadBalancer:
+        servers:
+          - url: http://passerelle:8090
+    canal-facebook:
+      loadBalancer:
+        servers:
+          - url: http://canal-facebook:8092
+    retours:
+      loadBalancer:
+        servers:
+          - url: http://retours:8093

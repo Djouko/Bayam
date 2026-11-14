@@ -1,0 +1,45 @@
+# Limites de débit derrière le mandataire d'Easypanel (serveur) : l'adresse du client est la dernière ajoutée à
+# X-Forwarded-For par ce mandataire (profondeur 1). Les valeurs plus anciennes de l'en-tête, qu'un client peut
+# inventer, sont ignorées.
+
+http:
+  middlewares:
+    # Navigation ordinaire : une page charge des dizaines de fichiers d'un coup, d'où la rafale permise.
+    debit-general:
+      rateLimit:
+        average: 100
+        period: 1s
+        burst: 200
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # Connexion, compte, validation de commande : contre les essais de mots de passe et les commandes en rafale.
+    debit-sensible:
+      rateLimit:
+        average: 10
+        period: 1m
+        burst: 10
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # Signalements depuis l'application et le site : quelques-uns par personne, contre le remplissage automatique.
+    debit-retours:
+      rateLimit:
+        average: 6
+        period: 1h
+        burst: 3
+        sourceCriterion:
+          ipStrategy:
+            depth: 1
+
+    # Liens personnels de commande : contre l'essai de jetons au hasard.
+    debit-liens:
+      rateLimit:
+        average: 20
+        period: 1m
+        burst: 10
+        sourceCriterion:
+          ipStrategy:
+            depth: 1

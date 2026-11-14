@@ -1,0 +1,8 @@
+# Essai de la production sur le poste, avant chaque changement de déploiement :
+#   docker compose -p bayam-essai-prod -f docker-compose.prod.yml -f deploiement/essai-local.yml --env-file deploiement/.env.essai up -d --build
+# L'entrée est publiée sur http://localhost:8095 (le mandataire d'Easypanel en production). Aucun autre changement :
+# c'est exactement la composition déployée.
+services:
+  traefik:
+    ports:
+      - "127.0.0.1:8095:80"

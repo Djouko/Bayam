@@ -51,10 +51,9 @@ services:
       - "127.0.0.1:8081:8081"
     volumes:
       - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./infra/traefik/dynamique.yml:/etc/traefik/dynamique.yml:ro
-    depends_on:
-      - proxy-docker
-    networks: [default, socket-traefik]
+      - ./infra/traefik/dynamique.yml:/etc/traefik/dynamique/communs.yml:ro
+      - ./infra/traefik/routes.yml:/etc/traefik/dynamique/routes.yml:ro
+      - ./infra/traefik/debits-cloudflare.yml:/etc/traefik/dynamique/debits.yml:ro
     read_only: true
     cap_drop: [ALL]
     cap_add: [NET_BIND_SERVICE]
@@ -63,20 +62,6 @@ services:
       test: ["CMD", "traefik", "healthcheck"]
       interval: 10s
       retries: 6
-
-  # Accès de Traefik à Docker limité à la lecture de la liste des conteneurs (jamais le socket complet), sur un
-  # réseau à part : aucun autre conteneur ne peut l'interroger (les variables d'environnement y sont lisibles).
-  proxy-docker:
-    image: tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
-    restart: unless-stopped
-    environment:
-      CONTAINERS: 1
-      EVENTS: 1
-      POST: 0
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks: [socket-traefik]
-    security_opt: ["no-new-privileges:true"]
 
   # Cache des pages publiques (infra/nginx) : visiteurs anonymes servis sans faire travailler PHP, tout ce qui est
   # personnel passe directement ; répartit aussi la charge entre les copies de WordPress.
@@ -92,41 +77,6 @@ services:
     cap_drop: [ALL]
     cap_add: [CHOWN, SETUID, SETGID]
     security_opt: ["no-new-privileges:true"]
-    labels:
-      traefik.enable: "true"
-      traefik.http.services.boutique.loadbalancer.server.port: "8080"
-      traefik.http.services.boutique.loadbalancer.healthcheck.path: /robots.txt
-      traefik.http.services.boutique.loadbalancer.healthcheck.interval: 10s
-      traefik.http.services.boutique.loadbalancer.healthcheck.timeout: 5s
-      # Le site ne répond qu'à son adresse (localhost:8080) et redirige le reste : le contrôle s'y présente,
-      # et ne suit jamais une redirection (sinon une copie saine paraît en panne).
-      traefik.http.services.boutique.loadbalancer.healthcheck.hostname: localhost:8080
-      traefik.http.services.boutique.loadbalancer.healthcheck.followredirects: "false"
-      traefik.http.routers.boutique.rule: PathPrefix(`/`)
-      traefik.http.routers.boutique.priority: "1"
-      traefik.http.routers.boutique.entrypoints: web
-      traefik.http.routers.boutique.service: boutique
-      traefik.http.routers.boutique.middlewares: securite@file,debit-general@file,compression@file,corps-limite@file
-      traefik.http.routers.boutique-statique.rule: PathRegexp(`\.(css|js|jpe?g|png|webp|avif|gif|svg|woff2?|ico)$$`)
-      traefik.http.routers.boutique-statique.priority: "40"
-      traefik.http.routers.boutique-statique.entrypoints: web
-      traefik.http.routers.boutique-statique.service: boutique
-      traefik.http.routers.boutique-statique.middlewares: securite@file,debit-general@file,cache-statique@file,compression@file
-      traefik.http.routers.boutique-sensible.rule: (Path(`/wp-login.php`) || PathPrefix(`/my-account`) || PathPrefix(`/wp-json/wc/store/v1/checkout`)) && Method(`POST`)
-      traefik.http.routers.boutique-sensible.priority: "50"
-      traefik.http.routers.boutique-sensible.entrypoints: web
-      traefik.http.routers.boutique-sensible.service: boutique
-      traefik.http.routers.boutique-sensible.middlewares: securite@file,debit-sensible@file,compression@file,corps-limite@file
-      traefik.http.routers.boutique-liens.rule: PathPrefix(`/commander/`)
-      traefik.http.routers.boutique-liens.priority: "50"
-      traefik.http.routers.boutique-liens.entrypoints: web
-      traefik.http.routers.boutique-liens.service: boutique
-      traefik.http.routers.boutique-liens.middlewares: securite@file,debit-liens@file
-      traefik.http.routers.boutique-interne.rule: PathRegexp(`(?i)^(/index\.php)?/wp-json/bayam/v1/(interne|whatsapp)`) || PathRegexp(`(?i)^/xmlrpc\.php`) || QueryRegexp(`rest_route`, `(?i)^/?bayam/v1/(interne|whatsapp)`)
-      traefik.http.routers.boutique-interne.priority: "100"
-      traefik.http.routers.boutique-interne.entrypoints: web
-      traefik.http.routers.boutique-interne.service: boutique
-      traefik.http.routers.boutique-interne.middlewares: interne-seulement@file
 
   wordpress:
     # Image officielle + extension PHP Redis (images/wordpress/Dockerfile).
@@ -316,21 +266,6 @@ services:
       REDIS_URL: redis://:${REDIS_MOT_DE_PASSE}@redis:6379
     # Adresses publiques : événements Facebook (https://<adresse>/webhooks/facebook) et état des fonctions pour les
     # applications (https://<adresse>/api/config) ; /whatsapp et /sante restent sur le réseau interne.
-    labels:
-      traefik.enable: "true"
-      traefik.http.services.passerelle.loadbalancer.server.port: "8090"
-      traefik.http.middlewares.vers-facebook.replacepath.path: /facebook
-      traefik.http.routers.webhook-facebook.rule: Path(`/webhooks/facebook`)
-      traefik.http.routers.webhook-facebook.priority: "100"
-      traefik.http.routers.webhook-facebook.entrypoints: web
-      traefik.http.routers.webhook-facebook.service: passerelle
-      traefik.http.routers.webhook-facebook.middlewares: securite@file,debit-general@file,corps-webhook@file,vers-facebook
-      traefik.http.middlewares.vers-config.replacepath.path: /config
-      traefik.http.routers.config-fonctions.rule: Path(`/api/config`)
-      traefik.http.routers.config-fonctions.priority: "100"
-      traefik.http.routers.config-fonctions.entrypoints: web
-      traefik.http.routers.config-fonctions.service: passerelle
-      traefik.http.routers.config-fonctions.middlewares: securite@file,debit-general@file,compression@file,vers-config
     depends_on:
       redis:
         condition: service_started
@@ -408,15 +343,6 @@ services:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8093/sante"]
       interval: 10s
       retries: 6
-    labels:
-      traefik.enable: "true"
-      traefik.http.services.retours.loadbalancer.server.port: "8093"
-      traefik.http.middlewares.vers-retours.replacepath.path: /retours
-      traefik.http.routers.retours-public.rule: Path(`/api/retours`) && Method(`POST`)
-      traefik.http.routers.retours-public.priority: "100"
-      traefik.http.routers.retours-public.entrypoints: web
-      traefik.http.routers.retours-public.service: retours
-      traefik.http.routers.retours-public.middlewares: securite@file,debit-retours@file,corps-petit@file,vers-retours
 
   # Canal Facebook (services/src/canal-facebook) : Pages des vendeurs par l'API officielle de Meta. Messenger
   # (catalogue en carrousel, lien personnel de commande), réponses aux commentaires, publications et stories,
@@ -461,14 +387,6 @@ services:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8092/sante"]
       interval: 10s
       retries: 6
-    labels:
-      traefik.enable: "true"
-      traefik.http.services.canal-facebook.loadbalancer.server.port: "8092"
-      traefik.http.routers.facebook-connexion.rule: Path(`/facebook/connexion`) || Path(`/facebook/retour`) || Path(`/facebook/choisir`)
-      traefik.http.routers.facebook-connexion.priority: "100"
-      traefik.http.routers.facebook-connexion.entrypoints: web
-      traefik.http.routers.facebook-connexion.service: canal-facebook
-      traefik.http.routers.facebook-connexion.middlewares: securite@file,debit-liens@file
 
   # Travailleur BAYAM : traite les messages WhatsApp en moins d'une seconde et les tâches programmées
   # (publications étalées, rapports), indépendamment des visites du site.
@@ -537,6 +455,30 @@ services:
       - ./plugins/bayam-whatsapp:/app
       - whatsapp-vendor:/app/vendor
 
+  # Sauvegarde vers Cloudflare R2 et migration vers le serveur (deploiement/sauvegarde, DEPLOIEMENT.md) :
+  # docker compose run --rm sauvegarde sauvegarder <nom>   |   docker compose run --rm sauvegarde lister
+  sauvegarde:
+    image: bayam/sauvegarde:local
+    build: { context: ., dockerfile: deploiement/sauvegarde/Dockerfile }
+    profiles: ["outils"]
+    environment:
+      R2_ENDPOINT: ${R2_ENDPOINT}
+      R2_ACCESS_KEY: ${R2_ACCESS_KEY}
+      R2_SECRET_KEY: ${R2_SECRET_KEY}
+      R2_BUCKET: ${R2_BUCKET}
+      DB_HOST: db
+      DB_PASSWORD: ${DB_PASSWORD}
+      PGHOST: postgres
+      PGUSER: bayam_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      CHEMIN_UPLOADS: /source/wp/wp-content/uploads
+      CHEMIN_WAHA: /donnees/waha
+      TZ: Africa/Douala
+    volumes:
+      - wp:/source/wp:ro
+      - waha:/donnees/waha:ro
+    networks: [default, donnees]
+
   cli:
     image: bayam/wp-cli:2.12.0-redis
     profiles: ["outils"]
@@ -596,11 +538,9 @@ services:
       - ./themes/bayam-vitrine:/var/www/html/wp-content/themes/bayam-vitrine
 
 # Réseaux : « donnees » (bases, Redis, NATS) sans accès à Internet et réservé aux services qui ont des identifiants ;
-# chaque porte vers Docker sur son propre réseau, joignable par un seul conteneur.
+# la porte vers Docker du veilleur sur son propre réseau, joignable par lui seul.
 networks:
   donnees:
-    internal: true
-  socket-traefik:
     internal: true
   socket-veilleur:
     internal: true

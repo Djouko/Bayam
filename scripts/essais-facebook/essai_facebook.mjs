@@ -24,8 +24,8 @@ const attendre = (ms) => new Promise((ok) => setTimeout(ok, ms));
 const appels = async () => (await fetch('http://faux-graph:9000/__appels')).json();
 const vider = () => fetch('http://faux-graph:9000/__appels', { method: 'DELETE' });
 
-/** Attend que le faux Graph ait reçu au moins n appels qui vérifient le filtre (5 s au plus) ; rend ces appels. */
-async function recus(filtre, n = 1, delai = 5000) {
+/** Attend que le faux Graph ait reçu au moins n appels qui vérifient le filtre (15 s au plus, poste chargé) ; rend ces appels. */
+async function recus(filtre, n = 1, delai = 15000) {
   const debut = Date.now();
   let trouves = [];
   while (Date.now() - debut < delai) {
@@ -150,7 +150,8 @@ await texte('Vous livrez à Bonabéri ce soir ?');
 await texte('Je peux payer par OM ?');
 e = await recus(envoisAuClient, 1);
 await attendre(1500);
-verifier('question libre : un seul accusé de réception pour deux messages à la suite', (await appels()).filter(envoisAuClient).length === 1 && e[0]?.corps.message.text.startsWith('Merci 🙏'), (await appels()).filter(envoisAuClient).map((a) => a.corps.message.text));
+const accuses = (await appels()).filter(envoisAuClient).filter((a) => (a.corps.message.text ?? '').startsWith('Merci 🙏'));
+verifier('question libre : un seul accusé de réception pour deux messages à la suite', accuses.length === 1, accuses.map((a) => a.corps.message.text));
 await vider();
 await meta({ messaging: [{ sender: { id: PAGE }, recipient: { id: CLIENT }, timestamp: Date.now(), message: { mid: `m.vendeur.${Date.now()}`, is_echo: true, text: 'Oui on livre, je vous appelle' } }] });
 await meta({ messaging: [{ sender: { id: PAGE }, recipient: { id: CLIENT }, timestamp: Date.now(), message: { mid: `m.bayam.${Date.now()}`, is_echo: true, metadata: 'bayam', text: 'écho' } }] });

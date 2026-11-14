@@ -13,3 +13,7 @@ plugins/bayam-whatsapp/vendor/
 
 # Copies de référence du modèle FluxStore (clés de démonstration du vendeur du modèle) : jamais versionnées.
 originaux/
+
+# Environnement de production généré par scripts/env_production.py (secrets)
+deploiement/.env.production
+deploiement/.env.essai

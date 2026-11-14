@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { creerApp, merci } from './app.ts';
+import { adresseClient, creerApp, merci } from './app.ts';
 import type { Depot, Entree, Sujet } from './donnees.ts';
 
 const JETON = 'j'.repeat(40);
@@ -125,6 +125,13 @@ test('deux personnes distinctes derrière Cloudflare : deux empreintes', async (
     await app.inject({ method: 'POST', url: '/retours', headers: { 'cf-connecting-ip': ip }, payload: { type: 'souci', texte: 'panier vide' } });
   }
   assert.notEqual(f.entrees[0].personne, f.entrees[1].personne);
+});
+
+test('adresse du client : Cloudflare sur le poste, mandataire d’Easypanel sur le serveur (valeurs inventées ignorées)', () => {
+  assert.equal(adresseClient({ 'cf-connecting-ip': '203.0.113.5' }, '10.0.0.2', 'cloudflare'), '203.0.113.5');
+  assert.equal(adresseClient({ 'x-forwarded-for': '1.2.3.4, 198.51.100.7, 10.0.1.9' }, '10.0.0.2', 'mandataire'), '198.51.100.7');
+  assert.equal(adresseClient({ 'cf-connecting-ip': '1.2.3.4', 'x-forwarded-for': '198.51.100.7, 10.0.1.9' }, '10.0.0.2', 'mandataire'), '198.51.100.7');
+  assert.equal(adresseClient({}, '10.0.0.2', 'mandataire'), '10.0.0.2');
 });
 
 test('documentation OpenAPI générée depuis les routes', async () => {

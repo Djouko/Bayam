@@ -1,6 +1,5 @@
-# Règles communes de l'entrée, utilisées par les routes des services (étiquettes « …@file »).
-# Débit compté par client : adresse réelle transmise par Cloudflare (Cf-Connecting-Ip). En production, l'origine
-# n'accepte que les adresses de Cloudflare, sinon cet en-tête pourrait être falsifié.
+# Règles communes de l'entrée (en-têtes, tailles, cache), sur le poste comme sur le serveur. Les routes sont dans
+# routes.yml ; les limites de débit dans debits-*.yml, selon la façon dont l'adresse du client arrive.
 
 http:
   middlewares:
@@ -23,33 +22,6 @@ http:
         customRequestHeaders:
           X-Bayam-Entree: publique
 
-    # Navigation ordinaire : une page charge des dizaines de fichiers d'un coup, d'où la rafale permise.
-    debit-general:
-      rateLimit:
-        average: 100
-        period: 1s
-        burst: 200
-        sourceCriterion:
-          requestHeaderName: Cf-Connecting-Ip
-
-    # Connexion, compte, validation de commande : contre les essais de mots de passe et les commandes en rafale.
-    debit-sensible:
-      rateLimit:
-        average: 10
-        period: 1m
-        burst: 10
-        sourceCriterion:
-          requestHeaderName: Cf-Connecting-Ip
-
-    # Signalements depuis l'application et le site : quelques-uns par personne, contre le remplissage automatique.
-    debit-retours:
-      rateLimit:
-        average: 6
-        period: 1h
-        burst: 3
-        sourceCriterion:
-          requestHeaderName: Cf-Connecting-Ip
-
     # Événements de Meta : 1 Mo au plus (un lot d'événements pèse quelques kilo-octets).
     corps-webhook:
       buffering:
@@ -61,15 +33,6 @@ http:
       buffering:
         maxRequestBodyBytes: 32768
         memRequestBodyBytes: 32768
-
-    # Liens personnels de commande : contre l'essai de jetons au hasard.
-    debit-liens:
-      rateLimit:
-        average: 20
-        period: 1m
-        burst: 10
-        sourceCriterion:
-          requestHeaderName: Cf-Connecting-Ip
 
     # Réponses compressées selon ce que le téléphone accepte (zstd, brotli, gzip) : pages, CSS et JavaScript 3 à 5
     # fois plus légers. Les images et polices, déjà compressées, passent telles quelles.

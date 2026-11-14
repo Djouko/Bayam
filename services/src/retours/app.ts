@@ -19,6 +19,12 @@ export type Options = {
   sante?: () => Promise<boolean>;
   maintenant?: () => number;
   journaliser?: boolean;
+  /**
+   * Où lire l'adresse du client, comme la limite de débit de Traefik : « cloudflare » (Cf-Connecting-Ip, tunnel du
+   * poste) ou « mandataire » (serveur Easypanel : avant-dernière valeur de X-Forwarded-For, ajoutée par le mandataire
+   * d'Easypanel ; la dernière est celle de Traefik, les précédentes peuvent être inventées par le client).
+   */
+  ipClient?: 'cloudflare' | 'mandataire';
 };
 
 const TEXTE = { type: 'string', minLength: 3, maxLength: 2000 } as const;
@@ -66,11 +72,20 @@ export function merci(numero: string, type: TypeRetour, signaleurs: number): str
     : `🙏 Merci ! Votre signalement (${numero}) est bien arrivé à l'équipe BAYAM. Nous vous prévenons ici dès que c'est réglé.`;
 }
 
+/** Adresse du client selon le chemin d'arrivée (voir Options.ipClient). */
+export function adresseClient(entetes: Record<string, string | string[] | undefined>, ip: string, mode: 'cloudflare' | 'mandataire'): string {
+  if (mode === 'cloudflare') {
+    return String(entetes['cf-connecting-ip'] ?? ip).slice(0, 64);
+  }
+  const chaine = String(entetes['x-forwarded-for'] ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  return (chaine.length >= 2 ? chaine[chaine.length - 2] : ip).slice(0, 64);
+}
+
 export const MESSAGE_CORRIGE = "✅ Bonne nouvelle : le souci que vous nous aviez signalé est réglé. Merci de nous aider à améliorer BAYAM 🙏";
 
 export async function creerApp(o: Options): Promise<FastifyInstance> {
   const maintenant = o.maintenant ?? Date.now;
-  const app = Fastify({ bodyLimit: 20_000, logger: o.journaliser ?? false, trustProxy: true });
+  const app = Fastify({ bodyLimit: 20_000, logger: o.journaliser ?? false });
   await app.register(swagger, {
     openapi: {
       info: {
@@ -137,7 +152,7 @@ export async function creerApp(o: Options): Promise<FastifyInstance> {
     },
   }, async (req, reply) => {
     // Même critère que la limite de débit de Traefik : l'adresse réelle transmise par Cloudflare.
-    const adresse = String(req.headers['cf-connecting-ip'] ?? req.ip).slice(0, 64);
+    const adresse = adresseClient(req.headers, req.ip, o.ipClient ?? 'cloudflare');
     const personne = empreinte(`public:${adresse}:${String(req.headers['user-agent'] ?? '').slice(0, 200)}`);
     const r = await enregistrer({ type: req.body.type, texte: req.body.texte.trim(), canal: req.body.canal ?? 'app', personne, contexte: req.body.contexte });
     return reply.code(201).send({ numero: r.numero, sujet: r.sujet, signaleurs: r.signaleurs, message: merci(r.numero, req.body.type, r.signaleurs) });

@@ -1,7 +1,7 @@
-# Entrée unique de BAYAM : tout le trafic public (navigateurs, application, tunnel) passe ici. Répartition de charge
-# entre les copies des services, limitation de débit, en-têtes de sécurité, adresses internes refusées.
-# Les routes viennent des étiquettes des conteneurs (fournisseur Docker, via un proxy en lecture seule) et des
-# règles communes de dynamique.yml.
+# Entrée unique de BAYAM sur le poste : tout le trafic public (navigateurs, application, tunnel) passe ici.
+# Répartition de charge, limitation de débit, en-têtes de sécurité, adresses internes refusées.
+# Configuration lue dans /etc/traefik/dynamique (communs, routes, débits) ; aucun accès à Docker.
+# Serveur : traefik.prod.yml.
 
 entryPoints:
   web:
@@ -30,12 +30,8 @@ metrics:
     entryPoint: traefik
 
 providers:
-  docker:
-    endpoint: "tcp://proxy-docker:2375"
-    exposedByDefault: false
-    network: fluxstore-local_default
   file:
-    filename: /etc/traefik/dynamique.yml
+    directory: /etc/traefik/dynamique
     watch: true
 
 log:

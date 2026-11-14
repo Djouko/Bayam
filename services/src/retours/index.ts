@@ -37,6 +37,7 @@ async function appeler(url: string, corps: unknown): Promise<boolean> {
 const app = await creerApp({
   depot,
   jeton,
+  ipClient: lire('BAYAM_IP_CLIENT', 'cloudflare') === 'mandataire' ? 'mandataire' : 'cloudflare',
   sante: async () => (await pool.query('SELECT 1')).rowCount === 1,
   alerter: async (s) => {
     const texte = `🚨 BAYAM, sujet ${s.id} (gravité ${GRAVITES[s.gravite]}, ${s.signaleurs} personne${s.signaleurs > 1 ? 's' : ''}) : ${s.titre}`;

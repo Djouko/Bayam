@@ -1,0 +1,14 @@
+# Ce qui n'entre jamais dans une image construite depuis la racine (WordPress, sauvegarde) : secrets, historique,
+# dépendances locales, copies du modèle, fichiers lourds. Les services ont leur propre fichier (services/.dockerignore).
+.git
+.env
+.env.*
+!.env.example
+deploiement/.env.production
+**/node_modules
+**/__pycache__
+services
+originaux
+scripts/cles_api.txt
+scripts/catalogue/candidats
+*.mp4

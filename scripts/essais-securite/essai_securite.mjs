@@ -4,8 +4,8 @@
 
 import net from 'node:net';
 
-const [jeton] = process.argv.slice(2);
-const PUBLIC = { host: 'localhost:8080', 'cf-connecting-ip': '203.0.113.77' };
+const [jeton, hote = 'localhost:8080'] = process.argv.slice(2);
+const PUBLIC = { host: hote, 'cf-connecting-ip': '203.0.113.77' };
 let echecs = 0;
 function verifier(nom, ok, details) {
   console.log(`${ok ? 'OK   ' : 'ÉCHEC'} ${nom}${ok ? '' : ` : ${JSON.stringify(details).slice(0, 300)}`}`);
@@ -51,10 +51,9 @@ const marque = await essai('http://traefik/wp-json/wc/store/v1/cart', { headers:
 verifier('S-04 l’entrée publique pose sa marque (route publique toujours servie)', marque.status === 200, marque.status);
 
 // S-05 : limite de débit sur les connexions (wp-login) toujours active.
-const statuts = [];
-for (let i = 0; i < 14; i++) {
-  statuts.push((await essai('http://traefik/wp-login.php', { method: 'POST', headers: { ...PUBLIC, 'content-type': 'application/x-www-form-urlencoded' }, body: 'log=x&pwd=y' })).status);
-}
+// Envois simultanés : la limite se mesure sur la rafale, pas sur la vitesse de réponse de WordPress.
+const statuts = (await Promise.all(Array.from({ length: 14 }, () => essai('http://traefik/wp-login.php',
+  { method: 'POST', headers: { ...PUBLIC, 'content-type': 'application/x-www-form-urlencoded' }, body: 'log=x&pwd=y' })))).map((r) => r.status);
 verifier('S-05 essais de mot de passe en rafale : bloqués (429) avant le 12e', statuts.includes(429), statuts);
 
 // S-06 : comptes non énumérables.

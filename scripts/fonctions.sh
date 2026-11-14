@@ -11,9 +11,13 @@
 # facebook.connexion, paiement, mobile, web (un préfixe vaut pour toutes ses fonctions).
 set -euo pipefail
 cd "$(dirname "$0")/.."
+. scripts/commun.sh
 CLE=bayam:fonctions
-redis() { docker compose exec -T redis redis-cli "$@"; }
-json() { python -c 'import json,sys; print(json.dumps(dict(a.split("=",1) for a in sys.argv[1:]), ensure_ascii=False))' "$@"; }
+# Mot de passe lu dans le conteneur Redis lui-même : rien à passer en ligne de commande.
+redis() { docker exec -i "$(conteneur redis)" sh -c 'REDISCLI_AUTH="$REDIS_MOT_DE_PASSE" exec redis-cli "$@"' -- "$@"; }
+# Premier Python qui fonctionne vraiment (sous Windows, « python3 » peut être un raccourci vide).
+py() { for p in python3 python; do "$p" -c "" 2>/dev/null && { "$p" "$@"; return; }; done; echo "Python introuvable" >&2; return 1; }
+json() { py -c 'import json,sys; print(json.dumps(dict(a.split("=",1) for a in sys.argv[1:]), ensure_ascii=False))' "$@"; }
 case "${1:-liste}" in
   liste)
     sortie=$(redis HGETALL "$CLE")
