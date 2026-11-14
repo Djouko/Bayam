@@ -28,6 +28,14 @@ const redis: RedisClientType = createClient({ url: lire('REDIS_URL', 'redis://re
 redis.on('error', (e: unknown) => log.erreur('Redis', { erreur: texteErreur(e) }));
 await redis.connect();
 const fonctions = new Fonctions(redis);
+// Versions de l'application mobile publiées par le serveur : invitation discrète à mettre à jour (dernière version),
+// blocage seulement sous la version minimale (faille grave). Réglées dans l'environnement, sans nouvelle application.
+const application = {
+  derniere: lire('BAYAM_APP_DERNIERE', ''),
+  minimale: lire('BAYAM_APP_MINIMALE', ''),
+  notes: lire('BAYAM_APP_NOTES', ''),
+  lien: lire('BAYAM_APP_LIEN', ''),
+};
 const compteurs = { depuis: new Date().toISOString(), recus: 0, publies: 0, doublons: 0, ecartes: 0, refuses: 0, echecs: 0 };
 const compteursFacebook = { recus: 0, publies: 0, doublons: 0, refuses: 0, echecs: 0 };
 
@@ -79,7 +87,7 @@ const serveur = createServer(async (req, res) => {
     const reglages = await fonctions.tous();
     const etats = Object.fromEntries(Object.keys(FONCTIONS).map((nom) => [nom, etatDepuis(reglages, nom, 0, Date.now())]));
     res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'public, max-age=30' });
-    res.end(JSON.stringify({ genere: new Date().toISOString(), rafraichir_s: 60, fonctions: etats }));
+    res.end(JSON.stringify({ genere: new Date().toISOString(), rafraichir_s: 60, fonctions: etats, application }));
     return;
   }
   if (req.method === 'GET' && req.url === '/sante') {

@@ -8,6 +8,8 @@
 #   -> preparation (mises à jour de la base WordPress, adresse du site)
 #   -> WordPress, services, WhatsApp, entrée Traefik (le domaine Easypanel pointe sur traefik:80)
 # Aucun port publié, aucun nom de conteneur fixe (règles Easypanel) ; aucun accès au socket Docker.
+# Chaque service qui utilise une image BAYAM déclare sa construction (même Dockerfile, cache commun) : sans cela,
+# Compose reconstruit l'image mais peut laisser tourner l'ancienne version dans les autres services.
 
 x-journal: &journal
   logging:
@@ -184,7 +186,7 @@ services:
 
   sauvegarde:
     image: bayam/sauvegarde:prod
-    pull_policy: never
+    build: { context: ., dockerfile: deploiement/sauvegarde/Dockerfile }
     restart: unless-stopped
     environment: *r2-env
     volumes:
@@ -214,7 +216,7 @@ services:
 
   wordpress:
     image: bayam/wordpress:prod
-    pull_policy: never
+    build: { context: ., dockerfile: deploiement/wordpress/Dockerfile }
     restart: unless-stopped
     deploy:
       replicas: 2
@@ -229,7 +231,7 @@ services:
 
   travailleur:
     image: bayam/wordpress:prod
-    pull_policy: never
+    build: { context: ., dockerfile: deploiement/wordpress/Dockerfile }
     restart: unless-stopped
     user: "33:33"
     command: ["wp", "bayam-wa", "travailleur", "--duree=3600"]
@@ -284,6 +286,11 @@ services:
       WAHA_WEBHOOK_SECRET: ${WAHA_WEBHOOK_SECRET}
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
       FACEBOOK_JETON_VERIFICATION: ${FACEBOOK_JETON_VERIFICATION:-}
+      # Application mobile : dernière version, version minimale, nouveautés, lien de téléchargement (GET /api/config).
+      BAYAM_APP_DERNIERE: ${BAYAM_APP_DERNIERE:-}
+      BAYAM_APP_MINIMALE: ${BAYAM_APP_MINIMALE:-}
+      BAYAM_APP_NOTES: ${BAYAM_APP_NOTES:-}
+      BAYAM_APP_LIEN: ${BAYAM_APP_LIEN:-}
     networks: [default, donnees]
     depends_on:
       redis: { condition: service_started }
@@ -298,7 +305,7 @@ services:
 
   canal-whatsapp:
     image: bayam/services:prod
-    pull_policy: never
+    build: { context: services }
     restart: unless-stopped
     command: ["node", "src/canal-whatsapp/index.ts"]
     environment:
@@ -323,7 +330,7 @@ services:
 
   canal-facebook:
     image: bayam/services:prod
-    pull_policy: never
+    build: { context: services }
     restart: unless-stopped
     command: ["node", "src/canal-facebook/index.ts"]
     environment:
@@ -352,7 +359,7 @@ services:
 
   retours:
     image: bayam/services:prod
-    pull_policy: never
+    build: { context: services }
     restart: unless-stopped
     command: ["node", "src/retours/index.ts"]
     environment:
