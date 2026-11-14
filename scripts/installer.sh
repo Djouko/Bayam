@@ -410,7 +410,7 @@ if [ ! -s "$CLES" ]; then
     $user = get_user_by("login", getenv("WP_ADMIN"));
     $ck = "ck_" . wc_rand_hash(); $cs = "cs_" . wc_rand_hash();
     $wpdb->insert($wpdb->prefix . "woocommerce_api_keys", [
-      "user_id" => $user->ID, "description" => "Application FluxStore (local)", "permissions" => "read_write",
+      "user_id" => $user->ID, "description" => "Application FluxStore (local)", "permissions" => "read",
       "consumer_key" => wc_api_hash($ck), "consumer_secret" => $cs, "truncated_key" => substr($ck, -7)]);
     echo "consumerKey=$ck\nconsumerSecret=$cs\n";' > "$CLES"
 fi

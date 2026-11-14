@@ -43,6 +43,9 @@ if [ -n "$ancienne" ] && [ "$ancienne" != "$BAYAM_URL_PUBLIQUE" ]; then
   wp eval 'global $wpdb; foreach (["home", "siteurl"] as $o) { $wpdb->update($wpdb->options, ["option_value" => getenv("BAYAM_URL_PUBLIQUE")], ["option_name" => $o]); }'
 fi
 
+# Clé de l'application mobile : lecture seule à chaque déploiement (le verrou bayam-cle-application fait le reste).
+wp eval 'global $wpdb; $n = $wpdb->query("UPDATE {$wpdb->prefix}woocommerce_api_keys SET permissions = \"read\" WHERE description LIKE \"Application%\" AND permissions <> \"read\""); if ($n) { echo "cle application passee en lecture seule", PHP_EOL; }'
+
 wp rewrite flush --quiet   # règles en base ; le .htaccess standard est déjà dans l'image
 wp cache flush --quiet
 journal "WordPress prêt"
