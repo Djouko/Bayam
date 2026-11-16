@@ -364,6 +364,8 @@ $r = bayam_dire('bayam Sandales pointure 42 25 000 42:2', photo: true);
 bayam_verifier('photo : nombre du nom ignoré pour le prix', str_contains($joint($r), '*Sandales pointure 42*') && str_contains($joint($r), "25\u{202F}000") && str_contains($joint($r), '42 : 2'), $r);
 
 echo "\nÉquipe (numéro autorisé, commandes avec « / »)\n";
+delete_transient('bayam_wa_pin_echecs_' . $vendeur);
+Bayam_WA_Outils::redis()?->del('bayam:bayam_wa_pin_echecs_' . $vendeur);
 $r = bayam_dire('bayam pin 4826');
 bayam_verifier('PIN choisi par le vendeur', str_contains($joint($r), 'PIN'), $r);
 $r = bayam_dire('bayam equipe ajouter 6 77 00 00 02');
@@ -392,6 +394,7 @@ bayam_verifier('5e PIN faux : le vendeur est alerté', (bool) $alerte, array_col
 $r = bayam_dire('bayam lien 5000 Awa pin 4826', '237677000002@c.us', false);
 bayam_verifier('après 5 erreurs : même le bon PIN est bloqué 15 min', str_contains($joint($r), 'bloquées pendant 15 minutes'), $r);
 delete_transient('bayam_wa_pin_echecs_' . $vendeur);
+Bayam_WA_Outils::redis()?->del('bayam:bayam_wa_pin_echecs_' . $vendeur); // compteur atomique des essais de PIN
 
 echo "\nClients du vendeur\n";
 $r = bayam_dire('#polo', '237677000001@c.us', false);
@@ -751,6 +754,53 @@ $r2 = bayam_dire('bayam signaler pendant la maintenance');
 $redis?->hDel('bayam:fonctions', 'whatsapp.copilote');
 $reflet->setValue(null, null);
 bayam_verifier('Copilote en maintenance : message de l’équipe ; signaler un souci reste possible ; rouvert ensuite', $redis && str_contains($joint($r), 'Copilote en maintenance (essai)') && str_contains($joint($r2), 'Merci') && str_contains($joint(bayam_dire('bayam stock polo')), 'Polo'), [$r, $r2]);
+
+// --- Inscription d'un vendeur depuis son seul téléphone (/vendre) ----------------------------------------------------
+echo "\nInscription d'un vendeur depuis son téléphone\n";
+$inscrire = static function (array $p, string $ip) {
+    $_SERVER['REMOTE_ADDR'] = $ip;
+    $q = new WP_REST_Request('POST', '/bayam/v1/inscription');
+    foreach ($p as $k => $v) {
+        $q->set_param($k, $v);
+    }
+    return rest_do_request($q);
+};
+$nouvelle = ['boutique' => 'Essai Couture Bali', 'prenom' => 'Awa', 'telephone' => '6 99 88 77 66', 'quartier' => 'Bali', 'accepte' => true];
+$robot = $inscrire($nouvelle + ['site' => 'http://spam'], '203.0.113.10');
+$mauvais = $inscrire(['boutique' => 'X', 'prenom' => '', 'telephone' => '123', 'accepte' => true], '203.0.113.11');
+$sans_accord = $inscrire(array_merge($nouvelle, ['accepte' => false]), '203.0.113.12');
+bayam_verifier('inscription : robot (champ piège), champs invalides et conditions non acceptées refusés', $robot->get_status() === 400 && $mauvais->get_status() === 400 && $sans_accord->get_status() === 400, [$robot->get_status(), $mauvais->get_status(), $sans_accord->get_status()]);
+$faux->statut = 'SCAN_QR_CODE';
+$r = $inscrire($nouvelle, '203.0.113.20');
+$d = $r->get_data();
+$cree = Bayam_WA_Inscription::vendeur_du_numero('237699887766');
+bayam_verifier('inscription par WhatsApp : boutique créée (vendeur WCFM), code d’association affiché, sans QR ni ordinateur',
+    $r->get_status() === 200 && ($d['code'] ?? '') === 'ABCD-1234' && $cree > 0 && in_array('wcfm_vendor', (array) get_userdata($cree)->roles, true)
+    && get_user_meta($cree, 'wcfmmp_store_name', true) === 'Essai Couture Bali' && str_contains($d['numero'] ?? '', '99'), $d);
+$suivi = static function (string $jeton) {
+    return rest_do_request(new WP_REST_Request('GET', '/bayam/v1/inscription/' . $jeton))->get_data();
+};
+$avant = $suivi((string) ($d['jeton'] ?? ''));
+$faux->statut = 'WORKING';
+$apres = $suivi((string) ($d['jeton'] ?? ''));
+bayam_verifier('inscription : la page voit la boutique reliée dès la saisie du code', ($avant['whatsapp'] ?? true) === false && ($apres['whatsapp'] ?? false) === true && ($apres['boutique'] ?? '') === 'Essai Couture Bali', [$avant, $apres]);
+$encore = $inscrire($nouvelle, '203.0.113.21')->get_data();
+bayam_verifier('même numéro une seconde fois : même boutique, déjà reliée (aucun doublon)', ($encore['relie'] ?? false) === true && Bayam_WA_Inscription::vendeur_du_numero('237699887766') === $cree, $encore);
+$fb = $inscrire(['boutique' => 'Essai Page Akwa', 'prenom' => 'Paul', 'telephone' => '6 77 66 55 44', 'accepte' => true, 'mode' => 'facebook'], '203.0.113.22')->get_data();
+$cree_fb = Bayam_WA_Inscription::vendeur_du_numero('237677665544');
+bayam_verifier('inscription « Facebook d’abord » : boutique créée, lien signé de connexion de la Page', ($fb['mode'] ?? '') === 'facebook' && str_contains($fb['lien'] ?? '', '/facebook/connexion?v=' . $cree_fb), $fb);
+$debits = [];
+for ($i = 0; $i < 4; $i++) {
+    $debits[] = $inscrire(['boutique' => 'X', 'prenom' => '', 'telephone' => '1', 'accepte' => true], '203.0.113.30')->get_status();
+}
+bayam_verifier('inscriptions en rafale depuis une même adresse : la 4e est refusée (429)', $debits[3] === 429, $debits);
+require_once ABSPATH . 'wp-admin/includes/user.php';
+foreach (array_filter([$cree, $cree_fb]) as $id_essai) {
+    wp_delete_user($id_essai); // boutiques des essais
+}
+foreach (['203.0.113.10', '203.0.113.11', '203.0.113.12', '203.0.113.20', '203.0.113.21', '203.0.113.22', '203.0.113.30'] as $ip) {
+    delete_transient('bayam_insc_' . md5($ip));
+}
 
 // --- Remise en état ---------------------------------------------------------------------------------------------
 echo "\nRemise en état\n";
