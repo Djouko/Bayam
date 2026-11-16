@@ -60,6 +60,14 @@ http:
       service: canal-facebook
       middlewares: [securite, debit-liens]
 
+    # Page d'état publique (sondes) : santé de chaque composant, sans détail technique.
+    etat-public:
+      rule: Path(`/api/etat`)
+      priority: 100
+      entryPoints: [web]
+      service: sondes
+      middlewares: [securite, debit-general, compression, vers-etat]
+
     # Signalements depuis l'application et le site (envoi seulement).
     retours-public:
       rule: Path(`/api/retours`) && Method(`POST`)
@@ -78,6 +86,9 @@ http:
     vers-retours:
       replacePath:
         path: /retours
+    vers-etat:
+      replacePath:
+        path: /etat
 
   services:
     # Le cache répartit lui-même entre les copies de WordPress. Contrôle de santé sans suivre les redirections
@@ -103,3 +114,7 @@ http:
       loadBalancer:
         servers:
           - url: http://retours:8093
+    sondes:
+      loadBalancer:
+        servers:
+          - url: http://sondes:8094

@@ -383,6 +383,31 @@ services:
       retries: 6
     <<: [*journal, *durci]
 
+  # Sondes : chaque minute, chaque composant vérifié comme par un utilisateur ; panne confirmée = incident et alerte
+  # de l'équipe (service des retours), fermé seul au rétablissement. Page d'état publique : /api/etat.
+  sondes:
+    image: bayam/services:prod
+    build: { context: services }
+    restart: unless-stopped
+    command: ["node", "src/sondes/index.ts"]
+    environment:
+      BAYAM_SERVICE_JETON: ${BAYAM_SERVICE_JETON}
+      BAYAM_URL_PUBLIQUE: ${BAYAM_URL_PUBLIQUE}
+      WAHA_API_KEY: ${WAHA_API_KEY}
+      FACEBOOK_APP_ID: ${FACEBOOK_APP_ID:-}
+      FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
+      R2_PUBLIC_URL: ${R2_PUBLIC_URL}
+      TZ: Africa/Douala
+    depends_on:
+      retours: { condition: service_started }
+    read_only: true
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8094/sante"]
+      interval: 30s
+      retries: 3
+    <<: [*journal, *durci]
+
   # --- Entrée publique : le domaine Easypanel pointe ici (service traefik, port 80) ------------------------------------
   traefik:
     image: traefik:v3.6.25
