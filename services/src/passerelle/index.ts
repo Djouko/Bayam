@@ -32,7 +32,7 @@ const fonctions = new Fonctions(redis);
 // blocage seulement sous la version minimale (faille grave). Réglées dans l'environnement, sans nouvelle application.
 // Source : le fichier de version publié avec chaque application (bayam/outils/publier_apk.sh), relu toutes les
 // 5 minutes ; à défaut, les variables BAYAM_APP_*. Publier une version ne demande donc aucun redéploiement.
-let application = {
+let application: Record<string, unknown> = {
   derniere: lire('BAYAM_APP_DERNIERE', ''),
   minimale: lire('BAYAM_APP_MINIMALE', ''),
   notes: lire('BAYAM_APP_NOTES', ''),
@@ -44,13 +44,17 @@ async function lireManifeste(): Promise<void> {
   if (!r.ok) {
     return;
   }
-  const m = (await r.json()) as { version?: string; minimale?: string; notes?: string };
+  const m = (await r.json()) as { version?: string; minimale?: string; notes?: string; date?: string; qr?: string; fichiers?: unknown };
   const site = lire('BAYAM_URL_PUBLIQUE', '');
   application = {
     derniere: String(m.version ?? application.derniere),
     minimale: String(m.minimale ?? application.minimale),
     notes: String(m.notes ?? application.notes).slice(0, 300),
     lien: site ? `${site}/telecharger` : application.lien,
+    // Pour la page de téléchargement : fichiers (adresse, taille, empreinte), code QR, date de publication.
+    date: String(m.date ?? ''),
+    qr: String(m.qr ?? ''),
+    fichiers: m.fichiers ?? {},
   };
 }
 if (manifeste) {

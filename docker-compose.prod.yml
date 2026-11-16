@@ -44,7 +44,6 @@ x-wordpress-env: &wordpress-env
     define('FORCE_SSL_ADMIN', true);
     define('WP_ENVIRONMENT_TYPE', 'production');
   BAYAM_URL_PUBLIQUE: ${BAYAM_URL_PUBLIQUE}
-  BAYAM_APP_MANIFESTE: ${R2_PUBLIC_URL}/bayam/application/derniere.json
   BAYAM_REDIS: redis
   BAYAM_REDIS_MDP: ${REDIS_MOT_DE_PASSE}
   BAYAM_CLE_LIENS: ${BAYAM_CLE_LIENS}
@@ -127,7 +126,8 @@ services:
     <<: [*journal, *durci]
 
   nats:
-    image: nats:2.12.15-alpine
+    image: bayam/nats:prod
+    build: { context: ., dockerfile: infra/nats/Dockerfile.prod }
     restart: unless-stopped
     command: ["--config", "/etc/nats/nats.conf"]
     environment:
@@ -136,7 +136,6 @@ services:
       NATS_MDP_CANAL_FACEBOOK: ${NATS_MDP_CANAL_FACEBOOK}
     volumes:
       - nats:/data
-      - ./infra/nats/nats.conf:/etc/nats/nats.conf:ro
     networks: [donnees]
     cap_drop: [ALL]
     healthcheck:
@@ -247,10 +246,9 @@ services:
     <<: [*journal, *durci]
 
   cache-web:
-    image: nginx:1.29.8-alpine
+    image: bayam/cache-web:prod
+    build: { context: ., dockerfile: infra/nginx/Dockerfile.prod }
     restart: unless-stopped
-    volumes:
-      - ./infra/nginx/cache.conf:/etc/nginx/conf.d/default.conf:ro
     tmpfs: [/var/cache/nginx]
     depends_on: [wordpress]
     cap_drop: [ALL]
@@ -410,13 +408,9 @@ services:
 
   # --- Entrée publique : le domaine Easypanel pointe ici (service traefik, port 80) ------------------------------------
   traefik:
-    image: traefik:v3.6.25
+    image: bayam/traefik:prod
+    build: { context: ., dockerfile: infra/traefik/Dockerfile.prod }
     restart: unless-stopped
-    volumes:
-      - ./infra/traefik/traefik.prod.yml:/etc/traefik/traefik.yml:ro
-      - ./infra/traefik/dynamique.yml:/etc/traefik/dynamique/communs.yml:ro
-      - ./infra/traefik/routes.yml:/etc/traefik/dynamique/routes.yml:ro
-      - ./infra/traefik/debits-mandataire.yml:/etc/traefik/dynamique/debits.yml:ro
     depends_on: [cache-web, passerelle, canal-facebook, retours]
     read_only: true
     cap_drop: [ALL]

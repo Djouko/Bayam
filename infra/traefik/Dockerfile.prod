@@ -1,0 +1,7 @@
+# Configuration cuite dans l'image de production (contexte : racine du dépôt) : un fichier monté seul garde son
+# ancienne version quand Git le remplace ; une image reconstruite à chaque changement ne peut pas se tromper.
+FROM traefik:v3.6.25
+COPY infra/traefik/traefik.prod.yml /etc/traefik/traefik.yml
+COPY infra/traefik/dynamique.yml /etc/traefik/dynamique/communs.yml
+COPY infra/traefik/routes.yml /etc/traefik/dynamique/routes.yml
+COPY infra/traefik/debits-mandataire.yml /etc/traefik/dynamique/debits.yml

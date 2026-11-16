@@ -1,0 +1,4 @@
+# Configuration cuite dans l'image de production (contexte : racine du dépôt) : un fichier monté seul garde son
+# ancienne version quand Git le remplace ; une image reconstruite à chaque changement ne peut pas se tromper.
+FROM nginx:1.29.8-alpine
+COPY infra/nginx/cache.conf /etc/nginx/conf.d/default.conf

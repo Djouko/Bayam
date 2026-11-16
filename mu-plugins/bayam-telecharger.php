@@ -9,18 +9,18 @@ defined('ABSPATH') || exit;
 
 final class Bayam_Telecharger
 {
-    /** Fichier de version (JSON) publié avec chaque application ; gardé 10 minutes. */
+    /**
+     * Dernière version publiée, lue auprès de la passerelle sur le réseau interne (elle relit le fichier de version
+     * de R2 toutes les 5 minutes) ; gardée 2 minutes, un échec n'est gardé que 30 secondes.
+     */
     public static function version(): ?array
     {
-        $url = (string) getenv('BAYAM_APP_MANIFESTE');
-        if ($url === '') {
-            return null;
-        }
         $v = get_transient('bayam_app_version');
         if ($v === false) {
-            $r = wp_remote_get($url, ['timeout' => 5]);
-            $v = is_wp_error($r) || wp_remote_retrieve_response_code($r) !== 200 ? [] : (json_decode(wp_remote_retrieve_body($r), true) ?: []);
-            set_transient('bayam_app_version', $v, 10 * MINUTE_IN_SECONDS);
+            $r = wp_remote_get(rtrim((string) (getenv('BAYAM_PASSERELLE') ?: 'http://passerelle:8090'), '/') . '/config', ['timeout' => 5]);
+            $a = is_wp_error($r) ? null : (json_decode((string) wp_remote_retrieve_body($r), true)['application'] ?? null);
+            $v = is_array($a) && !empty($a['derniere']) && !empty($a['fichiers']) ? ['version' => $a['derniere']] + $a : [];
+            set_transient('bayam_app_version', $v, $v ? 2 * MINUTE_IN_SECONDS : 30);
         }
         return $v ?: null;
     }
