@@ -189,6 +189,12 @@ BAYAM_PROJET=bayam-essai-prod BAYAM_ENV=deploiement/.env.essai bash scripts/essa
 ```
 Les scripts (`fonctions.sh`, `essai_securite.sh`, `essai_retours.sh`) retrouvent les conteneurs sur le poste comme sur le serveur (`scripts/commun.sh`).
 
+## Pages publiques utiles
+
+- `/vendre` : un vendeur ouvre sa boutique depuis son seul téléphone (code d'association WhatsApp, ou Page Facebook d'abord).
+- `/telecharger` : dernière version de l'application Android (publiée par `bayam-project/bayam/outils/publier_apk.sh`, fichiers sur R2).
+- Clé WooCommerce de l'application : lecture du catalogue seulement, données personnelles réservées à leur propriétaire (mu-plugin `bayam-cle-application`, essai `scripts/essai_cle_application.sh`).
+
 ## Retours des utilisateurs (signalements, idées, pannes)
 
 Les clients et les vendeurs écrivent « bayam signaler … » ou « bayam idée … » (WhatsApp, Messenger, Copilote) ; l'application et le site envoient sur `POST /api/retours` (6 envois par heure et par personne au plus). Chaque retour reçoit un numéro (R-…), est classé (catégorie, gravité) et rejoint le sujet identique s'il existe déjà : l'équipe voit un seul sujet avec le nombre de personnes touchées.
