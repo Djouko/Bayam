@@ -30,12 +30,34 @@ await redis.connect();
 const fonctions = new Fonctions(redis);
 // Versions de l'application mobile publiées par le serveur : invitation discrète à mettre à jour (dernière version),
 // blocage seulement sous la version minimale (faille grave). Réglées dans l'environnement, sans nouvelle application.
-const application = {
+// Source : le fichier de version publié avec chaque application (bayam/outils/publier_apk.sh), relu toutes les
+// 5 minutes ; à défaut, les variables BAYAM_APP_*. Publier une version ne demande donc aucun redéploiement.
+let application = {
   derniere: lire('BAYAM_APP_DERNIERE', ''),
   minimale: lire('BAYAM_APP_MINIMALE', ''),
   notes: lire('BAYAM_APP_NOTES', ''),
   lien: lire('BAYAM_APP_LIEN', ''),
 };
+const manifeste = lire('BAYAM_APP_MANIFESTE', '');
+async function lireManifeste(): Promise<void> {
+  const r = await fetch(manifeste, { signal: AbortSignal.timeout(8000) });
+  if (!r.ok) {
+    return;
+  }
+  const m = (await r.json()) as { version?: string; minimale?: string; notes?: string };
+  const site = lire('BAYAM_URL_PUBLIQUE', '');
+  application = {
+    derniere: String(m.version ?? application.derniere),
+    minimale: String(m.minimale ?? application.minimale),
+    notes: String(m.notes ?? application.notes).slice(0, 300),
+    lien: site ? `${site}/telecharger` : application.lien,
+  };
+}
+if (manifeste) {
+  const relire = () => void lireManifeste().catch((e: unknown) => log.alerte('fichier de version illisible', { erreur: texteErreur(e) }));
+  relire();
+  setInterval(relire, 300_000).unref();
+}
 const compteurs = { depuis: new Date().toISOString(), recus: 0, publies: 0, doublons: 0, ecartes: 0, refuses: 0, echecs: 0 };
 const compteursFacebook = { recus: 0, publies: 0, doublons: 0, refuses: 0, echecs: 0 };
 

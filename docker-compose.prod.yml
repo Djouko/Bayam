@@ -44,6 +44,7 @@ x-wordpress-env: &wordpress-env
     define('FORCE_SSL_ADMIN', true);
     define('WP_ENVIRONMENT_TYPE', 'production');
   BAYAM_URL_PUBLIQUE: ${BAYAM_URL_PUBLIQUE}
+  BAYAM_APP_MANIFESTE: ${R2_PUBLIC_URL}/bayam/application/derniere.json
   BAYAM_REDIS: redis
   BAYAM_REDIS_MDP: ${REDIS_MOT_DE_PASSE}
   BAYAM_CLE_LIENS: ${BAYAM_CLE_LIENS}
@@ -288,6 +289,7 @@ services:
       FACEBOOK_APP_SECRET: ${FACEBOOK_APP_SECRET:-}
       FACEBOOK_JETON_VERIFICATION: ${FACEBOOK_JETON_VERIFICATION:-}
       # Application mobile : dernière version, version minimale, nouveautés, lien de téléchargement (GET /api/config).
+      BAYAM_APP_MANIFESTE: ${R2_PUBLIC_URL}/bayam/application/derniere.json
       BAYAM_APP_DERNIERE: ${BAYAM_APP_DERNIERE:-}
       BAYAM_APP_MINIMALE: ${BAYAM_APP_MINIMALE:-}
       BAYAM_APP_NOTES: ${BAYAM_APP_NOTES:-}
